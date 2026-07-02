@@ -1,4 +1,4 @@
-﻿import { useState, useMemo } from 'react';
+﻿import { useState, useMemo, useEffect } from 'react';
 import {
     FileText,
     Mail,
@@ -8,108 +8,38 @@ import {
     Eye,
     Trash2,
     Search,
-    X,
-    Check,
-    ChevronRight,
-    AlertCircle
+    X
 } from 'lucide-react';
 import { Button } from '../../components/ui/button';
 import { StatusBadge } from '../../components/ats/StatusBadge';
+import { useAuth } from '../../context/AuthContext';
+import {
+    Template,
+    TemplateCategory,
+    getTemplates,
+    createTemplate,
+    updateTemplate,
+    deleteTemplate,
+} from '../../services/templateService';
 
-// --- Types & Interfaces ---
-// these can be moved to a shared types file later
-export type TemplateCategory = 'Email' | 'Interview' | 'Job Ad';
-
-export interface Template {
-    id: string;
-    name: string;
-    category: TemplateCategory;
-    subject?: string; // Only for Email
-    content: string; // HTML or Markdown content
-    lastModified: string;
-    variablePlaceholders?: string[]; // e.g., ['{{candidate_name}}', '{{job_title}}']
-    status: 'Active' | 'Draft' | 'Archived';
-}
-
-// --- Mock Data ---
-const MOCK_TEMPLATES: Template[] = [
-    // Email Templates
-    {
-        id: 'e1',
-        name: 'Application Received',
-        category: 'Email',
-        subject: 'We have received your application for {{job_title}}',
-        content: 'Hi {{candidate_name}},\n\nThanks for applying to Autumhire! We have received your application and our team is currently reviewing it.\n\nBest,\nThe Recruiting Team',
-        lastModified: '2026-02-15',
-        status: 'Active',
-        variablePlaceholders: ['{{candidate_name}}', '{{job_title}}']
-    },
-    {
-        id: 'e2',
-        name: 'Interview Invitation',
-        category: 'Email',
-        subject: 'Invitation to Interview - {{job_title}}',
-        content: 'Hello {{candidate_name}},\n\nWe were impressed by your profile and would like to invite you for an interview.\n\nPlease let us know your availability.\n\nRegards,\nThe Hiring Team',
-        lastModified: '2026-02-10',
-        status: 'Active',
-        variablePlaceholders: ['{{candidate_name}}', '{{job_title}}']
-    },
-    {
-        id: 'e3',
-        name: 'Rejection Email',
-        category: 'Email',
-        subject: 'Update on your application for {{job_title}}',
-        content: 'Dear {{candidate_name}},\n\nThank you for your interest. Unfortunately, we have decided to move forward with other candidates.\n\nWe wish you the best in your job search.',
-        lastModified: '2026-01-20',
-        status: 'Active',
-        variablePlaceholders: ['{{candidate_name}}', '{{job_title}}']
-    },
-
-    // Interview Templates
-    {
-        id: 'i1',
-        name: 'Frontend Developer Screening',
-        category: 'Interview',
-        content: '1. Explain the difference between React state and props.\n2. How do you optimize a React application?\n3. What is the Virtual DOM?',
-        lastModified: '2026-02-01',
-        status: 'Active',
-        variablePlaceholders: []
-    },
-    {
-        id: 'i2',
-        name: 'Behavioral Interview',
-        category: 'Interview',
-        content: '1. Tell me about a time you faced a challenge.\n2. Describe a situation where you had to work with a difficult colleague.\n3. What are your greatest strengths?',
-        lastModified: '2026-02-12',
-        status: 'Active',
-        variablePlaceholders: []
-    },
-
-    // Job Ad Templates
-    {
-        id: 'j1',
-        name: 'Standard Engineering Role',
-        category: 'Job Ad',
-        content: '## About Us\nWe are a fast-growing tech company...\n\n## Responsibilities\n- Write clean code\n- Collaborate with the team\n\n## Requirements\n- 3+ years of experience\n- Bachelor degree in CS',
-        lastModified: '2026-01-15',
-        status: 'Active',
-        variablePlaceholders: []
-    },
-    {
-        id: 'j2',
-        name: 'Sales Representative',
-        category: 'Job Ad',
-        content: '## Join our Sales Team!\n\nWe are looking for a motivated Sales Rep to join our team.\n\n## What you will do\n- Close deals\n- Build relationships',
-        lastModified: '2025-12-05',
-        status: 'Draft',
-        variablePlaceholders: []
-    }
-];
+export type { Template, TemplateCategory };
 
 export function TemplateManagement() {
+    const { user } = useAuth();
     const [activeTab, setActiveTab] = useState<TemplateCategory>('Email');
-    const [templates, setTemplates] = useState<Template[]>(MOCK_TEMPLATES);
+    const [templates, setTemplates] = useState<Template[]>([]);
+    const [loading, setLoading] = useState(true);
     const [searchTerm, setSearchTerm] = useState('');
+
+    const load = () => {
+        setLoading(true);
+        getTemplates()
+            .then(setTemplates)
+            .catch((err) => console.error('Failed to load templates', err))
+            .finally(() => setLoading(false));
+    };
+
+    useEffect(load, []);
 
     // Modal States
     const [isEditModalOpen, setIsEditModalOpen] = useState(false);
@@ -133,9 +63,7 @@ export function TemplateManagement() {
             category: activeTab,
             subject: activeTab === 'Email' ? '' : undefined,
             content: '',
-            lastModified: new Date().toISOString().split('T')[0],
             status: 'Draft',
-            variablePlaceholders: []
         };
         setCurrentTemplate(newTemplate);
         setIsEditModalOpen(true);
@@ -151,27 +79,32 @@ export function TemplateManagement() {
         setIsPreviewModalOpen(true);
     };
 
-    const handleDelete = (id: string) => {
+    const handleDelete = async (id: string) => {
+        if (!user) return;
         if (confirm('Are you sure you want to delete this template?')) {
-            setTemplates(prev => prev.filter(t => t.id !== id));
+            try {
+                await deleteTemplate(id, user);
+                load();
+            } catch (err: any) {
+                alert(err?.message || 'Failed to delete template.');
+            }
         }
     };
 
-    const handleSave = (template: Template) => {
-        if (!template.id) {
-            // Create new
-            const newTemplate = {
-                ...template,
-                id: Math.random().toString(36).substr(2, 9),
-                lastModified: new Date().toISOString().split('T')[0]
-            };
-            setTemplates([...templates, newTemplate]);
-        } else {
-            // Update existing
-            setTemplates(prev => prev.map(t => t.id === template.id ? { ...template, lastModified: new Date().toISOString().split('T')[0] } : t));
+    const handleSave = async (template: Template) => {
+        if (!user) return;
+        try {
+            if (!template.id) {
+                await createTemplate(template, user);
+            } else {
+                await updateTemplate(template, user);
+            }
+            setIsEditModalOpen(false);
+            setCurrentTemplate(null);
+            load();
+        } catch (err: any) {
+            alert(err?.message || 'Failed to save template.');
         }
-        setIsEditModalOpen(false);
-        setCurrentTemplate(null);
     };
 
     return (
@@ -265,7 +198,9 @@ export function TemplateManagement() {
 
                             <div className="px-6 py-4 border-t border-gray-100 bg-gray-50/50 rounded-b-xl flex items-center justify-between">
                                 <span className="text-xs text-gray-400">
-                                    Last updated: {template.lastModified}
+                                    {template.updatedAt?.toDate
+                                        ? `Updated ${template.updatedAt.toDate().toLocaleDateString()}${template.updatedBy ? ` by ${template.updatedBy}` : ''}`
+                                        : ''}
                                 </span>
                                 <div className="flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
                                     <button
@@ -294,7 +229,10 @@ export function TemplateManagement() {
                         </div>
                     ))}
 
-                    {filteredTemplates.length === 0 && (
+                    {loading && (
+                        <div className="col-span-full p-12 text-center text-gray-500">Loading templates…</div>
+                    )}
+                    {!loading && filteredTemplates.length === 0 && (
                         <div className="col-span-full flex flex-col items-center justify-center p-12 text-center text-gray-500">
                             <div className="bg-gray-100 p-4 rounded-full mb-4">
                                 <Search className="size-8 text-gray-400" />

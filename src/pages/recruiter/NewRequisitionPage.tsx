@@ -27,6 +27,7 @@ export function NewRequisitionPage({ onBack, onSuccess }: NewRequisitionPageProp
   const [referenceNumber, setReferenceNumber] = useState<string | null>(null);
 
   const [positionId, setPositionId] = useState('');
+  const [grade, setGrade] = useState('');
   const [vacancies, setVacancies] = useState(1);
   const [advertType, setAdvertType] = useState<AdvertType>('external');
   const [jobDescriptionFile, setJobDescriptionFile] = useState<File | null>(null);
@@ -58,6 +59,11 @@ export function NewRequisitionPage({ onBack, onSuccess }: NewRequisitionPageProp
 
   const selectedPosition = positions.find((p) => p.id === positionId);
 
+  // Prefill the grade from the position's Job Evaluation hint when it changes.
+  useEffect(() => {
+    if (selectedPosition?.gradeHint) setGrade(selectedPosition.gradeHint);
+  }, [positionId]);
+
   const addApprover = () => {
     if (!approverToAdd) return;
     const candidate = staff.find((s) => s.id === approverToAdd);
@@ -76,7 +82,7 @@ export function NewRequisitionPage({ onBack, onSuccess }: NewRequisitionPageProp
     setApprovers(next);
   };
 
-  const canSubmit = !!selectedPosition && vacancies >= 1 && approvers.length >= 1 && !submitting;
+  const canSubmit = !!selectedPosition && !!grade.trim() && vacancies >= 1 && approvers.length >= 1 && !submitting;
 
   const handleSubmit = async () => {
     if (!selectedPosition || !user) return;
@@ -87,6 +93,7 @@ export function NewRequisitionPage({ onBack, onSuccess }: NewRequisitionPageProp
         positionId: selectedPosition.id,
         positionTitle: selectedPosition.title,
         department: selectedPosition.department,
+        grade,
         vacancies,
         advertType,
         jobDescriptionFile,
@@ -159,6 +166,23 @@ export function NewRequisitionPage({ onBack, onSuccess }: NewRequisitionPageProp
               ))}
             </select>
           )}
+        </div>
+
+        <div>
+          <label className="block text-sm font-medium text-gray-700 mb-1">
+            Job Grade <span className="text-red-500">*</span>
+          </label>
+          <input
+            type="text"
+            className="w-48 px-3 py-2 border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-autumn-primary/20 focus:border-autumn-primary"
+            placeholder="e.g. G7"
+            value={grade}
+            onChange={(e) => setGrade(e.target.value)}
+          />
+          <p className="text-xs text-gray-500 mt-1">
+            From the Job Evaluation. The requisition cannot proceed without a grade
+            {selectedPosition?.gradeHint ? ` (suggested for this position: ${selectedPosition.gradeHint})` : ''}.
+          </p>
         </div>
 
         <div>

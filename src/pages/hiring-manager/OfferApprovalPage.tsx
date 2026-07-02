@@ -1,56 +1,39 @@
-﻿import { useState } from 'react';
-import { CheckCircle, XCircle, DollarSign, Calendar, Briefcase, User, FileText, AlertCircle, TrendingUp, Award } from 'lucide-react';
+import { useEffect, useState } from 'react';
+import { CheckCircle, XCircle, DollarSign, Calendar, User, FileText, AlertCircle } from 'lucide-react';
 import { Button } from '../../components/ui/button';
+import { useAuth } from '../../context/AuthContext';
+import { Offer, getOffersPendingApproval, decideOfferApproval } from '../../services/offerService';
 
 export function OfferApprovalPage() {
-    const [note, setNote] = useState('');
+    const { user } = useAuth();
+    const [offers, setOffers] = useState<Offer[]>([]);
+    const [loading, setLoading] = useState(true);
+    const [notes, setNotes] = useState<Record<string, string>>({});
 
-    // Mock Data for a pending offer
-    const offer = {
-        id: 'off-123',
-        candidate: {
-            name: 'Michael Chen',
-            role: 'Product Manager',
-            experience: '4 years',
-            email: 'michael.chen@example.com',
-            phone: '+1 (555) 987-6543'
-        },
-        details: {
-            baseSalary: 135000,
-            currency: 'USD',
-            bonus: '15% Annual Performance Bonus',
-            stockOptions: '$50,000 in Company Stock (Granted over 4 years)',
-            startDate: '2026-03-15',
-            location: 'San Francisco, CA (Hybrid)',
-            benefits: ['Health, Dental, Vision', '401(k) Match', 'Unlimited PTO', 'Home Office Stipend']
-        },
-        status: 'Pending Approval',
-        preparedBy: 'Sarah Lee (Recruiter)',
-        datePrepared: '2026-03-01',
-        recruiterJustification: 'Candidate counter-offered slightly above midpoint. Given their strong technical performance and domain expertise, we strongly recommend approval to secure this hire.',
-        interviewScores: [
-            { stage: 'Technical Assessment', score: 92, outOf: 100 },
-            { stage: 'System Design', score: 88, outOf: 100 },
-            { stage: 'Culture Fit', score: 95, outOf: 100 }
-        ]
+    const load = () => {
+        if (!user) return;
+        setLoading(true);
+        getOffersPendingApproval(user.id)
+            .then(setOffers)
+            .catch((err) => console.error('Failed to load offers', err))
+            .finally(() => setLoading(false));
     };
 
-    const formatCurrency = (amount: number) => {
-        return new Intl.NumberFormat('en-US', { style: 'currency', currency: 'USD', maximumFractionDigits: 0 }).format(amount);
-    };
+    useEffect(load, [user]);
 
-    const handleApprove = () => {
-        alert(`Offer approved for ${offer.candidate.name}. Notification sent to Recruiter.`);
-        // In real app: API call to update status to 'Approved'
-    };
-
-    const handleRequestChanges = () => {
-        if (!note.trim()) {
-            alert('Please add a note explaining the requested changes.');
+    const decide = async (offer: Offer, decision: 'approved' | 'declined-approval') => {
+        if (!user) return;
+        const note = notes[offer.id]?.trim();
+        if (decision === 'declined-approval' && !note) {
+            alert('Please add a note explaining why you are declining.');
             return;
         }
-        alert(`Changes requested for ${offer.candidate.name}. Note sent to Recruiter.`);
-        // In real app: API call to update status to 'Changes Requested' with note
+        try {
+            await decideOfferApproval(offer, decision, note || undefined, user);
+            load();
+        } catch (err: any) {
+            alert(err?.message || 'Failed to record decision.');
+        }
     };
 
     return (
@@ -62,170 +45,85 @@ export function OfferApprovalPage() {
                 </div>
                 <div className="bg-orange-100 text-orange-800 px-4 py-2 rounded-full text-sm font-bold flex items-center gap-2">
                     <AlertCircle className="size-4" />
-                    1 Pending Approval
+                    {offers.length} Pending Approval{offers.length === 1 ? '' : 's'}
                 </div>
             </div>
 
-            <div className="grid grid-cols-1 xl:grid-cols-3 gap-8">
-                {/* Left Column: Offer Context */}
-                <div className="xl:col-span-2 space-y-6">
-                    {/* Candidate Summary */}
-                    <div className="bg-white rounded-xl border border-gray-200 shadow-sm p-6">
-                        <h2 className="text-lg font-bold text-gray-900 mb-4 flex items-center gap-2">
-                            <User className="size-5 text-gray-400" />
-                            Candidate Summary
-                        </h2>
-                        <div className="flex items-start gap-4">
-                            <div className="size-16 rounded-full bg-blue-100 flex items-center justify-center text-blue-600 font-bold text-2xl">
-                                {offer.candidate.name.charAt(0)}
-                            </div>
-                            <div className="flex-1">
-                                <h3 className="text-xl font-bold text-gray-900">{offer.candidate.name}</h3>
-                                <p className="text-gray-600">{offer.candidate.role}</p>
-                                <div className="flex gap-4 mt-2 text-sm text-gray-500">
-                                    <span>{offer.candidate.experience} Experience</span>
-                                    <span>â€¢</span>
-                                    <span>{offer.candidate.email}</span>
+            {loading && <p className="text-gray-500">Loading offers…</p>}
+
+            {!loading && offers.length === 0 && (
+                <div className="bg-white rounded-xl border border-gray-200 p-12 text-center text-gray-500">
+                    <CheckCircle className="size-12 mx-auto text-green-300 mb-3" />
+                    <p className="text-lg font-medium text-gray-900">All caught up</p>
+                    <p className="text-sm mt-1">No offers are waiting for your approval.</p>
+                </div>
+            )}
+
+            <div className="space-y-6">
+                {offers.map((offer) => (
+                    <div key={offer.id} className="bg-white rounded-xl border border-gray-200 shadow-sm p-6">
+                        <div className="flex items-start justify-between mb-4">
+                            <div className="flex items-start gap-4">
+                                <div className="size-14 rounded-full bg-blue-100 flex items-center justify-center text-blue-600 font-bold text-xl">
+                                    {offer.candidateName.charAt(0)}
+                                </div>
+                                <div>
+                                    <h2 className="text-lg font-bold text-gray-900 flex items-center gap-2">
+                                        <User className="size-4 text-gray-400" />
+                                        {offer.candidateName}
+                                    </h2>
+                                    <p className="text-gray-600">{offer.jobTitle}</p>
+                                    <p className="text-xs text-gray-400 mt-1">
+                                        Prepared by {offer.createdByName}
+                                        {offer.createdAt?.toDate ? ` on ${offer.createdAt.toDate().toLocaleDateString()}` : ''}
+                                    </p>
                                 </div>
                             </div>
-                            <Button variant="outline" size="sm">
-                                View Full Profile
+                        </div>
+
+                        <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mb-4">
+                            <div className="bg-gray-50 p-4 rounded-lg border border-gray-100">
+                                <h3 className="text-xs uppercase font-bold text-gray-400 mb-1 flex items-center gap-1">
+                                    <DollarSign className="size-3" /> Compensation
+                                </h3>
+                                <p className="font-medium text-gray-900">{offer.currency} {offer.salary || '—'}</p>
+                            </div>
+                            <div className="bg-gray-50 p-4 rounded-lg border border-gray-100">
+                                <h3 className="text-xs uppercase font-bold text-gray-400 mb-1 flex items-center gap-1">
+                                    <Calendar className="size-3" /> Start Date
+                                </h3>
+                                <p className="font-medium text-gray-900">{offer.startDate || '—'}</p>
+                            </div>
+                            <div className="bg-gray-50 p-4 rounded-lg border border-gray-100">
+                                <h3 className="text-xs uppercase font-bold text-gray-400 mb-1 flex items-center gap-1">
+                                    <FileText className="size-3" /> Notes
+                                </h3>
+                                <p className="font-medium text-gray-900 text-sm">{offer.notes || '—'}</p>
+                            </div>
+                        </div>
+
+                        <textarea
+                            value={notes[offer.id] ?? ''}
+                            onChange={(e) => setNotes((prev) => ({ ...prev, [offer.id]: e.target.value }))}
+                            className="w-full h-20 p-3 text-sm border border-gray-200 rounded-lg focus:ring-2 focus:ring-blue-100 focus:border-blue-500 outline-none resize-none mb-4"
+                            placeholder="Add an approval comment or explain requested changes…"
+                        />
+
+                        <div className="flex gap-3">
+                            <Button className="bg-green-600 hover:bg-green-700 text-white gap-2" onClick={() => decide(offer, 'approved')}>
+                                <CheckCircle className="size-4" /> Approve Offer
+                            </Button>
+                            <Button
+                                variant="outline"
+                                className="text-red-600 border-red-200 hover:bg-red-50 gap-2"
+                                onClick={() => decide(offer, 'declined-approval')}
+                            >
+                                <XCircle className="size-4" /> Decline
                             </Button>
                         </div>
-                        <div className="mt-6 pt-6 border-t border-gray-100">
-                            <h4 className="text-sm font-semibold text-gray-900 mb-4">Interview Performance</h4>
-                            <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-                                {offer.interviewScores.map((score, idx) => (
-                                    <div key={idx} className="bg-gray-50 rounded-lg p-3 border border-gray-100 flex items-center justify-between">
-                                        <span className="text-sm text-gray-700">{score.stage}</span>
-                                        <span className="text-sm font-bold text-gray-900">{score.score}<span className="text-gray-400 font-normal">/{score.outOf}</span></span>
-                                    </div>
-                                ))}
-                            </div>
-                        </div>
                     </div>
-
-                    {/* Offer Details */}
-                    <div className="bg-white rounded-xl border border-gray-200 shadow-sm overflow-hidden">
-                        <div className="bg-gray-50 border-b border-gray-200 p-6 flex justify-between items-center">
-                            <h2 className="text-lg font-bold text-gray-900 flex items-center gap-2">
-                                <FileText className="size-5 text-gray-400" />
-                                Offer Details
-                            </h2>
-                            <div className="text-sm text-gray-500">
-                                Prepared by <span className="font-semibold">{offer.preparedBy}</span> on {offer.datePrepared}
-                            </div>
-                        </div>
-                        <div className="p-6 grid grid-cols-1 md:grid-cols-2 gap-x-8 gap-y-6">
-                            <div className="p-4 bg-green-50 rounded-lg border border-green-100">
-                                <div className="text-sm text-green-700 font-medium mb-1 flex items-center gap-2">
-                                    <DollarSign className="size-4" /> Base Salary
-                                </div>
-                                <div className="text-2xl font-bold text-gray-900">{formatCurrency(offer.details.baseSalary)}</div>
-                                <div className="text-xs text-gray-500 mt-1">Per Annum</div>
-                            </div>
-
-                            <div className="p-4 bg-purple-50 rounded-lg border border-purple-100">
-                                <div className="text-sm text-purple-700 font-medium mb-1 flex items-center gap-2">
-                                    <TrendingUp className="size-4" /> Equity / Stock Options
-                                </div>
-                                <div className="text-xl font-bold text-gray-900">{offer.details.stockOptions}</div>
-                            </div>
-
-                            <div className="p-4 bg-blue-50 rounded-lg border border-blue-100">
-                                <div className="text-sm text-blue-700 font-medium mb-1 flex items-center gap-2">
-                                    <Award className="size-4" /> Bonus Structure
-                                </div>
-                                <div className="text-lg font-bold text-gray-900">{offer.details.bonus}</div>
-                            </div>
-
-                            <div className="p-4 bg-gray-50 rounded-lg border border-gray-100">
-                                <div className="text-sm text-gray-700 font-medium mb-1 flex items-center gap-2">
-                                    <Calendar className="size-4" /> Start Date
-                                </div>
-                                <div className="text-lg font-bold text-gray-900">{new Date(offer.details.startDate).toLocaleDateString(undefined, { dateStyle: 'long' })}</div>
-                            </div>
-
-                            <div className="md:col-span-2">
-                                <h3 className="font-semibold text-gray-900 mb-3 flex items-center gap-2">
-                                    <Briefcase className="size-4 text-gray-400" /> Additional Benefits
-                                </h3>
-                                <div className="flex flex-wrap gap-2">
-                                    {offer.details.benefits.map((benefit, idx) => (
-                                        <span key={idx} className="bg-gray-100 text-gray-700 px-3 py-1 rounded-full text-sm">
-                                            {benefit}
-                                        </span>
-                                    ))}
-                                </div>
-                            </div>
-                            
-                            <div className="md:col-span-2 mt-2">
-                                <h3 className="font-semibold text-gray-900 mb-3 flex items-center gap-2">
-                                    <FileText className="size-4 text-gray-400" /> Recruiter Justification
-                                </h3>
-                                <div className="p-4 bg-orange-50/50 rounded-lg border border-orange-100 text-sm text-gray-700 leading-relaxed italic">
-                                    "{offer.recruiterJustification}"
-                                </div>
-                            </div>
-                        </div>
-                    </div>
-                </div>
-
-                {/* Right Column: Decision Actions */}
-                <div className="bg-white rounded-xl border border-gray-200 shadow-sm p-6 h-fit sticky top-6">
-                    <h2 className="text-lg font-bold text-gray-900 mb-6">Hiring Decision</h2>
-
-                    <div className="space-y-4 mb-6">
-                        <label className="block text-sm font-medium text-gray-700 mb-1">
-                            Decision Notes
-                        </label>
-                        <textarea
-                            className="w-full h-32 p-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-autumn-orange focus:border-autumn-orange text-sm resize-none"
-                            placeholder="Add approval notes or details on requested changes..."
-                            value={note}
-                            onChange={(e) => setNote(e.target.value)}
-                        />
-                        <p className="text-xs text-gray-500">
-                            These notes will be shared with the recruiter.
-                        </p>
-                    </div>
-
-                    <div className="space-y-3">
-                        <Button
-                            className="w-full h-12 text-base bg-green-600 hover:bg-green-700 text-white shadow-sm"
-                            onClick={handleApprove}
-                        >
-                            <CheckCircle className="size-5 mr-2" /> Approve Offer
-                        </Button>
-                        <Button
-                            variant="outline"
-                            className="w-full h-12 text-base border-red-200 text-red-600 hover:bg-red-50 hover:border-red-300"
-                            onClick={handleRequestChanges}
-                        >
-                            <XCircle className="size-5 mr-2" /> Request Changes
-                        </Button>
-                    </div>
-
-                    <div className="mt-6 pt-6 border-t border-gray-100">
-                        <h4 className="text-xs font-bold text-gray-400 uppercase tracking-wider mb-3">Workflow Status</h4>
-                        <div className="space-y-4">
-                            <div className="flex items-center gap-3 opacity-50">
-                                <div className="size-6 rounded-full bg-green-100 text-green-600 flex items-center justify-center text-xs font-bold">âœ“</div>
-                                <span className="text-sm text-gray-600">Offer Created</span>
-                            </div>
-                            <div className="flex items-center gap-3">
-                                <div className="size-6 rounded-full bg-blue-100 text-blue-600 flex items-center justify-center text-xs font-bold animate-pulse">2</div>
-                                <span className="text-sm font-medium text-gray-900">Pending HM Approval</span>
-                            </div>
-                            <div className="flex items-center gap-3 opacity-50">
-                                <div className="size-6 rounded-full bg-gray-100 text-gray-400 flex items-center justify-center text-xs font-bold">3</div>
-                                <span className="text-sm text-gray-600">Send to Candidate</span>
-                            </div>
-                        </div>
-                    </div>
-                </div>
+                ))}
             </div>
         </div>
     );
 }
-

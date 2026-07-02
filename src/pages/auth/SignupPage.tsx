@@ -59,7 +59,7 @@ export function SignupPage() {
             Create your profile
           </h2>
           <p className="mt-2 text-center text-sm text-gray-600">
-            Join Autumhire to find your next opportunity
+            Join Autumhire to find your next opportunity. This creates a <span className="font-semibold">candidate</span> account — staff accounts (recruiter, hiring manager, admin) are created by your administrator in User Management.
           </p>
         </div>
       </div>

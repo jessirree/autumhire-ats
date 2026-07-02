@@ -125,7 +125,7 @@ export function JobRequisitionsPage({ onCreateRequisition }: JobRequisitionsPage
                 <tr key={req.id} className="hover:bg-orange-50/30 transition-colors group">
                   <td className="px-6 py-4 whitespace-nowrap">
                     <div className="flex flex-col">
-                      <span className="text-sm font-bold text-gray-900">{req.positionTitle}</span>
+                      <span className="text-sm font-bold text-gray-900">{req.positionTitle}{req.grade ? ` • Grade ${req.grade}` : ''}</span>
                       <span className="text-xs text-gray-500 font-mono">{req.referenceNumber}</span>
                     </div>
                   </td>

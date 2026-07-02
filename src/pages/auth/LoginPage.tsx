@@ -14,7 +14,7 @@ export function LoginPage() {
   const [resetSent, setResetSent] = useState(false);
   const [resetLoading, setResetLoading] = useState(false);
 
-  const { login, resetPassword, user } = useAuth();
+  const { login, resetPassword } = useAuth();
   const navigate = useNavigate();
   const location = useLocation();
 

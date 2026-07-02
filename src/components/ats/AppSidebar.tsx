@@ -5,7 +5,6 @@ import {
   ClipboardList, UserCheck, GitBranch, Mail,
   CheckSquare, LogOut, Layers,
 } from 'lucide-react';
-import { UserRole } from '../../context/AuthContext';
 
 interface NavItem {
   id: string;

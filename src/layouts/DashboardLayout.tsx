@@ -1,7 +1,7 @@
-﻿import React from 'react';
-import { Outlet, useNavigate, useLocation } from 'react-router-dom';
+﻿import { Outlet, useNavigate, useLocation } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext';
 import { AppSidebar } from '../components/ats/AppSidebar';
+import { NotificationBell } from '../components/ats/NotificationBell';
 
 export function DashboardLayout() {
   const { user, logout } = useAuth();
@@ -36,7 +36,10 @@ export function DashboardLayout() {
         userName={user.name}
         onLogout={handleLogout}
       />
-      <main className="flex-1 overflow-y-auto">
+      <main className="flex-1 overflow-y-auto relative">
+        <div className="absolute top-4 right-6 z-40">
+          <NotificationBell />
+        </div>
         <Outlet />
       </main>
     </div>
