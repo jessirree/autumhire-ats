@@ -13,6 +13,7 @@ import {
 } from 'firebase/firestore';
 import { ref, uploadBytes, getDownloadURL } from 'firebase/storage';
 import { db, storage } from '../lib/firebase';
+import { STORAGE_ENABLED } from '../lib/featureFlags';
 
 export type AdvertType = 'internal' | 'external';
 export type RequisitionStatus = 'pending-approval' | 'approved' | 'rejected';
@@ -35,6 +36,8 @@ export interface Requisition {
   positionId: string;
   positionTitle: string;
   department: string;
+  /** Job grade from the Job Evaluation — mandatory before a requisition can proceed. */
+  grade: string;
   vacancies: number;
   advertType: AdvertType;
   jobDescriptionUrl?: string;
@@ -117,6 +120,7 @@ export async function createRequisition(input: {
   positionId: string;
   positionTitle: string;
   department: string;
+  grade: string;
   vacancies: number;
   advertType: AdvertType;
   jobDescriptionFile?: File | null;
@@ -124,11 +128,16 @@ export async function createRequisition(input: {
   requestedById: string;
   requestedByName: string;
 }): Promise<Requisition> {
+  // Job Evaluation requirement: a requisition cannot proceed without a grade.
+  if (!input.grade?.trim()) {
+    throw new Error('A job grade is required — enter the grade from the Job Evaluation before submitting.');
+  }
+
   const referenceNumber = await getNextReferenceNumber();
 
   let jobDescriptionUrl: string | undefined;
   let jobDescriptionFileName: string | undefined;
-  if (input.jobDescriptionFile) {
+  if (input.jobDescriptionFile && STORAGE_ENABLED) {
     const file = input.jobDescriptionFile;
     const storageRef = ref(storage, `job-descriptions/${referenceNumber}/${file.name}`);
     await uploadBytes(storageRef, file);
@@ -141,6 +150,7 @@ export async function createRequisition(input: {
     positionId: input.positionId,
     positionTitle: input.positionTitle,
     department: input.department,
+    grade: input.grade.trim(),
     vacancies: input.vacancies,
     advertType: input.advertType,
     ...(jobDescriptionUrl ? { jobDescriptionUrl, jobDescriptionFileName } : {}),

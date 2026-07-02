@@ -1,81 +1,114 @@
-﻿import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { Button } from '../../components/ui/button';
 import { StatusBadge } from '../../components/ats/StatusBadge';
-import { Search, Filter, Plus, Users, Zap, CalendarDays, ExternalLink, Briefcase } from 'lucide-react';
-
-const mockAdverts = [
-  {
-    id: 'ADV-2024-001',
-    title: 'Senior Frontend Developer',
-    location: 'Remote',
-    status: 'active',
-    stats: { total: 45, longlisted: 12, shortlisted: 5, interviewed: 3, rejected: 25 },
-    recruiters: [{ name: 'Sarah L.', id: '1' }, { name: 'Mike C.', id: '2' }],
-    closingDate: '2024-04-15',
-    boostStatus: 'premium',
-  },
-  {
-    id: 'ADV-2024-002',
-    title: 'Product Marketing Manager',
-    location: 'New York, NY',
-    status: 'draft',
-    stats: { total: 0, longlisted: 0, shortlisted: 0, interviewed: 0, rejected: 0 },
-    recruiters: [{ name: 'Alex R.', id: '3' }],
-    closingDate: '2024-05-01',
-    boostStatus: 'standard',
-  },
-  {
-    id: 'ADV-2024-003',
-    title: 'UX Designer',
-    location: 'London, UK',
-    status: 'active',
-    stats: { total: 128, longlisted: 45, shortlisted: 15, interviewed: 6, rejected: 62 },
-    recruiters: [{ name: 'Sarah L.', id: '1' }],
-    closingDate: '2024-03-31',
-    boostStatus: 'free',
-  },
-  {
-    id: 'ADV-2024-004',
-    title: 'DevOps Engineer',
-    location: 'Remote',
-    status: 'closed',
-    stats: { total: 89, longlisted: 20, shortlisted: 8, interviewed: 4, rejected: 57 },
-    recruiters: [{ name: 'Mike C.', id: '2' }, { name: 'David M.', id: '4' }],
-    closingDate: '2024-02-28',
-    boostStatus: 'premium',
-  },
-];
+import { Search, Filter, Plus, Users, CalendarDays, ExternalLink, Briefcase, RefreshCw, XCircle, Share2, Rss, Linkedin, Copy, MessageCircle } from 'lucide-react';
+import {
+  regenerateJobsFeed,
+  jobPublicUrl,
+  linkedInShareUrl,
+  twitterShareUrl,
+  whatsAppShareUrl,
+} from '../../services/feedService';
+import { Job, getJobs, closeJob, reopenJob } from '../../services/jobService';
+import { Application, getAllApplications } from '../../services/applicationService';
+import { useAuth } from '../../context/AuthContext';
 
 interface JobAdvertsPageProps {
   onViewApplications: (jobId: string) => void;
   onCreateAdvert: () => void;
 }
 
+interface PipelineStats {
+  total: number;
+  longlisted: number;
+  shortlisted: number;
+  interviewed: number;
+  rejected: number;
+}
+
+function statsForJob(jobId: string, applications: Application[]): PipelineStats {
+  const apps = applications.filter((a) => a.jobId === jobId);
+  return {
+    total: apps.length,
+    longlisted: apps.filter((a) => a.status === 'longlisted').length,
+    shortlisted: apps.filter((a) => a.status === 'shortlisted').length,
+    interviewed: apps.filter((a) => a.status === 'interview').length,
+    rejected: apps.filter((a) => a.status === 'rejected' || a.status === 'regretted').length,
+  };
+}
+
 export function JobAdvertsPage({ onViewApplications, onCreateAdvert }: JobAdvertsPageProps) {
+  const { user } = useAuth();
   const [searchTerm, setSearchTerm] = useState('');
   const [statusFilter, setStatusFilter] = useState('all');
+  const [jobs, setJobs] = useState<Job[]>([]);
+  const [applications, setApplications] = useState<Application[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
+  const [shareJobId, setShareJobId] = useState<string | null>(null);
+  const [feedBusy, setFeedBusy] = useState(false);
 
-  const filteredAdverts = mockAdverts.filter(adv => {
-    const matchesSearch = adv.title.toLowerCase().includes(searchTerm.toLowerCase()) || 
-                          adv.id.toLowerCase().includes(searchTerm.toLowerCase());
-    const matchesStatus = statusFilter === 'all' || adv.status === statusFilter;
-    return matchesSearch && matchesStatus;
-  });
-
-  const handleViewPublicPage = (id: string, title: string) => {
-    alert(`Opening public posting for ${id} (${title}) in a new tab...`);
-  };
-
-  const getBoostBadge = (boost: string) => {
-    switch (boost) {
-      case 'premium':
-        return <span className="inline-flex items-center gap-1 px-2.5 py-1 text-xs font-medium rounded-md bg-purple-100 text-purple-700 border border-purple-200"><Zap className="size-3" /> Premium</span>;
-      case 'standard':
-        return <span className="inline-flex items-center gap-1 px-2.5 py-1 text-xs font-medium rounded-md bg-blue-100 text-blue-700 border border-blue-200"><Zap className="size-3" /> Standard</span>;
-      default:
-        return <span className="inline-flex items-center gap-1 px-2.5 py-1 text-xs font-medium rounded-md bg-gray-100 text-gray-700 border border-gray-200">Free</span>;
+  const handleRssFeed = async () => {
+    setFeedBusy(true);
+    try {
+      const url = await regenerateJobsFeed();
+      await navigator.clipboard.writeText(url).catch(() => {});
+      alert(`RSS feed updated and URL copied to clipboard:\n${url}\n\nPaste it into LinkedIn/X automation tools or any RSS reader.`);
+    } catch (err: any) {
+      alert(err?.message || 'Failed to generate feed.');
+    } finally {
+      setFeedBusy(false);
     }
   };
+
+  const handleCopyLink = async (job: Job) => {
+    await navigator.clipboard.writeText(jobPublicUrl(job.id)).catch(() => {});
+    setShareJobId(null);
+    alert('Public link copied to clipboard.');
+  };
+
+  const load = async () => {
+    setLoading(true);
+    setError(null);
+    try {
+      const [jobList, appList] = await Promise.all([getJobs(), getAllApplications()]);
+      setJobs(jobList);
+      setApplications(appList);
+    } catch (err: any) {
+      setError(err?.message || 'Failed to load job adverts.');
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  useEffect(() => {
+    load();
+  }, []);
+
+  const handleClose = async (job: Job) => {
+    if (!user) return;
+    if (!confirm(`Close "${job.title}"? Candidates will no longer be able to apply.`)) return;
+    await closeJob(job.id, user);
+    regenerateJobsFeed().catch(() => {});
+    load();
+  };
+
+  const handleReopen = async (job: Job) => {
+    if (!user) return;
+    const newDate = prompt('New closing date (YYYY-MM-DD), or leave blank to keep none:', '');
+    await reopenJob(job.id, newDate || undefined, user);
+    regenerateJobsFeed().catch(() => {});
+    load();
+  };
+
+  const filteredAdverts = jobs.filter((job) => {
+    const matchesSearch =
+      job.title.toLowerCase().includes(searchTerm.toLowerCase()) ||
+      job.referenceNumber.toLowerCase().includes(searchTerm.toLowerCase());
+    const matchesStatus =
+      statusFilter === 'all' || job.status.toLowerCase() === statusFilter.toLowerCase();
+    return matchesSearch && matchesStatus;
+  });
 
   return (
     <div className="p-8 max-w-7xl mx-auto space-y-6">
@@ -84,13 +117,19 @@ export function JobAdvertsPage({ onViewApplications, onCreateAdvert }: JobAdvert
           <h1 className="text-2xl font-bold text-autumn-charcoal mb-2">Job Adverts</h1>
           <p className="text-gray-500">Manage your published job postings and their visibility.</p>
         </div>
-        <Button 
-          onClick={onCreateAdvert}
-          className="bg-autumn-primary hover:bg-autumn-dark text-white gap-2 rounded-xl"
-        >
-          <Plus className="size-4" />
-          Create Advert
-        </Button>
+        <div className="flex gap-3">
+          <Button variant="outline" className="gap-2 rounded-xl" disabled={feedBusy} onClick={handleRssFeed}>
+            <Rss className="size-4" />
+            {feedBusy ? 'Generating…' : 'RSS Feed'}
+          </Button>
+          <Button
+            onClick={onCreateAdvert}
+            className="bg-autumn-primary hover:bg-autumn-dark text-white gap-2 rounded-xl"
+          >
+            <Plus className="size-4" />
+            Create Advert
+          </Button>
+        </div>
       </div>
 
       <div className="bg-white rounded-2xl border border-gray-100 shadow-sm overflow-hidden">
@@ -114,8 +153,11 @@ export function JobAdvertsPage({ onViewApplications, onCreateAdvert }: JobAdvert
             >
               <option value="all">All Statuses</option>
               <option value="active">Active</option>
+              <option value="pending">Pending</option>
               <option value="draft">Draft</option>
               <option value="closed">Closed</option>
+              <option value="re-advertised">Re-advertised</option>
+              <option value="cancelled">Cancelled</option>
             </select>
           </div>
         </div>
@@ -133,76 +175,138 @@ export function JobAdvertsPage({ onViewApplications, onCreateAdvert }: JobAdvert
               </tr>
             </thead>
             <tbody className="divide-y divide-gray-100 bg-white">
-              {filteredAdverts.map((adv) => (
-                <tr key={adv.id} className="hover:bg-orange-50/30 transition-colors group">
-                  <td className="px-6 py-4 whitespace-nowrap">
-                    <div className="flex flex-col">
-                      <span className="text-sm font-bold text-gray-900">{adv.title}</span>
-                      <span className="text-xs text-gray-500">{adv.id} â€¢ {adv.location}</span>
-                    </div>
-                  </td>
-                  <td className="px-6 py-4">
-                    <div className="flex gap-4 text-xs mt-1">
-                      <div className="flex flex-col items-center" title="Total Applications"><span className="font-semibold text-gray-700">{adv.stats.total}</span><span className="text-gray-400 text-[10px] uppercase">Total</span></div>
-                      <div className="flex flex-col items-center" title="Longlisted"><span className="font-semibold text-blue-600">{adv.stats.longlisted}</span><span className="text-gray-400 text-[10px] uppercase">Long</span></div>
-                      <div className="flex flex-col items-center" title="Shortlisted"><span className="font-semibold text-amber-500">{adv.stats.shortlisted}</span><span className="text-gray-400 text-[10px] uppercase">Short</span></div>
-                      <div className="flex flex-col items-center" title="Interviewed"><span className="font-semibold text-purple-600">{adv.stats.interviewed}</span><span className="text-gray-400 text-[10px] uppercase">Int</span></div>
-                      <div className="flex flex-col items-center" title="Rejected"><span className="font-semibold text-red-500">{adv.stats.rejected}</span><span className="text-gray-400 text-[10px] uppercase">Rej</span></div>
-                    </div>
-                  </td>
-                  <td className="px-6 py-4 whitespace-nowrap">
-                    <div className="flex -space-x-2">
-                       {adv.recruiters.map((recruiter, idx) => (
-                         <div 
-                           key={idx} 
-                           className="size-8 rounded-full bg-orange-100 border-2 border-white flex items-center justify-center text-xs font-bold text-autumn-charcoal"
-                           title={`Recruiter: ${recruiter.name}`}
-                         >
-                           {recruiter.name.charAt(0)}
-                         </div>
-                       ))}
-                    </div>
-                  </td>
-                  <td className="px-6 py-4 whitespace-nowrap">
-                    <div className="flex flex-col gap-1">
-                      <StatusBadge status={adv.status} size="sm" />
-                      {getBoostBadge(adv.boostStatus)}
-                    </div>
-                  </td>
-                  <td className="px-6 py-4 whitespace-nowrap">
-                    <div className="flex items-center gap-2 text-sm text-gray-600">
-                      <CalendarDays className="size-4 text-gray-400" />
-                      {adv.closingDate}
-                    </div>
-                  </td>
-                  <td className="px-6 py-4 whitespace-nowrap text-right text-sm">
-                    <div className="flex items-center justify-end gap-3 opacity-0 group-hover:opacity-100 transition-opacity">
-                       <Button 
-                         variant="outline" 
-                         size="sm" 
-                         className="h-8 gap-2 border-gray-200 hover:bg-gray-50 hover:text-autumn-primary"
-                         onClick={() => onViewApplications(adv.id)}
-                       >
-                         <Users className="size-4" />
-                         View Applications
-                       </Button>
-                      <button 
-                        onClick={() => handleViewPublicPage(adv.id, adv.title)}
-                        className="text-gray-400 hover:text-autumn-primary transition-colors p-1.5 rounded-lg hover:bg-orange-50" 
-                        title="View Public Page"
-                      >
-                        <ExternalLink className="size-4" />
-                      </button>
-                    </div>
-                  </td>
-                </tr>
-              ))}
-              {filteredAdverts.length === 0 && (
+              {loading && (
                 <tr>
-                  <td colSpan={5} className="px-6 py-12 text-center text-gray-500">
+                  <td colSpan={6} className="px-6 py-12 text-center text-gray-500">Loading adverts…</td>
+                </tr>
+              )}
+              {!loading && error && (
+                <tr>
+                  <td colSpan={6} className="px-6 py-12 text-center text-red-500">{error}</td>
+                </tr>
+              )}
+              {!loading && !error && filteredAdverts.map((job) => {
+                const stats = statsForJob(job.id, applications);
+                return (
+                  <tr key={job.id} className="hover:bg-orange-50/30 transition-colors group">
+                    <td className="px-6 py-4 whitespace-nowrap">
+                      <div className="flex flex-col">
+                        <span className="text-sm font-bold text-gray-900">
+                          {job.title}
+                          {job.isConfidential && <span className="ml-2 text-[10px] uppercase text-purple-600 font-bold">Confidential</span>}
+                          {job.advertType === 'internal' && <span className="ml-2 text-[10px] uppercase text-blue-600 font-bold">Internal</span>}
+                        </span>
+                        <span className="text-xs text-gray-500">{job.referenceNumber} • {job.location || '—'}</span>
+                      </div>
+                    </td>
+                    <td className="px-6 py-4">
+                      <div className="flex gap-4 text-xs mt-1">
+                        <div className="flex flex-col items-center" title="Total Applications"><span className="font-semibold text-gray-700">{stats.total}</span><span className="text-gray-400 text-[10px] uppercase">Total</span></div>
+                        <div className="flex flex-col items-center" title="Longlisted"><span className="font-semibold text-blue-600">{stats.longlisted}</span><span className="text-gray-400 text-[10px] uppercase">Long</span></div>
+                        <div className="flex flex-col items-center" title="Shortlisted"><span className="font-semibold text-amber-500">{stats.shortlisted}</span><span className="text-gray-400 text-[10px] uppercase">Short</span></div>
+                        <div className="flex flex-col items-center" title="Interviewed"><span className="font-semibold text-purple-600">{stats.interviewed}</span><span className="text-gray-400 text-[10px] uppercase">Int</span></div>
+                        <div className="flex flex-col items-center" title="Rejected"><span className="font-semibold text-red-500">{stats.rejected}</span><span className="text-gray-400 text-[10px] uppercase">Rej</span></div>
+                      </div>
+                    </td>
+                    <td className="px-6 py-4 whitespace-nowrap">
+                      <div className="flex -space-x-2">
+                        {(job.hiringTeam || []).map((member, idx) => (
+                          <div
+                            key={idx}
+                            className="size-8 rounded-full bg-orange-100 border-2 border-white flex items-center justify-center text-xs font-bold text-autumn-charcoal"
+                            title={`${member.role}: ${member.name}`}
+                          >
+                            {member.name.charAt(0)}
+                          </div>
+                        ))}
+                        {(job.hiringTeam || []).length === 0 && <span className="text-xs text-gray-400">—</span>}
+                      </div>
+                    </td>
+                    <td className="px-6 py-4 whitespace-nowrap">
+                      <StatusBadge status={job.status.toLowerCase()} size="sm" />
+                    </td>
+                    <td className="px-6 py-4 whitespace-nowrap">
+                      <div className="flex items-center gap-2 text-sm text-gray-600">
+                        <CalendarDays className="size-4 text-gray-400" />
+                        {job.closingDate || 'No deadline'}
+                      </div>
+                    </td>
+                    <td className="px-6 py-4 whitespace-nowrap text-right text-sm">
+                      <div className="flex items-center justify-end gap-2 opacity-0 group-hover:opacity-100 transition-opacity">
+                        <Button
+                          variant="outline"
+                          size="sm"
+                          className="h-8 gap-2 border-gray-200 hover:bg-gray-50 hover:text-autumn-primary"
+                          onClick={() => onViewApplications(job.id)}
+                        >
+                          <Users className="size-4" />
+                          Applications
+                        </Button>
+                        {(job.status === 'Active' || job.status === 'Re-advertised') && (
+                          <button
+                            onClick={() => handleClose(job)}
+                            className="text-gray-400 hover:text-red-500 transition-colors p-1.5 rounded-lg hover:bg-red-50"
+                            title="Close advert"
+                          >
+                            <XCircle className="size-4" />
+                          </button>
+                        )}
+                        {job.status === 'Closed' && (
+                          <button
+                            onClick={() => handleReopen(job)}
+                            className="text-gray-400 hover:text-green-600 transition-colors p-1.5 rounded-lg hover:bg-green-50"
+                            title="Re-open (re-advertise)"
+                          >
+                            <RefreshCw className="size-4" />
+                          </button>
+                        )}
+                        {(job.status === 'Active' || job.status === 'Re-advertised') && job.advertType === 'external' && (
+                          <div className="relative">
+                            <button
+                              onClick={() => setShareJobId(shareJobId === job.id ? null : job.id)}
+                              className="text-gray-400 hover:text-blue-600 transition-colors p-1.5 rounded-lg hover:bg-blue-50"
+                              title="Share advert"
+                            >
+                              <Share2 className="size-4" />
+                            </button>
+                            {shareJobId === job.id && (
+                              <div className="absolute right-0 top-8 bg-white border border-gray-200 rounded-xl shadow-lg z-20 py-1 w-44 text-left">
+                                <a href={linkedInShareUrl(job.id)} target="_blank" rel="noreferrer" className="flex items-center gap-2 px-3 py-2 text-sm text-gray-700 hover:bg-gray-50" onClick={() => setShareJobId(null)}>
+                                  <Linkedin className="size-4 text-blue-600" /> LinkedIn
+                                </a>
+                                <a href={twitterShareUrl(job)} target="_blank" rel="noreferrer" className="flex items-center gap-2 px-3 py-2 text-sm text-gray-700 hover:bg-gray-50" onClick={() => setShareJobId(null)}>
+                                  <Share2 className="size-4 text-gray-800" /> X / Twitter
+                                </a>
+                                <a href={whatsAppShareUrl(job)} target="_blank" rel="noreferrer" className="flex items-center gap-2 px-3 py-2 text-sm text-gray-700 hover:bg-gray-50" onClick={() => setShareJobId(null)}>
+                                  <MessageCircle className="size-4 text-green-600" /> WhatsApp
+                                </a>
+                                <button onClick={() => handleCopyLink(job)} className="w-full flex items-center gap-2 px-3 py-2 text-sm text-gray-700 hover:bg-gray-50">
+                                  <Copy className="size-4 text-gray-500" /> Copy link
+                                </button>
+                              </div>
+                            )}
+                          </div>
+                        )}
+                        <a
+                          href={`/jobs/${job.id}`}
+                          target="_blank"
+                          rel="noreferrer"
+                          className="text-gray-400 hover:text-autumn-primary transition-colors p-1.5 rounded-lg hover:bg-orange-50"
+                          title="View public page"
+                        >
+                          <ExternalLink className="size-4" />
+                        </a>
+                      </div>
+                    </td>
+                  </tr>
+                );
+              })}
+              {!loading && !error && filteredAdverts.length === 0 && (
+                <tr>
+                  <td colSpan={6} className="px-6 py-12 text-center text-gray-500">
                     <Briefcase className="size-12 mx-auto text-gray-300 mb-3" />
                     <p className="text-lg font-medium text-gray-900">No job adverts found</p>
-                    <p className="text-sm text-gray-500 mt-1">Try adjusting your filters or search term.</p>
+                    <p className="text-sm text-gray-500 mt-1">Create your first advert or adjust the filters.</p>
                   </td>
                 </tr>
               )}
@@ -213,4 +317,3 @@ export function JobAdvertsPage({ onViewApplications, onCreateAdvert }: JobAdvert
     </div>
   );
 }
-

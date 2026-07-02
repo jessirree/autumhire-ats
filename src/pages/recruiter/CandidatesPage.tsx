@@ -1,10 +1,12 @@
-﻿import { useState, useMemo } from 'react';
+﻿import { useState, useMemo, useEffect } from 'react';
 import { Search, Filter, Download, Briefcase, Mail, Phone, MapPin } from 'lucide-react';
 import { Button } from '../../components/ui/button';
 import { StatusBadge } from '../../components/ats/StatusBadge';
+import { Application, getAllApplications } from '../../services/applicationService';
 
 interface CandidateProfile {
-  id: string;
+  id: string; // latest application id (used for View Profile navigation)
+  candidateId: string;
   name: string;
   email: string;
   phone: string;
@@ -16,77 +18,77 @@ interface CandidateProfile {
   lastContact: string;
 }
 
-const mockCandidates: CandidateProfile[] = [
-  {
-    id: 'CAN-001',
-    name: 'Michael Chen',
-    email: 'michael.c@example.com',
-    phone: '+1 (555) 012-3456',
-    location: 'San Francisco, CA',
-    currentRole: 'Senior Frontend Developer',
-    activeApplications: [{ jobTitle: 'Lead UI Engineer', stage: 'interview' }],
-    assignedRecruiter: 'Sarah Lee',
-    inTalentPool: true,
-    lastContact: '2024-03-01'
-  },
-  {
-    id: 'CAN-002',
-    name: 'Sarah Jenkins',
-    email: 'sarah.j@example.com',
-    phone: '+1 (555) 987-6543',
-    location: 'New York, NY',
-    currentRole: 'Product Owner',
-    activeApplications: [{ jobTitle: 'Product Manager', stage: 'offer' }],
-    assignedRecruiter: 'Alex Rivers',
-    inTalentPool: false,
-    lastContact: '2024-03-02'
-  },
-  {
-    id: 'CAN-003',
-    name: 'David Miller',
-    email: 'david.m@example.com',
-    phone: '+1 (555) 456-7890',
-    location: 'London, UK',
-    currentRole: 'UX Designer',
-    activeApplications: [
-      { jobTitle: 'Senior UX Designer', stage: 'rejected' },
-      { jobTitle: 'Product Designer', stage: 'screening' }
-    ],
-    assignedRecruiter: 'Sarah Lee',
-    inTalentPool: true,
-    lastContact: '2024-02-28'
-  },
-  {
-    id: 'CAN-004',
-    name: 'Emma Williams',
-    email: 'emma.w@example.com',
-    phone: '+44 7700 900077',
-    location: 'Remote',
-    currentRole: 'Data Scientist',
-    activeApplications: [],
-    assignedRecruiter: 'Unassigned',
-    inTalentPool: true,
-    lastContact: '2023-11-15'
+const ACTIVE_STAGES = ['applied', 'longlisted', 'shortlisted', 'interview', 'offer'];
+
+// Group applications into per-candidate CRM profiles.
+function buildProfiles(applications: Application[]): CandidateProfile[] {
+  const byCandidate = new Map<string, Application[]>();
+  for (const app of applications) {
+    const list = byCandidate.get(app.candidateId) ?? [];
+    list.push(app);
+    byCandidate.set(app.candidateId, list);
   }
-];
+  return Array.from(byCandidate.values()).map((apps) => {
+    const latest = apps[0];
+    return {
+      id: latest.id,
+      candidateId: latest.candidateId,
+      name: latest.candidateName,
+      email: latest.email,
+      phone: latest.phone || '—',
+      location: [latest.city, latest.country].filter(Boolean).join(', ') || '—',
+      currentRole: latest.jobTitle,
+      activeApplications: apps.map((a) => ({ jobTitle: a.jobTitle, stage: a.status })),
+      assignedRecruiter: '—',
+      inTalentPool: apps.every((a) => !ACTIVE_STAGES.includes(a.status)),
+      lastContact: latest.appliedAt?.toDate ? latest.appliedAt.toDate().toLocaleDateString() : '',
+    };
+  });
+}
+
+function exportCandidatesCSV(candidates: CandidateProfile[]) {
+  const headers = ['Name', 'Email', 'Phone', 'Location', 'Applications', 'Last activity'];
+  const rows = candidates.map((c) => [
+    c.name, c.email, c.phone, c.location,
+    c.activeApplications.map((a) => `${a.jobTitle} (${a.stage})`).join('; '),
+    c.lastContact,
+  ]);
+  const csv = [headers, ...rows]
+    .map((r) => r.map((x) => `"${String(x).replace(/"/g, '""')}"`).join(','))
+    .join('\n');
+  const blob = new Blob([csv], { type: 'text/csv' });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = `candidates-${new Date().toISOString().slice(0, 10)}.csv`;
+  a.click();
+  URL.revokeObjectURL(url);
+}
 
 interface CandidatesPageProps {
   onViewCandidate: (id: string) => void;
-  onExportData?: () => void;
 }
 
-export function CandidatesPage({ 
-  onViewCandidate, 
-  onExportData = () => alert('Exporting candidates data...')
-}: CandidatesPageProps) {
+export function CandidatesPage({ onViewCandidate }: CandidatesPageProps) {
   const [searchTerm, setSearchTerm] = useState('');
   const [poolFilter, setPoolFilter] = useState('all');
   const [jobFilter, setJobFilter] = useState('all');
   const [stageFilter, setStageFilter] = useState('all');
   const [isAddModalOpen, setIsAddModalOpen] = useState(false);
+  const [candidates, setCandidates] = useState<CandidateProfile[]>([]);
+  const [jobTitles, setJobTitles] = useState<string[]>([]);
+
+  useEffect(() => {
+    getAllApplications()
+      .then((apps) => {
+        setCandidates(buildProfiles(apps));
+        setJobTitles(Array.from(new Set(apps.map((a) => a.jobTitle))));
+      })
+      .catch((err) => console.error('Failed to load candidates', err));
+  }, []);
 
   const filteredCandidates = useMemo(() => {
-    return mockCandidates.filter(candidate => {
+    return candidates.filter(candidate => {
       const matchesSearch = candidate.name.toLowerCase().includes(searchTerm.toLowerCase()) || 
                             candidate.email.toLowerCase().includes(searchTerm.toLowerCase()) ||
                             candidate.currentRole.toLowerCase().includes(searchTerm.toLowerCase());
@@ -107,7 +109,7 @@ export function CandidatesPage({
       
       return matchesSearch && matchesPool && matchesJob && matchesStage;
     });
-  }, [searchTerm, poolFilter, jobFilter, stageFilter]);
+  }, [candidates, searchTerm, poolFilter, jobFilter, stageFilter]);
 
   return (
     <div className="p-8 max-w-7xl mx-auto space-y-6">
@@ -117,7 +119,7 @@ export function CandidatesPage({
           <p className="text-gray-500">Manage all candidates, talent pools, and cross-job interactions.</p>
         </div>
         <div className="flex gap-3">
-          <Button variant="outline" className="gap-2 rounded-xl" onClick={onExportData}>
+          <Button variant="outline" className="gap-2 rounded-xl" onClick={() => exportCandidatesCSV(filteredCandidates)}>
             <Download className="size-4" />
             Export Data
           </Button>
@@ -156,10 +158,9 @@ export function CandidatesPage({
             className="px-4 py-2 border border-gray-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-autumn-primary/20 focus:border-autumn-primary bg-white text-gray-700 font-medium"
           >
             <option value="all">All Jobs</option>
-            <option value="Lead UI Engineer">Lead UI Engineer</option>
-            <option value="Product Manager">Product Manager</option>
-            <option value="Senior UX Designer">Senior UX Designer</option>
-            <option value="Product Designer">Product Designer</option>
+            {jobTitles.map((t) => (
+              <option key={t} value={t}>{t}</option>
+            ))}
           </select>
           
           <select
@@ -169,9 +170,11 @@ export function CandidatesPage({
           >
             <option value="all">All Stages</option>
             <option value="applied">Applied</option>
-            <option value="screening">Screening</option>
+            <option value="longlisted">Longlisted</option>
+            <option value="shortlisted">Shortlisted</option>
             <option value="interview">Interview</option>
             <option value="offer">Offer</option>
+            <option value="hired">Hired</option>
             <option value="rejected">Rejected</option>
           </select>
           

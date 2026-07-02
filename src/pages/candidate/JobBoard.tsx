@@ -1,10 +1,53 @@
 ﻿import { useState, useEffect, useMemo } from 'react';
-import { Search, MapPin, Briefcase, Clock, ChevronRight, Bell, Filter, Building, DollarSign, Calendar } from 'lucide-react';
+import { Search, MapPin, Briefcase, Clock, ChevronRight, Filter, Building, DollarSign, Calendar, Bell, BellOff } from 'lucide-react';
+import { useAuth } from '../../context/AuthContext';
+import { subscribeToJobAlerts, unsubscribeFromJobAlerts, isSubscribed } from '../../services/jobAlertService';
 import { Button } from '../../components/ui/button';
 import { StatusBadge } from '../../components/ats/StatusBadge';
 import { CandidateHeader } from '../../components/ats/CandidateHeader';
 import { ApplicationForm } from './ApplicationForm';
-import { mockDataService, Job } from '../../services/MockDataService';
+import { Job as FirestoreJob, getPublicJobs } from '../../services/jobService';
+
+// Display shape used by the board, derived from the Firestore Job.
+interface Job {
+  id: string;
+  title: string;
+  company: string;
+  department: string;
+  location: string;
+  type: string;
+  salary: string;
+  posted: string;
+  deadline?: string;
+  description: string;
+  requirements: string[];
+  experienceLevel?: string;
+  raw: FirestoreJob;
+}
+
+function toDisplayJob(job: FirestoreJob): Job {
+  return {
+    id: job.id,
+    title: job.title,
+    company: 'Autumhire',
+    department: job.department || '',
+    location: job.location || '',
+    type: job.jobType || '',
+    salary:
+      job.salaryMin || job.salaryMax
+        ? `${job.currency || ''} ${job.salaryMin || '?'} – ${job.salaryMax || '?'}`.trim()
+        : 'Competitive',
+    posted: job.postedAt?.toDate ? job.postedAt.toDate().toLocaleDateString() : '',
+    deadline: job.closingDate,
+    description: job.description || '',
+    requirements: (job.tags || '')
+      .split(',')
+      .map((t) => t.trim())
+      .filter(Boolean),
+    experienceLevel: job.category || '',
+    raw: job,
+  };
+}
 
 interface JobBoardProps {
   onJobClick: (jobId: string) => void;
@@ -30,18 +73,50 @@ export function JobBoard({
   const [activeJobId, setActiveJobId] = useState<string | null>(null);
   const [showApplicationForm, setShowApplicationForm] = useState(false);
   const [jobs, setJobs] = useState<Job[]>([]);
+  const [loading, setLoading] = useState(true);
+  const { user } = useAuth();
+  const [subscribed, setSubscribed] = useState(false);
 
   useEffect(() => {
-    const localJobs = JSON.parse(localStorage.getItem('mockJobs') || '[]');
-    setJobs([...localJobs, ...mockDataService.getJobs()]);
+    getPublicJobs()
+      .then((list) => setJobs(list.map(toDisplayJob)))
+      .catch((err) => console.error('Failed to load jobs', err))
+      .finally(() => setLoading(false));
   }, []);
+
+  useEffect(() => {
+    if (user) isSubscribed(user.id).then(setSubscribed).catch(() => {});
+  }, [user]);
+
+  const handleToggleAlerts = async () => {
+    if (!user) {
+      alert('Sign in to subscribe to job alerts.');
+      onLoginClick();
+      return;
+    }
+    try {
+      if (subscribed) {
+        await unsubscribeFromJobAlerts(user.id);
+        setSubscribed(false);
+      } else {
+        await subscribeToJobAlerts(user);
+        setSubscribed(true);
+        alert('Subscribed! You will be notified whenever a new job is posted.');
+      }
+    } catch (err: any) {
+      alert(err?.message || 'Failed to update subscription.');
+    }
+  };
 
   // Filters
   const [searchTerm, setSearchTerm] = useState('');
   const [locationFilter, setLocationFilter] = useState('');
   const [typeFilter, setTypeFilter] = useState('');
-  const [experienceFilter, setExperienceFilter] = useState('');
-  const [orgFilter, setOrgFilter] = useState('');
+
+  const locations = useMemo(
+    () => Array.from(new Set(jobs.map((j) => j.location).filter(Boolean))),
+    [jobs]
+  );
 
   // Filtering Logic
   const filteredJobs = useMemo(() => {
@@ -49,17 +124,15 @@ export function JobBoard({
       const matchSearch =
         searchTerm === '' ||
         job.title.toLowerCase().includes(searchTerm.toLowerCase()) ||
-        job.company.toLowerCase().includes(searchTerm.toLowerCase()) ||
+        job.department.toLowerCase().includes(searchTerm.toLowerCase()) ||
         job.description.toLowerCase().includes(searchTerm.toLowerCase());
 
-      const matchLocation = locationFilter === '' || job.location.includes(locationFilter) || (locationFilter === 'Remote' && job.location === 'Remote');
+      const matchLocation = locationFilter === '' || job.location.includes(locationFilter);
       const matchType = typeFilter === '' || job.type === typeFilter;
-      const matchExperience = experienceFilter === '' || job.experienceLevel === experienceFilter;
-      const matchOrg = orgFilter === '' || job.company.includes(orgFilter);
 
-      return matchSearch && matchLocation && matchType && matchExperience && matchOrg;
+      return matchSearch && matchLocation && matchType;
     });
-  }, [jobs, searchTerm, locationFilter, typeFilter, experienceFilter, orgFilter]);
+  }, [jobs, searchTerm, locationFilter, typeFilter]);
 
   // If the active job is filtered out, clear selection (but NOT initially)
   useEffect(() => {
@@ -73,12 +146,12 @@ export function JobBoard({
   if (showApplicationForm && activeJob) {
     return (
       <ApplicationForm
-        jobTitle={activeJob.title}
+        job={activeJob.raw}
         onBack={() => setShowApplicationForm(false)}
         onSubmit={() => {
           setShowApplicationForm(false);
           setActiveJobId(null);
-          // Ideally show a success message here
+          alert('Application submitted successfully! You will receive a confirmation notification.');
         }}
       />
     );
@@ -89,16 +162,13 @@ export function JobBoard({
     setSearchTerm('');
     setLocationFilter('');
     setTypeFilter('');
-    setExperienceFilter('');
-    setOrgFilter('');
   };
 
   const handleJobClick = (id: string) => {
     setActiveJobId(id);
-    // Scroll to top of detail view on mobile if needed, or ensuring visibility
   };
 
-  const activeFiltersCount = [locationFilter, typeFilter, experienceFilter, orgFilter].filter(Boolean).length;
+  const activeFiltersCount = [locationFilter, typeFilter].filter(Boolean).length;
 
   return (
     <div className="min-h-screen bg-[#F9F9F9] font-sans flex flex-col">
@@ -147,11 +217,9 @@ export function JobBoard({
               onChange={(e) => setLocationFilter(e.target.value)}
             >
               <option value="">All Locations</option>
-              <option value="Remote">Remote</option>
-              <option value="Nairobi">Nairobi, Kenya</option>
-              <option value="New York">New York, USA</option>
-              <option value="Accra">Accra, Ghana</option>
-              <option value="Capetown">Capetown, South Africa</option>
+              {locations.map((loc) => (
+                <option key={loc} value={loc}>{loc}</option>
+              ))}
             </select>
 
             <select
@@ -164,29 +232,6 @@ export function JobBoard({
               <option value="Part-time">Part-time</option>
               <option value="Contract">Contract</option>
               <option value="Internship">Internship</option>
-            </select>
-
-            <select
-              className="px-3 py-2 bg-white border border-gray-200 rounded-lg text-sm text-gray-700 focus:outline-none focus:border-[var(--pumpkin-orange)] cursor-pointer hover:border-gray-300"
-              value={experienceFilter}
-              onChange={(e) => setExperienceFilter(e.target.value)}
-            >
-              <option value="">Experience Level</option>
-              <option value="Entry Level">Entry Level</option>
-              <option value="Mid-Level">Mid-Level</option>
-              <option value="Senior">Senior</option>
-              <option value="Executive">Executive</option>
-            </select>
-
-            <select
-              className="px-3 py-2 bg-white border border-gray-200 rounded-lg text-sm text-gray-700 focus:outline-none focus:border-[var(--pumpkin-orange)] cursor-pointer hover:border-gray-300"
-              value={orgFilter}
-              onChange={(e) => setOrgFilter(e.target.value)}
-            >
-              <option value="">All Companies</option>
-              <option value="Autumhire">Autumhire Tech</option>
-              <option value="Innovate">Innovate Corp</option>
-              <option value="Creative">Creative Studios</option>
             </select>
 
             {(activeFiltersCount > 0 || searchTerm) && (
@@ -203,11 +248,15 @@ export function JobBoard({
         {/* Results Info */}
         <div className="flex justify-between items-center mb-6">
           <h2 className="text-lg font-semibold text-gray-700">
-            {filteredJobs.length} {filteredJobs.length === 1 ? 'Job' : 'Jobs'} Found
+            {filteredJobs.length} Open {filteredJobs.length === 1 ? 'Vacancy' : 'Vacancies'}
           </h2>
-          <Button variant="outline" className="text-[var(--forest-green)] border-[var(--forest-green)] hover:bg-[var(--forest-green)] hover:text-white gap-2">
-            <Bell className="size-4" />
-            <span className="hidden sm:inline">Subscribe for Alerts</span>
+          <Button
+            variant="outline"
+            onClick={handleToggleAlerts}
+            className="text-[var(--forest-green)] border-[var(--forest-green)] hover:bg-[var(--forest-green)] hover:text-white gap-2"
+          >
+            {subscribed ? <BellOff className="size-4" /> : <Bell className="size-4" />}
+            <span className="hidden sm:inline">{subscribed ? 'Unsubscribe from Alerts' : 'Subscribe for Alerts'}</span>
           </Button>
         </div>
 
@@ -224,7 +273,11 @@ export function JobBoard({
             <div className={`
               ${!activeJobId ? 'grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-4' : 'flex flex-col gap-3'}
             `}>
-              {filteredJobs.length > 0 ? (
+              {loading ? (
+                <div className="col-span-full bg-white rounded-xl border border-gray-200 p-8 text-center h-64 flex items-center justify-center text-gray-500">
+                  Loading jobs…
+                </div>
+              ) : filteredJobs.length > 0 ? (
                 filteredJobs.map((job) => (
                   <div
                     key={job.id}

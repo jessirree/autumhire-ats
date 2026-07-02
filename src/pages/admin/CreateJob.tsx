@@ -1,6 +1,14 @@
 ﻿import { useState, useEffect } from 'react';
 import { ArrowLeft, CheckCircle, ChevronRight, Copy, HelpCircle, Plus, Trash2, Edit2, GripVertical, Search, X, FileText, CheckSquare, Linkedin, ExternalLink, ChevronUp, ChevronDown } from 'lucide-react';
+import { collection, getDocs } from 'firebase/firestore';
 import { Button } from '../../components/ui/button';
+import { db } from '../../lib/firebase';
+import { useAuth } from '../../context/AuthContext';
+import { Job, JobInput, JobStatus, createJob, updateJob, getJobById, getJobs } from '../../services/jobService';
+import { Workflow, getWorkflows } from '../../services/workflowService';
+import { BankQuestion, getQuestionBank, bankToJobQuestion } from '../../services/questionBankService';
+import { regenerateJobsFeed } from '../../services/feedService';
+import { notifyJobAlertSubscribers } from '../../services/jobAlertService';
 
 interface JobDetails {
     jobTitle: string;
@@ -31,6 +39,7 @@ interface JobSettings {
     requireResume: boolean;
     hiringWorkflow: string;
     closingDate: string;
+    recruitmentCost: string;
 }
 
 interface Question {
@@ -39,6 +48,10 @@ interface Question {
     type: 'text' | 'checkbox' | 'dropdown' | 'number' | 'file';
     mandatory: boolean;
     instructions: string;
+    /** Expected answer for auto-scoring (checkbox: yes/no, number: minimum). */
+    expectedAnswer?: string;
+    /** Points awarded when the answer matches/passes. 0 = unscored. */
+    score?: number;
 }
 
 interface StaffMember {
@@ -78,104 +91,62 @@ const initialJobSettings: JobSettings = {
     requireResume: true,
     hiringWorkflow: 'Standard',
     closingDate: '',
+    recruitmentCost: '',
 };
 
-// Mock existing jobs for duplication
-// Mock existing jobs with full details for editing
-const mockExistingJobs: {
-    id: string;
-    title: string;
-    details: JobDetails;
-    questions: Question[];
-    team: StaffMember[];
-    settings: JobSettings;
-}[] = [
-        {
-            id: '1',
-            title: 'Senior Frontend Developer',
-            details: {
-                ...initialJobDetails,
-                jobTitle: 'Senior Frontend Developer',
-                department: 'Engineering',
-                location: 'New York, NY',
-                salaryMin: '120000',
-                salaryMax: '180000',
-                description: 'We are looking for an experienced Frontend Developer to join our team...',
-                requisitionId: 'REQ-001',
-                status: 'Active',
-                jobType: 'Full-time',
-                remoteType: 'Hybrid',
-                category: 'Software Development',
-                tags: 'React, TypeScript',
-            },
-            questions: [
-                { id: 'q1', text: 'Years of React experience?', type: 'number', mandatory: true, instructions: '' },
-                { id: 'q2', text: 'Link to portfolio?', type: 'text', mandatory: true, instructions: '' }
-            ],
-            team: [
-                { id: '2', name: 'Faith Craigg', email: 'faith@example.com', role: 'Hiring Manager' }
-            ],
-            settings: {
-                ...initialJobSettings,
-                hiringWorkflow: 'Engineering Flow'
-            }
+// Map a Firestore Job document into the local form state shape.
+function jobToFormState(job: Job): { details: JobDetails; settings: JobSettings; questions: Question[]; team: StaffMember[]; coordinatorId: string } {
+    return {
+        details: {
+            jobTitle: job.title,
+            isConfidential: job.isConfidential,
+            status: job.status,
+            requisitionId: job.referenceNumber,
+            showOnCareerSite: job.showOnCareerSite,
+            jobType: job.jobType || 'Full-time',
+            department: job.department || '',
+            location: job.location || '',
+            remoteType: job.remoteType || 'On-site',
+            category: job.category || '',
+            salaryMin: job.salaryMin || '',
+            salaryMax: job.salaryMax || '',
+            currency: job.currency || 'USD',
+            referralProgram: false,
+            referralEmployees: false,
+            referralRewardCurrency: 'USD',
+            referralEndDate: '',
+            description: job.description || '',
+            tags: job.tags || '',
         },
-        {
-            id: '2',
-            title: 'Product Manager',
-            details: {
-                ...initialJobDetails,
-                jobTitle: 'Product Manager',
-                department: 'Product',
-                location: 'San Francisco, CA',
-                salaryMin: '140000',
-                salaryMax: '200000',
-                description: 'Lead our product strategy...',
-                requisitionId: 'REQ-002',
-                status: 'Active',
-                jobType: 'Full-time',
-                remoteType: 'On-site'
-            },
-            questions: [],
-            team: [],
-            settings: initialJobSettings
+        settings: {
+            isFeatured: job.isFeatured,
+            allowLinkedInApply: true,
+            requireCoverLetter: job.requireCoverLetter,
+            requireResume: job.requireResume,
+            hiringWorkflow: job.hiringWorkflow || 'Standard',
+            closingDate: job.closingDate || '',
+            recruitmentCost: job.recruitmentCost !== undefined ? String(job.recruitmentCost) : '',
         },
-        {
-            id: '3',
-            title: 'UX Designer',
-            details: {
-                ...initialJobDetails,
-                jobTitle: 'UX Designer',
-                department: 'Design',
-                location: 'Remote',
-                salaryMin: '90000',
-                salaryMax: '130000',
-                description: 'Design beautiful interfaces...',
-                requisitionId: 'REQ-003',
-                status: 'Draft',
-                jobType: 'Contract',
-                remoteType: 'Remote'
-            },
-            questions: [],
-            team: [],
-            settings: initialJobSettings
-        },
-    ];
-
-// Mock staff members
-const mockStaffMembers: StaffMember[] = [
-    { id: '1', name: 'Linnet Johnson', email: 'lynn@example.com', role: 'Admin' },
-    { id: '2', name: 'Faith Craigg', email: 'faith@example.com', role: 'Hiring Manager' },
-    { id: '3', name: 'Charlie Chaplin', email: 'charlie@example.com', role: 'Interviewer' },
-    { id: '4', name: 'Diana Prince', email: 'diana@example.com', role: 'Recruiter' },
-    { id: '5', name: 'Evan Wright', email: 'evan@example.com', role: 'Recruiter' },
-];
+        questions: (job.questions || []).map((q) => ({
+            id: q.id, text: q.text, type: q.type, mandatory: q.mandatory, instructions: q.instructions || '',
+            expectedAnswer: q.expectedAnswer, score: q.score,
+        })),
+        team: job.hiringTeam || [],
+        coordinatorId: job.coordinatorId || '',
+    };
+}
 
 export function CreateJob({ onBack, onSubmit, onSkip, editJobId }: { onBack: () => void, onSubmit: () => void, onSkip: () => void, editJobId?: string }) {
+    const { user } = useAuth();
     const [currentStep, setCurrentStep] = useState(1);
     const [jobDetails, setJobDetails] = useState<JobDetails>(initialJobDetails);
     const [jobSettings, setJobSettings] = useState<JobSettings>(initialJobSettings);
     const [duplicateJobId, setDuplicateJobId] = useState('');
+    const [existingJobs, setExistingJobs] = useState<Job[]>([]);
+    const [staffMembers, setStaffMembers] = useState<StaffMember[]>([]);
+    const [workflows, setWorkflows] = useState<Workflow[]>([]);
+    const [questionBank, setQuestionBank] = useState<BankQuestion[]>([]);
+    const [saving, setSaving] = useState(false);
 
     // Question Step State
     const [questionnaireHeading, setQuestionnaireHeading] = useState('Standard Pre-screening Questions');
@@ -212,111 +183,124 @@ export function CreateJob({ onBack, onSubmit, onSkip, editJobId }: { onBack: () 
     const [hiringCoordinatorId, setHiringCoordinatorId] = useState<string>('');
     const [staffSearch, setStaffSearch] = useState('');
 
-    // Load data if editing
+    // Load staff (for the hiring team picker) and existing jobs (for duplication)
     useEffect(() => {
-        if (editJobId) {
-            // Check localStorage first (User created jobs)
-            const localJobs = JSON.parse(localStorage.getItem('mockJobs') || '[]');
-            let foundJob = localJobs.find((j: any) => j.id === editJobId);
-
-            // If not found, check mock data (System defaults)
-            if (!foundJob) {
-                foundJob = mockExistingJobs.find(j => j.id === editJobId);
+        (async () => {
+            try {
+                const [usersSnap, jobs, workflowList] = await Promise.all([
+                    getDocs(collection(db, 'Users')),
+                    getJobs(),
+                    getWorkflows().catch(() => [] as Workflow[]),
+                ]);
+                setWorkflows(workflowList);
+                getQuestionBank().then(setQuestionBank).catch(() => {});
+                setStaffMembers(
+                    usersSnap.docs
+                        .map((d) => ({ id: d.id, ...(d.data() as any) }))
+                        .filter((u) => u.role !== 'candidate')
+                        .map((u) => ({ id: u.id, name: u.name || u.email, email: u.email || '', role: u.role || '' }))
+                );
+                setExistingJobs(jobs);
+            } catch (err) {
+                console.error('Failed to load staff/jobs', err);
             }
+        })();
+    }, []);
 
-            if (foundJob) {
-                // Populate all state from found job
-                const details = foundJob.details || foundJob;
-
-                setJobDetails(prev => ({
-                    ...prev,
-                    ...details,
-                    // Ensure jobTitle is mapped correctly if source only has 'title'
-                    jobTitle: details.jobTitle || details.title || foundJob.title || '',
-                    requisitionId: details.requisitionId || 'REQ-' + editJobId
-                }));
-
-                if (foundJob.questions) setQuestions(foundJob.questions);
-                if (foundJob.team) setHiringTeam(foundJob.team);
-                if (foundJob.settings) setJobSettings(foundJob.settings);
-            }
-        } else {
-            // Only generate new ID if NOT editing
-            const mockUuid = 'REQ-' + Math.random().toString(36).substr(2, 9).toUpperCase();
-            setJobDetails(prev => ({ ...prev, requisitionId: mockUuid }));
+    // Load the job being edited
+    useEffect(() => {
+        if (!editJobId) {
+            setJobDetails(prev => ({ ...prev, requisitionId: 'Auto-generated on save' }));
+            return;
         }
+        (async () => {
+            const job = await getJobById(editJobId);
+            if (!job) return;
+            const state = jobToFormState(job);
+            setJobDetails(state.details);
+            setJobSettings(state.settings);
+            setQuestions(state.questions);
+            setHiringTeam(state.team);
+            setHiringCoordinatorId(state.coordinatorId);
+        })();
     }, [editJobId]);
 
-    const handleSave = (isDraft: boolean = false) => {
+    const buildJobInput = (status: JobStatus): JobInput => ({
+        title: jobDetails.jobTitle.trim() || 'Untitled Job',
+        department: jobDetails.department.trim(),
+        location: jobDetails.location.trim(),
+        jobType: jobDetails.jobType,
+        remoteType: jobDetails.remoteType,
+        category: jobDetails.category,
+        tags: jobDetails.tags,
+        currency: jobDetails.currency,
+        salaryMin: jobDetails.salaryMin,
+        salaryMax: jobDetails.salaryMax,
+        description: jobDetails.description,
+        status,
+        advertType: jobDetails.showOnCareerSite ? 'external' : 'internal',
+        isConfidential: jobDetails.isConfidential,
+        showOnCareerSite: jobDetails.showOnCareerSite,
+        isFeatured: jobSettings.isFeatured,
+        requireResume: jobSettings.requireResume,
+        requireCoverLetter: jobSettings.requireCoverLetter,
+        closingDate: jobSettings.closingDate,
+        // Strip undefined fields — Firestore rejects undefined values.
+        questions: questions.map((q) => ({
+            id: q.id,
+            text: q.text,
+            type: q.type,
+            mandatory: q.mandatory,
+            instructions: q.instructions,
+            ...(q.score !== undefined && !Number.isNaN(q.score) ? { score: q.score } : {}),
+            ...(q.expectedAnswer ? { expectedAnswer: q.expectedAnswer } : {}),
+        })),
+        hiringTeam,
+        coordinatorId: hiringCoordinatorId,
+        hiringWorkflow: jobSettings.hiringWorkflow,
+        ...(jobSettings.recruitmentCost.trim() && !Number.isNaN(Number(jobSettings.recruitmentCost))
+            ? { recruitmentCost: Number(jobSettings.recruitmentCost) }
+            : {}),
+    });
+
+    const handleSave = async (isDraft: boolean = false) => {
+        if (!user) { alert('You must be signed in.'); return; }
         // Validation for final submission (non-draft)
         if (!isDraft) {
-            if (!jobDetails.jobTitle.trim()) {
-                alert('Please enter a Job Title.');
-                return;
-            }
-            if (!jobDetails.description.trim()) {
-                alert('Please enter a Job Description.');
-                return;
-            }
-            if (hiringTeam.length === 0) {
-                alert('Please add at least one member to the hiring team.');
-                return;
-            }
-            if (!hiringCoordinatorId) {
-                alert('Please select a hiring team coordinator.');
-                return;
-            }
+            if (!jobDetails.jobTitle.trim()) { alert('Please enter a Job Title.'); return; }
+            if (!jobDetails.description.trim()) { alert('Please enter a Job Description.'); return; }
+            if (!jobDetails.location.trim()) { alert('Please enter a Location — adverts cannot be posted without one.'); return; }
+            if (hiringTeam.length === 0) { alert('Please add at least one member to the hiring team.'); return; }
+            if (!hiringCoordinatorId) { alert('Please select a hiring team coordinator.'); return; }
         }
 
-        const effectiveStatus = isDraft ? 'Draft' : (editJobId ? jobDetails.status : 'Active');
+        const effectiveStatus: JobStatus = isDraft
+            ? 'Draft'
+            : (editJobId ? (jobDetails.status as JobStatus) : 'Active');
 
-        const newJob = {
-            id: editJobId || jobDetails.requisitionId || Math.random().toString(36).substr(2, 9),
-            title: jobDetails.jobTitle || 'Untitled Job',
-            company: 'Autumhire Tech',
-            department: jobDetails.department,
-            location: jobDetails.location,
-            type: jobDetails.jobType,
-            status: effectiveStatus,
-            posted: new Date().toLocaleDateString(),
-            details: {
-                ...jobDetails,
-                status: effectiveStatus
-            },
-            questions: questions,
-            team: hiringTeam,
-            settings: jobSettings,
-            coordinatorId: hiringCoordinatorId,
-            // For dashboard display compatibility
-            salary: `${jobDetails.currency} ${jobDetails.salaryMin} - ${jobDetails.salaryMax}`,
-            deadline: jobSettings.closingDate
-        };
-
-        const localJobs = JSON.parse(localStorage.getItem('mockJobs') || '[]');
-
-        let updatedJobs;
-        if (editJobId) {
-            // Update existing
-            const index = localJobs.findIndex((j: any) => j.id === editJobId);
-            if (index !== -1) {
-                localJobs[index] = newJob;
-                updatedJobs = localJobs;
+        setSaving(true);
+        try {
+            if (editJobId) {
+                await updateJob(editJobId, buildJobInput(effectiveStatus), user);
             } else {
-                updatedJobs = [newJob, ...localJobs];
+                await createJob(buildJobInput(effectiveStatus), user);
             }
-        } else {
-            // Create new
-            updatedJobs = [newJob, ...localJobs];
-        }
-
-        localStorage.setItem('mockJobs', JSON.stringify(updatedJobs));
-
-        if (isDraft) {
-            alert('Draft saved successfully!');
-            onBack();
-        } else {
-            alert(editJobId ? 'Job updated successfully!' : 'Job posted successfully!');
-            onSubmit();
+            if (effectiveStatus === 'Active') {
+                // Keep the public RSS feed in sync + tell subscribers (best-effort).
+                regenerateJobsFeed().catch(() => {});
+                notifyJobAlertSubscribers(jobDetails.jobTitle, jobDetails.location).catch(() => {});
+            }
+            if (isDraft) {
+                alert('Draft saved successfully!');
+                onBack();
+            } else {
+                alert(editJobId ? 'Job updated successfully!' : 'Job posted successfully!');
+                onSubmit();
+            }
+        } catch (err: any) {
+            alert(err?.message || 'Failed to save job.');
+        } finally {
+            setSaving(false);
         }
     };
 
@@ -332,20 +316,18 @@ export function CreateJob({ onBack, onSubmit, onSkip, editJobId }: { onBack: () 
         const jobId = e.target.value;
         setDuplicateJobId(jobId);
         if (jobId) {
-            // Mock pre-filling data
-            const templateJob = mockExistingJobs.find(j => j.id === jobId);
+            const templateJob = existingJobs.find(j => j.id === jobId);
             if (templateJob) {
+                const state = jobToFormState(templateJob);
                 setJobDetails(prev => ({
-                    ...prev,
-                    ...templateJob.details,
-                    requisitionId: prev.requisitionId, // Keep generated ID for new job
-                    status: 'Pending' // Reset status
+                    ...state.details,
+                    requisitionId: prev.requisitionId, // new job gets its own reference
+                    status: 'Pending',
                 }));
-
-                // Duplicate additional components
-                if (templateJob.questions) setQuestions(templateJob.questions);
-                if (templateJob.team) setHiringTeam(templateJob.team);
-                if (templateJob.settings) setJobSettings(templateJob.settings);
+                setQuestions(state.questions);
+                setHiringTeam(state.team);
+                setJobSettings(state.settings);
+                setHiringCoordinatorId(state.coordinatorId);
             }
         }
     };
@@ -453,7 +435,7 @@ export function CreateJob({ onBack, onSubmit, onSkip, editJobId }: { onBack: () 
         }
     };
 
-    const filteredStaff = mockStaffMembers.filter(
+    const filteredStaff = staffMembers.filter(
         member =>
             !hiringTeam.find(m => m.id === member.id) &&
             (member.name.toLowerCase().includes(staffSearch.toLowerCase()) ||
@@ -482,8 +464,8 @@ export function CreateJob({ onBack, onSubmit, onSkip, editJobId }: { onBack: () 
                     ) : (
                         <div className="flex gap-3">
                             <Button variant="outline" onClick={onSkip}>Skip & Publish</Button>
-                            <Button style={{ backgroundColor: 'var(--pumpkin-orange)' }} onClick={() => handleSave(false)}>
-                                {editJobId ? 'Save Changes' : 'Submit for Approval'} <CheckCircle className="size-4 ml-1" />
+                            <Button style={{ backgroundColor: 'var(--pumpkin-orange)' }} disabled={saving} onClick={() => handleSave(false)}>
+                                {saving ? 'Saving…' : (editJobId ? 'Save Changes' : 'Submit for Approval')} <CheckCircle className="size-4 ml-1" />
                             </Button>
                         </div>
                     )}
@@ -544,8 +526,8 @@ export function CreateJob({ onBack, onSubmit, onSkip, editJobId }: { onBack: () 
                                 onChange={handleDuplicateJob}
                             >
                                 <option value="">Select a job to duplicate...</option>
-                                {mockExistingJobs.map(job => (
-                                    <option key={job.id} value={job.id}>{job.title}</option>
+                                {existingJobs.map(job => (
+                                    <option key={job.id} value={job.id}>{job.title} ({job.referenceNumber})</option>
                                 ))}
                             </select>
                         </div>
@@ -999,6 +981,11 @@ export function CreateJob({ onBack, onSubmit, onSkip, editJobId }: { onBack: () 
                                                 {question.mandatory && (
                                                     <span className="bg-red-50 text-red-600 px-2 py-1 rounded text-xs uppercase font-medium">Mandatory</span>
                                                 )}
+                                                {!!question.score && (
+                                                    <span className="bg-blue-50 text-blue-600 px-2 py-1 rounded text-xs uppercase font-medium">
+                                                        {question.score} pts{question.expectedAnswer ? ` • expects ${question.expectedAnswer}` : ''}
+                                                    </span>
+                                                )}
                                             </div>
                                             {question.instructions && (
                                                 <p className="text-sm text-gray-500 bg-gray-50 p-3 rounded-lg border border-gray-100 mt-2">
@@ -1008,6 +995,33 @@ export function CreateJob({ onBack, onSubmit, onSkip, editJobId }: { onBack: () 
                                         </div>
                                     </div>
                                 ))}
+                            </div>
+                        )}
+
+                        {/* Add from the shared question library */}
+                        {questionBank.length > 0 && (
+                            <div className="bg-white rounded-xl shadow-sm border border-gray-100 p-6">
+                                <h3 className="text-lg font-bold text-gray-900 mb-2">Add from Question Library</h3>
+                                <p className="text-sm text-gray-500 mb-4">Questions maintained by admins in the Pre-screening Builder.</p>
+                                <div className="flex flex-wrap gap-2">
+                                    {questionBank.map((bq) => {
+                                        const alreadyAdded = questions.some((q) => q.text === bq.text);
+                                        return (
+                                            <button
+                                                key={bq.id}
+                                                type="button"
+                                                disabled={alreadyAdded}
+                                                onClick={() => setQuestions((prev) => [...prev, bankToJobQuestion(bq)])}
+                                                className={`px-3 py-1.5 rounded-full text-sm border transition-colors ${alreadyAdded
+                                                    ? 'bg-gray-100 text-gray-400 border-gray-200 cursor-not-allowed'
+                                                    : 'bg-orange-50 text-[var(--pumpkin-orange)] border-orange-200 hover:bg-[var(--pumpkin-orange)] hover:text-white'}`}
+                                                title={alreadyAdded ? 'Already added' : `${bq.type}${bq.score ? ` • ${bq.score} pts` : ''}`}
+                                            >
+                                                + {bq.text}
+                                            </button>
+                                        );
+                                    })}
+                                </div>
                             </div>
                         )}
 
@@ -1057,6 +1071,45 @@ export function CreateJob({ onBack, onSubmit, onSkip, editJobId }: { onBack: () 
                                         Mandatory question
                                     </label>
                                 </div>
+
+                                <div>
+                                    <label className="block text-sm font-medium text-gray-700 mb-1">Score (points)</label>
+                                    <input
+                                        type="number"
+                                        min={0}
+                                        className="w-full p-3 border border-gray-200 rounded-lg focus:ring-2 focus:ring-[var(--pumpkin-orange)]/20 focus:border-[var(--pumpkin-orange)] outline-none transition-all"
+                                        placeholder="0 = unscored"
+                                        value={currentQuestion.score ?? ''}
+                                        onChange={(e) => setCurrentQuestion(prev => ({ ...prev, score: e.target.value === '' ? undefined : Number(e.target.value) }))}
+                                    />
+                                    <p className="text-xs text-gray-500 mt-1">Points added to the candidate's screening score when the answer passes.</p>
+                                </div>
+
+                                {(currentQuestion.type === 'checkbox' || currentQuestion.type === 'number') && (
+                                    <div>
+                                        <label className="block text-sm font-medium text-gray-700 mb-1">
+                                            {currentQuestion.type === 'checkbox' ? 'Expected answer' : 'Minimum value to pass'}
+                                        </label>
+                                        {currentQuestion.type === 'checkbox' ? (
+                                            <select
+                                                className="w-full p-3 border border-gray-200 rounded-lg focus:ring-2 focus:ring-[var(--pumpkin-orange)]/20 focus:border-[var(--pumpkin-orange)] outline-none transition-all"
+                                                value={currentQuestion.expectedAnswer ?? 'yes'}
+                                                onChange={(e) => setCurrentQuestion(prev => ({ ...prev, expectedAnswer: e.target.value }))}
+                                            >
+                                                <option value="yes">Yes</option>
+                                                <option value="no">No</option>
+                                            </select>
+                                        ) : (
+                                            <input
+                                                type="number"
+                                                className="w-full p-3 border border-gray-200 rounded-lg focus:ring-2 focus:ring-[var(--pumpkin-orange)]/20 focus:border-[var(--pumpkin-orange)] outline-none transition-all"
+                                                placeholder="e.g. 5 (years)"
+                                                value={currentQuestion.expectedAnswer ?? ''}
+                                                onChange={(e) => setCurrentQuestion(prev => ({ ...prev, expectedAnswer: e.target.value }))}
+                                            />
+                                        )}
+                                    </div>
+                                )}
 
                                 <div className="col-span-2">
                                     <label className="block text-sm font-medium text-gray-700 mb-1">Special Instructions</label>
@@ -1217,11 +1270,14 @@ export function CreateJob({ onBack, onSubmit, onSkip, editJobId }: { onBack: () 
                                         value={jobSettings.hiringWorkflow}
                                         onChange={(e) => handleSettingsChange('hiringWorkflow', e.target.value)}
                                     >
-                                        <option value="Standard">Standard Workflow (Applied â†’ Interview â†’ Offer)</option>
-                                        <option value="Technical">Technical Hiring (Applied â†’ Assessment â†’ Interview â†’ Offer)</option>
-                                        <option value="Executive">Executive Search (Applied â†’ Screening â†’ Board Interview â†’ Offer)</option>
+                                        <option value="Standard">Standard Workflow</option>
+                                        {workflows.map((w) => (
+                                            <option key={w.id} value={w.name}>
+                                                {w.name} ({w.stages.map((s) => s.name).join(' → ')})
+                                            </option>
+                                        ))}
                                     </select>
-                                    <p className="text-xs text-gray-500 mt-1">Select the stages candidates will move through.</p>
+                                    <p className="text-xs text-gray-500 mt-1">Workflows are managed by admins under Workflow Configuration.</p>
                                 </div>
 
                                 <div>
@@ -1233,6 +1289,19 @@ export function CreateJob({ onBack, onSubmit, onSkip, editJobId }: { onBack: () 
                                         onChange={(e) => handleSettingsChange('closingDate', e.target.value)}
                                     />
                                     <p className="text-xs text-gray-500 mt-1">Job will automatically close for new applications on this date.</p>
+                                </div>
+
+                                <div>
+                                    <label className="block text-sm font-medium text-gray-700 mb-1">Recruitment Cost (optional)</label>
+                                    <input
+                                        type="number"
+                                        min={0}
+                                        className="w-full p-3 border border-gray-200 rounded-lg focus:ring-2 focus:ring-[var(--pumpkin-orange)]/20 focus:border-[var(--pumpkin-orange)] outline-none transition-all"
+                                        placeholder="e.g. 45000"
+                                        value={jobSettings.recruitmentCost}
+                                        onChange={(e) => handleSettingsChange('recruitmentCost', e.target.value)}
+                                    />
+                                    <p className="text-xs text-gray-500 mt-1">Advertising/agency costs for this vacancy — feeds the cost-per-hire report.</p>
                                 </div>
                             </div>
 
@@ -1398,9 +1467,10 @@ export function CreateJob({ onBack, onSubmit, onSkip, editJobId }: { onBack: () 
                             <Button
                                 size="lg"
                                 className="px-12 w-64 bg-[var(--pumpkin-orange)] hover:bg-[var(--pumpkin-orange)]/90 shadow-lg shadow-orange-200"
+                                disabled={saving}
                                 onClick={() => handleSave(false)}
                             >
-                                {editJobId ? 'Save Changes' : 'Submit for Approval'} <CheckCircle className="ml-2 size-5" />
+                                {saving ? 'Saving…' : (editJobId ? 'Save Changes' : 'Submit for Approval')} <CheckCircle className="ml-2 size-5" />
                             </Button>
                         </div>
                     </div>

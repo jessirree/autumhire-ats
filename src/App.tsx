@@ -3,6 +3,7 @@ import { BrowserRouter, Routes, Route, Navigate, useNavigate, useParams, Outlet 
 import './index.css';
 
 import { AuthProvider, useAuth } from './context/AuthContext';
+import { Job as JobType, getJobById } from './services/jobService';
 import { ProtectedRoute } from './components/auth/ProtectedRoute';
 import { DashboardLayout } from './layouts/DashboardLayout';
 import { LoginPage } from './pages/auth/LoginPage';
@@ -89,9 +90,68 @@ function JobDetailWrapper() {
   const { jobId } = useParams();
   return (
     <JobDetail
-      jobId={jobId || '1'}
+      jobId={jobId || ''}
       onBack={() => navigate('/jobs')}
       onApply={() => navigate(`/jobs/${jobId}/apply`)}
+    />
+  );
+}
+
+function ApplicationFormWrapper() {
+  const navigate = useNavigate();
+  const { jobId } = useParams();
+  const [job, setJob] = React.useState<JobType | null>(null);
+  const [loading, setLoading] = React.useState(true);
+
+  React.useEffect(() => {
+    if (!jobId) { setLoading(false); return; }
+    getJobById(jobId)
+      .then(setJob)
+      .catch(() => setJob(null))
+      .finally(() => setLoading(false));
+  }, [jobId]);
+
+  if (loading) {
+    return (
+      <div className="min-h-screen flex items-center justify-center bg-gray-50 text-gray-500">Loading…</div>
+    );
+  }
+  if (!job) {
+    return <Navigate to="/jobs" replace />;
+  }
+  return (
+    <ApplicationForm
+      job={job}
+      onBack={() => navigate(-1)}
+      onSubmit={() => {
+        alert('Application submitted successfully! You will receive a confirmation notification.');
+        navigate('/jobs');
+      }}
+    />
+  );
+}
+
+function RecruiterCandidateDetailWrapper() {
+  const navigate = useNavigate();
+  const { id } = useParams();
+  return <CandidateDetail candidateId={id || ''} onBack={() => navigate('/recruiter/applications')} />;
+}
+
+function HMCandidateDetailWrapper() {
+  const navigate = useNavigate();
+  const { id } = useParams();
+  return <HMCandidateDetail candidateId={id || ''} onBack={() => navigate('/hiring/shortlisting')} />;
+}
+
+function EditJobWrapper() {
+  const navigate = useNavigate();
+  const { id } = useParams();
+  return (
+    <CreateJob
+      editJobId={id}
+      onBack={() => navigate('/admin/dashboard')}
+      onSubmit={() => navigate('/admin/dashboard')}
+      onSkip={() => navigate('/admin/select-plan')}
     />
   );
 }
@@ -142,16 +202,7 @@ function AppRoutes() {
 
       {/* Jobs Flow (Public) */}
       <Route path="/jobs/:jobId" element={<JobDetailWrapper />} />
-      <Route path="/jobs/:jobId/apply" element={
-        <ApplicationForm
-          jobTitle="Senior Frontend Developer"
-          onBack={() => navigate(-1)}
-          onSubmit={() => {
-            alert('Application submitted successfully!');
-            navigate('/jobs');
-          }}
-        />
-      } />
+      <Route path="/jobs/:jobId/apply" element={<ApplicationFormWrapper />} />
 
       {/* Auth Routes */}
       <Route path="/login" element={<LoginPage />} />
@@ -174,7 +225,7 @@ function AppRoutes() {
         <Route path="workflow" element={<WorkflowConfiguration />} />
         <Route path="reports" element={<ReportsPage />} />
         <Route path="post-job" element={<CreateJob onBack={() => navigate('/admin/dashboard')} onSubmit={() => navigate('/admin/dashboard')} onSkip={() => navigate('/admin/select-plan')} />} />
-        <Route path="edit-job/:id" element={<CreateJob onBack={() => navigate('/admin/dashboard')} onSubmit={() => navigate('/admin/dashboard')} onSkip={() => navigate('/admin/select-plan')} />} />
+        <Route path="edit-job/:id" element={<EditJobWrapper />} />
         <Route path="select-plan" element={<PlanSelection onSelectPlan={(planId) => planId === 'free' ? navigate('/admin/dashboard') : navigate(`/admin/payment/${planId}`)} />} />
         <Route path="payment/:planId" element={<PaymentPage planId="premium" onBack={() => navigate('/admin/select-plan')} onPay={() => navigate('/admin/dashboard')} />} />
         <Route path="*" element={<UnderConstruction pageName="Admin Feature" />} />
@@ -192,7 +243,7 @@ function AppRoutes() {
         <Route path="candidates" element={<CandidatesPage onViewCandidate={(id) => navigate(`/recruiter/candidate-detail/${id}`)} />} />
         <Route path="interviews" element={<RecruiterInterviewsPage />} />
         <Route path="offers" element={<OffersPage />} />
-        <Route path="candidate-detail/:id" element={<CandidateDetail candidateId="1" onBack={() => navigate('/recruiter/applications')} />} />
+        <Route path="candidate-detail/:id" element={<RecruiterCandidateDetailWrapper />} />
         <Route path="post-job" element={<CreateJob onBack={() => navigate('/recruiter/dashboard')} onSubmit={() => navigate('/recruiter/dashboard')} onSkip={() => navigate('/recruiter/dashboard')} />} />
         <Route path="*" element={<UnderConstruction pageName="Recruiter Feature" />} />
       </Route>
@@ -200,10 +251,10 @@ function AppRoutes() {
       {/* Hiring Manager */}
       <Route path="/hiring" element={<ProtectedRoute allowedRoles={['hiring-manager']}><DashboardLayout /></ProtectedRoute>}>
         <Route index element={<Navigate to="dashboard" replace />} />
-        <Route path="dashboard" element={<HiringManagerDashboard userName="John Smith" />} />
+        <Route path="dashboard" element={<HiringManagerDashboard />} />
         <Route path="requisitions" element={<RequisitionApprovals />} />
         <Route path="shortlisting" element={<ShortlistingPage onViewCandidate={(id) => navigate(`/hiring/candidate-detail/${id}`)} />} />
-        <Route path="candidate-detail/:id" element={<HMCandidateDetail candidateId="1" onBack={() => navigate('/hiring/shortlisting')} />} />
+        <Route path="candidate-detail/:id" element={<HMCandidateDetailWrapper />} />
         <Route path="approvals" element={<OfferApprovalPage />} />
         <Route path="interviews" element={<InterviewsPage />} />
         <Route path="*" element={<UnderConstruction pageName="Hiring Manager Feature" />} />

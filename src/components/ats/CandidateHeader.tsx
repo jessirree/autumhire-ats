@@ -79,9 +79,13 @@ export function CandidateHeader({
                                 <Bell className="size-5" />
                                 <span className="absolute -top-1 -right-1 size-2 bg-red-500 rounded-full"></span>
                             </button>
-                            <div className="flex items-center gap-2 cursor-pointer" onClick={onLogout}>
+                            <div className="flex items-center gap-2 cursor-pointer" onClick={onLogout} title="Sign out">
                                 <div className="size-8 bg-[#2F5233] text-white rounded-full flex items-center justify-center font-medium shadow-sm">
                                     {userProfile?.name?.charAt(0) || <User className="size-4" />}
+                                </div>
+                                <div className="hidden sm:block leading-tight text-left">
+                                    <p className="text-sm font-medium text-gray-800 truncate max-w-[140px]">{userProfile?.name}</p>
+                                    <p className="text-[11px] text-gray-500">Candidate account</p>
                                 </div>
                             </div>
                         </div>

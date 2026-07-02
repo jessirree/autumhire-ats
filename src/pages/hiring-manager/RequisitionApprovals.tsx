@@ -69,7 +69,7 @@ export function RequisitionApprovals() {
               <div className="flex flex-wrap items-start justify-between gap-3 mb-4">
                 <div>
                   <div className="flex items-center gap-2">
-                    <h3 className="font-bold text-gray-900">{requisition.positionTitle}</h3>
+                    <h3 className="font-bold text-gray-900">{requisition.positionTitle}{requisition.grade ? ` • Grade ${requisition.grade}` : ''}</h3>
                     <span className="text-xs text-gray-500 font-mono">{requisition.referenceNumber}</span>
                   </div>
                   <p className="text-sm text-gray-500 mt-1">

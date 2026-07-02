@@ -20,6 +20,29 @@ service firebase.storage {
       allow write: if isStaff();
     }
 
+    // Public assets (RSS feed of open vacancies). World-readable.
+    match /public/{fileName} {
+      allow read: if true;
+      allow write: if isStaff();
+    }
+
+    // Reusable profile CVs: owner writes, owner + staff read.
+    match /profiles/{userId}/{fileName} {
+      allow read: if isStaff() || (isSignedIn() && request.auth.uid == userId);
+      allow write: if isSignedIn()
+        && request.auth.uid == userId
+        && request.resource.size < 10 * 1024 * 1024;
+    }
+
+    // Application documents: candidates may only write into their own
+    // folder (max 10 MB per file); the owner and staff can read.
+    match /applications/{jobId}/{candidateId}/{fileName} {
+      allow read: if isStaff() || (isSignedIn() && request.auth.uid == candidateId);
+      allow write: if isSignedIn()
+        && request.auth.uid == candidateId
+        && request.resource.size < 10 * 1024 * 1024;
+    }
+
     match /{allPaths=**} {
       allow read, write: if false;
     }

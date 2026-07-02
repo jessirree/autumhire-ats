@@ -1,4 +1,4 @@
-﻿import { useState, useRef, useCallback } from 'react';
+﻿import { useState, useRef, useCallback, useEffect } from 'react';
 import { DndProvider, useDrag, useDrop } from 'react-dnd';
 import { HTML5Backend } from 'react-dnd-html5-backend';
 import {
@@ -12,16 +12,19 @@ import {
     Mail
 } from 'lucide-react';
 import { Button } from '../../components/ui/button';
+import { useAuth } from '../../context/AuthContext';
+import {
+    Workflow,
+    WorkflowStage,
+    StageRole as Role,
+    DEFAULT_STAGES,
+    getWorkflows,
+    createWorkflow,
+    updateWorkflow,
+    deleteWorkflow,
+} from '../../services/workflowService';
 
-// --- Types ---
-export type Role = 'Recruiter' | 'Hiring Manager' | 'Admin';
-
-export interface WorkflowStage {
-    id: string;
-    name: string;
-    role: Role;
-    autoEmail: boolean;
-}
+export type { Role, WorkflowStage };
 
 const ITEM_TYPE = 'STAGE';
 
@@ -191,13 +194,75 @@ const StageCard = ({ stage, index, moveStage, onUpdate, onDelete, isLast }: Stag
 
 // 2. Main Builder Component
 export function WorkflowConfiguration() {
-    const [stages, setStages] = useState<WorkflowStage[]>([
-        { id: '1', name: 'Applied', role: 'Recruiter', autoEmail: true },
-        { id: '2', name: 'Screening', role: 'Recruiter', autoEmail: false },
-        { id: '3', name: 'Interview', role: 'Hiring Manager', autoEmail: true },
-        { id: '4', name: 'Offer', role: 'Recruiter', autoEmail: true },
-        { id: '5', name: 'Hired', role: 'Admin', autoEmail: true },
-    ]);
+    const { user } = useAuth();
+    const [workflows, setWorkflows] = useState<Workflow[]>([]);
+    const [selectedId, setSelectedId] = useState<string>('');
+    const [stages, setStages] = useState<WorkflowStage[]>(DEFAULT_STAGES);
+    const [saving, setSaving] = useState(false);
+
+    const load = async (selectId?: string) => {
+        try {
+            const list = await getWorkflows();
+            setWorkflows(list);
+            const target = list.find((w) => w.id === (selectId || selectedId)) || list[0];
+            if (target) {
+                setSelectedId(target.id);
+                setStages(target.stages);
+            }
+        } catch (err) {
+            console.error('Failed to load workflows', err);
+        }
+    };
+
+    useEffect(() => { load(); }, []);
+
+    const handleSelectWorkflow = (id: string) => {
+        setSelectedId(id);
+        const wf = workflows.find((w) => w.id === id);
+        if (wf) setStages(wf.stages);
+    };
+
+    const handleSave = async () => {
+        if (!user) return;
+        setSaving(true);
+        try {
+            if (selectedId) {
+                await updateWorkflow(selectedId, { stages }, user);
+            } else {
+                const name = prompt('Name for this workflow:', 'Standard');
+                if (!name?.trim()) { setSaving(false); return; }
+                const id = await createWorkflow(name.trim(), stages, user);
+                await load(id);
+            }
+            alert('Workflow saved.');
+        } catch (err: any) {
+            alert(err?.message || 'Failed to save workflow.');
+        } finally {
+            setSaving(false);
+        }
+    };
+
+    const handleNewWorkflow = async () => {
+        if (!user) return;
+        const name = prompt('Name for the new workflow (e.g. Executive Search):');
+        if (!name?.trim()) return;
+        try {
+            const id = await createWorkflow(name.trim(), DEFAULT_STAGES, user);
+            await load(id);
+        } catch (err: any) {
+            alert(err?.message || 'Failed to create workflow.');
+        }
+    };
+
+    const handleDeleteWorkflow = async () => {
+        if (!user || !selectedId) return;
+        const wf = workflows.find((w) => w.id === selectedId);
+        if (!confirm(`Delete workflow "${wf?.name}"?`)) return;
+        await deleteWorkflow(selectedId, user);
+        setSelectedId('');
+        setStages(DEFAULT_STAGES);
+        load();
+    };
 
     const moveStage = useCallback((dragIndex: number, hoverIndex: number) => {
         setStages((prevStages) => {
@@ -239,12 +304,35 @@ export function WorkflowConfiguration() {
                         <h2 className="text-2xl font-bold text-gray-900">Workflow Configuration</h2>
                         <p className="text-gray-500 mt-1">Design your hiring pipeline stages and automation rules</p>
                     </div>
-                    <div className="flex gap-3">
-                        <Button variant="outline" onClick={() => setStages([...stages])}>
+                    <div className="flex gap-3 items-center flex-wrap">
+                        {workflows.length > 0 && (
+                            <select
+                                value={selectedId}
+                                onChange={(e) => handleSelectWorkflow(e.target.value)}
+                                className="px-3 py-2 border border-gray-200 rounded-lg text-sm font-medium text-gray-700 bg-white focus:outline-none"
+                            >
+                                {workflows.map((w) => (
+                                    <option key={w.id} value={w.id}>{w.name}</option>
+                                ))}
+                            </select>
+                        )}
+                        <Button variant="outline" onClick={handleNewWorkflow}>
+                            New Workflow
+                        </Button>
+                        <Button variant="outline" onClick={() => setStages(DEFAULT_STAGES)}>
                             Reset to Default
                         </Button>
-                        <Button className="bg-[var(--pumpkin-orange)] hover:bg-[var(--pumpkin-orange)]/90 text-white">
-                            Save Changes
+                        {selectedId && (
+                            <Button variant="outline" className="text-red-600 border-red-200 hover:bg-red-50" onClick={handleDeleteWorkflow}>
+                                Delete
+                            </Button>
+                        )}
+                        <Button
+                            className="bg-[var(--pumpkin-orange)] hover:bg-[var(--pumpkin-orange)]/90 text-white"
+                            disabled={saving}
+                            onClick={handleSave}
+                        >
+                            {saving ? 'Saving…' : 'Save Changes'}
                         </Button>
                     </div>
                 </div>

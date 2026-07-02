@@ -1,25 +1,66 @@
 ﻿import { useState, useEffect } from 'react';
-import { Search, Filter, Download, MoreVertical } from 'lucide-react';
+import { Search, Filter, Download } from 'lucide-react';
 import { Button } from '../../components/ui/button';
 import { StatusBadge } from '../../components/ats/StatusBadge';
-import { mockDataService, Application } from '../../services/MockDataService';
+import { useAuth } from '../../context/AuthContext';
+import {
+  Application,
+  ApplicationStatus,
+  getAllApplications,
+  bulkUpdateStatus,
+} from '../../services/applicationService';
 
 interface ApplicationsPageProps {
   onViewCandidate: (id: string) => void;
-  onExportToCSV?: () => void;
 }
 
-export function ApplicationsPage({ onViewCandidate, onExportToCSV = () => alert('Exporting applications to CSV...') }: ApplicationsPageProps) {
+function exportToCSV(applications: Application[]) {
+  const headers = ['Candidate', 'Email', 'Phone', 'Job', 'Department', 'Applied', 'Score', 'Status', 'Gender', 'Nationality', 'City', 'Source'];
+  const rows = applications.map((a) => [
+    a.candidateName, a.email, a.phone ?? '', a.jobTitle, a.department,
+    a.appliedAt?.toDate ? a.appliedAt.toDate().toISOString().slice(0, 10) : '',
+    String(a.prescreenScore), a.status, a.gender ?? '', a.nationality ?? '', a.city ?? '', a.source ?? '',
+  ]);
+  const csv = [headers, ...rows]
+    .map((r) => r.map((c) => `"${String(c).replace(/"/g, '""')}"`).join(','))
+    .join('\n');
+  const blob = new Blob([csv], { type: 'text/csv' });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = `applications-${new Date().toISOString().slice(0, 10)}.csv`;
+  a.click();
+  URL.revokeObjectURL(url);
+}
+
+const BULK_ACTIONS: { label: string; status: ApplicationStatus }[] = [
+  { label: 'Move to Longlist', status: 'longlisted' },
+  { label: 'Move to Shortlist', status: 'shortlisted' },
+  { label: 'Move to Interview', status: 'interview' },
+  { label: 'Reject Candidates', status: 'rejected' },
+];
+
+export function ApplicationsPage({ onViewCandidate }: ApplicationsPageProps) {
+  const { user } = useAuth();
   const [applications, setApplications] = useState<Application[]>([]);
+  const [loading, setLoading] = useState(true);
   const [searchTerm, setSearchTerm] = useState('');
   const [statusFilter, setStatusFilter] = useState('');
   const [departmentFilter, setDepartmentFilter] = useState('');
   const [selectedApplications, setSelectedApplications] = useState<string[]>([]);
   const [bulkAction, setBulkAction] = useState('Bulk Actions');
 
-  useEffect(() => {
-    setApplications(mockDataService.getApplications());
-  }, []);
+  const load = () => {
+    setLoading(true);
+    getAllApplications()
+      .then(setApplications)
+      .catch((err) => console.error('Failed to load applications', err))
+      .finally(() => setLoading(false));
+  };
+
+  useEffect(load, []);
+
+  const departments = Array.from(new Set(applications.map((a) => a.department).filter(Boolean)));
 
   const filteredApplications = applications.filter((app) => {
     const matchesSearch =
@@ -44,14 +85,19 @@ export function ApplicationsPage({ onViewCandidate, onExportToCSV = () => alert(
     }
   };
 
-  const handleApplyBulkAction = () => {
-    if (bulkAction === 'Bulk Actions') return;
-    alert(`Applied action "${bulkAction}" to ${selectedApplications.length} candidates.`);
-    setSelectedApplications([]); // Clear selection after action
-  };
-
-  const handleMoreActions = (id: string) => {
-    alert(`Showing more actions for application ${id}`);
+  const handleApplyBulkAction = async () => {
+    if (bulkAction === 'Bulk Actions' || !user) return;
+    const action = BULK_ACTIONS.find((a) => a.label === bulkAction);
+    if (!action) return;
+    const targets = applications.filter((a) => selectedApplications.includes(a.id));
+    try {
+      await bulkUpdateStatus(targets, action.status, user);
+      setSelectedApplications([]);
+      setBulkAction('Bulk Actions');
+      load();
+    } catch (err: any) {
+      alert(err?.message || 'Bulk update failed.');
+    }
   };
 
   return (
@@ -62,7 +108,7 @@ export function ApplicationsPage({ onViewCandidate, onExportToCSV = () => alert(
           <p className="text-gray-500">Manage and review all candidate applications across your jobs.</p>
         </div>
         <div className="flex gap-3">
-          <Button variant="outline" className="gap-2 rounded-xl" onClick={onExportToCSV}>
+          <Button variant="outline" className="gap-2 rounded-xl" onClick={() => exportToCSV(filteredApplications)}>
             <Download className="size-4" />
             Export to CSV
           </Button>
@@ -90,12 +136,14 @@ export function ApplicationsPage({ onViewCandidate, onExportToCSV = () => alert(
               className="px-4 py-2 border border-gray-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-autumn-primary/20 focus:border-autumn-primary bg-white text-gray-700 font-medium"
             >
               <option value="">All Stages</option>
-              <option value="new">Applied</option>
-              <option value="screening">Screening</option>
+              <option value="applied">Applied</option>
+              <option value="longlisted">Longlisted</option>
               <option value="shortlisted">Shortlisted</option>
               <option value="interview">Interview</option>
               <option value="offer">Offer</option>
+              <option value="hired">Hired</option>
               <option value="rejected">Rejected</option>
+              <option value="regretted">Regretted</option>
             </select>
 
             <select
@@ -104,11 +152,9 @@ export function ApplicationsPage({ onViewCandidate, onExportToCSV = () => alert(
               className="px-4 py-2 border border-gray-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-autumn-primary/20 focus:border-autumn-primary bg-white text-gray-700 font-medium"
             >
               <option value="">All Departments</option>
-              <option value="Engineering">Engineering</option>
-              <option value="Product">Product</option>
-              <option value="Design">Design</option>
-              <option value="Marketing">Marketing</option>
-              <option value="Analytics">Analytics</option>
+              {departments.map((d) => (
+                <option key={d} value={d}>{d}</option>
+              ))}
             </select>
 
             <Button variant="outline" className="rounded-xl">
@@ -130,9 +176,9 @@ export function ApplicationsPage({ onViewCandidate, onExportToCSV = () => alert(
                 className="px-3 py-1.5 text-sm border border-orange-200 rounded-lg bg-white font-medium text-gray-700 focus:outline-none focus:ring-2 focus:ring-autumn-primary/20"
               >
                 <option value="Bulk Actions">Bulk Actions</option>
-                <option value="Move to Shortlist">Move to Shortlist</option>
-                <option value="Move to Interview">Move to Interview</option>
-                <option value="Reject Candidates">Reject Candidates</option>
+                {BULK_ACTIONS.map((a) => (
+                  <option key={a.label} value={a.label}>{a.label}</option>
+                ))}
               </select>
               <Button 
                 onClick={handleApplyBulkAction}
@@ -207,19 +253,17 @@ export function ApplicationsPage({ onViewCandidate, onExportToCSV = () => alert(
                     </div>
                   </td>
                   <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-600">
-                    {new Date(app.appliedDate).toLocaleDateString('en-US', {
-                      month: 'short',
-                      day: 'numeric',
-                      year: 'numeric',
-                    })}
+                    {app.appliedAt?.toDate
+                      ? app.appliedAt.toDate().toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })
+                      : '—'}
                   </td>
                   <td className="px-6 py-4 whitespace-nowrap">
                     <div className="flex items-center gap-2">
-                       <span className="text-sm font-bold text-gray-700 w-8">{app.score}%</span>
+                       <span className="text-sm font-bold text-gray-700 w-8">{app.prescreenScore}</span>
                        <div className="w-20 h-2 bg-gray-100 rounded-full overflow-hidden">
                         <div
-                          className={`h-full rounded-full ${app.score > 80 ? 'bg-green-500' : app.score > 60 ? 'bg-amber-400' : 'bg-red-400'}`}
-                          style={{ width: `${app.score}%` }}
+                          className={`h-full rounded-full ${app.prescreenScore > 80 ? 'bg-green-500' : app.prescreenScore > 40 ? 'bg-amber-400' : 'bg-red-400'}`}
+                          style={{ width: `${Math.min(app.prescreenScore, 100)}%` }}
                         />
                       </div>
                     </div>
@@ -237,17 +281,28 @@ export function ApplicationsPage({ onViewCandidate, onExportToCSV = () => alert(
                       >
                         View
                       </Button>
-                      <button 
-                        onClick={() => handleMoreActions(app.id)}
-                        className="p-1.5 hover:bg-orange-50 rounded-lg text-gray-400 hover:text-autumn-primary transition-colors"
-                      >
-                        <MoreVertical className="size-4" />
-                      </button>
+                      {app.cvUrl && (
+                        <a
+                          href={app.cvUrl}
+                          target="_blank"
+                          rel="noreferrer"
+                          download={`${app.candidateName.replace(/\s+/g, '_')}-${app.jobId}-CV`}
+                          className="p-1.5 hover:bg-orange-50 rounded-lg text-gray-400 hover:text-autumn-primary transition-colors"
+                          title="Download CV"
+                        >
+                          <Download className="size-4" />
+                        </a>
+                      )}
                     </div>
                   </td>
                 </tr>
               ))}
-              {filteredApplications.length === 0 && (
+              {loading && (
+                <tr>
+                  <td colSpan={7} className="px-6 py-12 text-center text-gray-500">Loading applications…</td>
+                </tr>
+              )}
+              {!loading && filteredApplications.length === 0 && (
                 <tr>
                   <td colSpan={7} className="px-6 py-12 text-center text-gray-500">
                     <div className="size-12 bg-gray-50 rounded-full flex items-center justify-center mx-auto mb-3">

@@ -1,4 +1,4 @@
-﻿import { useState, useCallback, useRef } from 'react';
+﻿import { useState, useCallback, useRef, useEffect } from 'react';
 import { DndProvider, useDrag, useDrop } from 'react-dnd';
 import { HTML5Backend } from 'react-dnd-html5-backend';
 import {
@@ -12,6 +12,8 @@ import {
 } from 'lucide-react';
 import { Button } from '../../components/ui/button';
 import { StatusBadge } from '../../components/ats/StatusBadge';
+import { useAuth } from '../../context/AuthContext';
+import { getQuestionBank, saveQuestionBank } from '../../services/questionBankService';
 
 // --- Types ---
 export type QuestionType = 'Short Text' | 'Long Text' | 'Yes/No' | 'Multiple Choice' | 'File Upload';
@@ -149,10 +151,30 @@ const QuestionItem = ({ question, index, moveQuestion, onEdit, onDelete, isSelec
 
 // 2. Main Builder Component
 export function PrescreeningBuilder() {
-    const [questions, setQuestions] = useState<Question[]>([
-        { id: '1', text: 'How many years of relevant experience do you have?', type: 'Short Text', required: true, score: 10 },
-        { id: '2', text: 'Are you authorized to work in the required location?', type: 'Yes/No', required: true, score: 5 },
-    ]);
+    const { user } = useAuth();
+    const [questions, setQuestions] = useState<Question[]>([]);
+    const [saving, setSaving] = useState(false);
+
+    // The question bank is a shared library — jobs can pull questions from
+    // it in the Create Job wizard (Screening Questions step).
+    useEffect(() => {
+        getQuestionBank()
+            .then((qs) => setQuestions(qs as Question[]))
+            .catch((err) => console.error('Failed to load question bank', err));
+    }, []);
+
+    const handleSaveBank = async () => {
+        if (!user) return;
+        setSaving(true);
+        try {
+            await saveQuestionBank(questions, user);
+            alert('Question library saved. These questions are now available when creating jobs.');
+        } catch (err: any) {
+            alert(err?.message || 'Failed to save question library.');
+        } finally {
+            setSaving(false);
+        }
+    };
 
     const [selectedQuestionId, setSelectedQuestionId] = useState<string | null>(null);
 
@@ -198,11 +220,12 @@ export function PrescreeningBuilder() {
                         <p className="text-gray-500 mt-1">Design screening questionnaires to qualify candidates automatically</p>
                     </div>
                     <div className="flex gap-3">
-                        <Button variant="outline">
-                            Save as Template
-                        </Button>
-                        <Button className="bg-[var(--pumpkin-orange)] hover:bg-[var(--pumpkin-orange)]/90 text-white">
-                            Save Changes
+                        <Button
+                            className="bg-[var(--pumpkin-orange)] hover:bg-[var(--pumpkin-orange)]/90 text-white"
+                            disabled={saving}
+                            onClick={handleSaveBank}
+                        >
+                            {saving ? 'Saving…' : 'Save Question Library'}
                         </Button>
                     </div>
                 </div>

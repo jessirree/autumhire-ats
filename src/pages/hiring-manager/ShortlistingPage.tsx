@@ -1,4 +1,4 @@
-﻿import { useState } from 'react';
+﻿import { useEffect, useState } from 'react';
 import {
     CheckCircle,
     XCircle,
@@ -9,95 +9,98 @@ import {
 } from 'lucide-react';
 import { Button } from '../../components/ui/button';
 import { StatusBadge } from '../../components/ats/StatusBadge';
+import { useAuth } from '../../context/AuthContext';
+import {
+    Application,
+    getAllApplications,
+    updateApplicationStatus,
+    addPanelComment,
+} from '../../services/applicationService';
 
-// Mock Data
 interface Candidate {
     id: string;
     name: string;
     role: string;
     score: number;
-    status: 'Longlisted' | 'Shortlisted' | 'Rejected' | 'Interview' | 'Offer';
+    status: string;
     appliedDate: string;
-    experience: string;
     note?: string;
+    application: Application;
 }
-
-const mockCandidates: Candidate[] = [
-    {
-        id: '1',
-        name: 'Samson Johnn',
-        role: 'Senior Frontend Developer',
-        score: 92,
-        status: 'Longlisted',
-        appliedDate: '2026-02-15',
-        experience: '5 years',
-        note: 'Strong React skills'
-    },
-    {
-        id: '2',
-        name: 'Michael Chen',
-        role: 'Product Manager',
-        score: 88,
-        status: 'Longlisted',
-        appliedDate: '2026-02-14',
-        experience: '4 years'
-    },
-    {
-        id: '3',
-        name: 'Emma Williams',
-        role: 'UX Designer',
-        score: 95,
-        status: 'Shortlisted',
-        appliedDate: '2026-02-13',
-        experience: '6 years'
-    },
-    {
-        id: '4',
-        name: 'James Wilson',
-        role: 'Senior Frontend Developer',
-        score: 78,
-        status: 'Longlisted',
-        appliedDate: '2026-02-12',
-        experience: '3 years'
-    },
-    {
-        id: '5',
-        name: 'Lisa Anderson',
-        role: 'Product Manager',
-        score: 65,
-        status: 'Rejected',
-        appliedDate: '2026-02-10',
-        experience: '2 years',
-        note: 'Not enough experience'
-    }
-];
 
 interface ShortlistingPageProps {
     onViewCandidate: (candidateId: string) => void;
 }
 
 export function ShortlistingPage({ onViewCandidate }: ShortlistingPageProps) {
-    const [candidates, setCandidates] = useState<Candidate[]>(mockCandidates);
+    const { user } = useAuth();
+    const [candidates, setCandidates] = useState<Candidate[]>([]);
+    const [loading, setLoading] = useState(true);
+    const [searchTerm, setSearchTerm] = useState('');
     const [noteText, setNoteText] = useState('');
     const [activeNoteId, setActiveNoteId] = useState<string | null>(null);
 
-    const handleStatusChange = (id: string, newStatus: Candidate['status']) => {
-        setCandidates(prev => prev.map(c => c.id === id ? { ...c, status: newStatus } : c));
+    const load = () => {
+        setLoading(true);
+        getAllApplications()
+            .then((apps) =>
+                setCandidates(
+                    apps
+                        // Hiring managers review the longlist + already shortlisted candidates.
+                        .filter((a) => ['longlisted', 'shortlisted', 'rejected'].includes(a.status))
+                        .map((a) => ({
+                            id: a.id,
+                            name: a.candidateName,
+                            role: a.jobTitle,
+                            score: a.prescreenScore,
+                            status: a.status,
+                            appliedDate: a.appliedAt?.toDate ? a.appliedAt.toDate().toLocaleDateString() : '—',
+                            application: a,
+                        }))
+                )
+            )
+            .catch((err) => console.error('Failed to load candidates', err))
+            .finally(() => setLoading(false));
     };
 
-    const handleAddNote = (id: string) => {
+    useEffect(load, []);
+
+    const handleStatusChange = async (candidate: Candidate, newStatus: 'shortlisted' | 'rejected') => {
+        if (!user) return;
+        // Provision for rationale supporting the shortlisting decision.
+        const rationale = prompt(
+            newStatus === 'shortlisted'
+                ? `Rationale for shortlisting ${candidate.name} (optional):`
+                : `Rationale for rejecting ${candidate.name} (optional):`
+        ) || undefined;
+        try {
+            await updateApplicationStatus(candidate.application, newStatus, user, rationale, newStatus === 'rejected');
+            load();
+        } catch (err: any) {
+            alert(err?.message || 'Failed to update status.');
+        }
+    };
+
+    const handleAddNote = async (id: string) => {
         if (activeNoteId === id) {
-            // Save note
-            setCandidates(prev => prev.map(c => c.id === id ? { ...c, note: noteText } : c));
+            if (user && noteText.trim()) {
+                await addPanelComment(id, user, noteText.trim(), 'shortlisting');
+                setCandidates((prev) => prev.map((c) => (c.id === id ? { ...c, note: noteText.trim() } : c)));
+            }
             setActiveNoteId(null);
             setNoteText('');
         } else {
-            // Open note input
-            const candidate = candidates.find(c => c.id === id);
+            const candidate = candidates.find((c) => c.id === id);
             setNoteText(candidate?.note || '');
             setActiveNoteId(id);
         }
     };
+
+    const visibleCandidates = candidates.filter(
+        (c) =>
+            c.name.toLowerCase().includes(searchTerm.toLowerCase()) ||
+            c.role.toLowerCase().includes(searchTerm.toLowerCase())
+    );
 
 
 
@@ -113,6 +116,8 @@ export function ShortlistingPage({ onViewCandidate }: ShortlistingPageProps) {
                         <input
                             type="text"
                             placeholder="Search candidates..."
+                            value={searchTerm}
+                            onChange={(e) => setSearchTerm(e.target.value)}
                             className="pl-10 pr-4 py-2 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-autumn-orange/50"
                         />
                     </div>
@@ -130,14 +135,20 @@ export function ShortlistingPage({ onViewCandidate }: ShortlistingPageProps) {
                                 <th className="px-6 py-4 text-left text-xs font-semibold text-gray-500 uppercase tracking-wider">Candidate</th>
                                 <th className="px-6 py-4 text-left text-xs font-semibold text-gray-500 uppercase tracking-wider">Role</th>
                                 <th className="px-6 py-4 text-left text-xs font-semibold text-gray-500 uppercase tracking-wider">Score</th>
-                                <th className="px-6 py-4 text-left text-xs font-semibold text-gray-500 uppercase tracking-wider">Experience</th>
+                                <th className="px-6 py-4 text-left text-xs font-semibold text-gray-500 uppercase tracking-wider">Location</th>
                                 <th className="px-6 py-4 text-left text-xs font-semibold text-gray-500 uppercase tracking-wider">Status</th>
                                 <th className="px-6 py-4 text-left text-xs font-semibold text-gray-500 uppercase tracking-wider">Notes</th>
                                 <th className="px-6 py-4 text-right text-xs font-semibold text-gray-500 uppercase tracking-wider">Actions</th>
                             </tr>
                         </thead>
                         <tbody className="divide-y divide-gray-200">
-                            {candidates.map((candidate) => (
+                            {loading && (
+                                <tr><td colSpan={7} className="px-6 py-12 text-center text-gray-500">Loading candidates…</td></tr>
+                            )}
+                            {!loading && visibleCandidates.length === 0 && (
+                                <tr><td colSpan={7} className="px-6 py-12 text-center text-gray-500">No longlisted candidates yet. Candidates appear here once the recruiter long-lists them.</td></tr>
+                            )}
+                            {!loading && visibleCandidates.map((candidate) => (
                                 <tr key={candidate.id} className="hover:bg-gray-50 transition-colors">
                                     <td className="px-6 py-4">
                                         <div className="flex items-center gap-3">
@@ -161,10 +172,10 @@ export function ShortlistingPage({ onViewCandidate }: ShortlistingPageProps) {
                       ${candidate.score >= 90 ? 'bg-green-100 text-green-800' :
                                                 candidate.score >= 70 ? 'bg-yellow-100 text-yellow-800' :
                                                     'bg-red-100 text-red-800'}`}>
-                                            {candidate.score}%
+                                            {candidate.score}
                                         </span>
                                     </td>
-                                    <td className="px-6 py-4 text-gray-600">{candidate.experience}</td>
+                                    <td className="px-6 py-4 text-gray-600">{[candidate.application.city, candidate.application.country].filter(Boolean).join(', ') || '—'}</td>
                                     <td className="px-6 py-4">
                                         <StatusBadge status={candidate.status} size="sm" />
                                     </td>
@@ -212,7 +223,7 @@ export function ShortlistingPage({ onViewCandidate }: ShortlistingPageProps) {
                                                 size="sm"
                                                 className="bg-green-500 hover:bg-green-600 text-white border-none h-8 w-8 p-0 rounded-full"
                                                 title="Shortlist"
-                                                onClick={() => handleStatusChange(candidate.id, 'Shortlisted')}
+                                                onClick={() => handleStatusChange(candidate, 'shortlisted')}
                                             >
                                                 <CheckCircle className="size-4" />
                                             </Button>
@@ -220,7 +231,7 @@ export function ShortlistingPage({ onViewCandidate }: ShortlistingPageProps) {
                                                 size="sm"
                                                 className="bg-red-500 hover:bg-red-600 text-white border-none h-8 w-8 p-0 rounded-full"
                                                 title="Reject"
-                                                onClick={() => handleStatusChange(candidate.id, 'Rejected')}
+                                                onClick={() => handleStatusChange(candidate, 'rejected')}
                                             >
                                                 <XCircle className="size-4" />
                                             </Button>
@@ -232,7 +243,7 @@ export function ShortlistingPage({ onViewCandidate }: ShortlistingPageProps) {
                     </table>
                 </div>
                 <div className="p-4 border-t border-gray-200 bg-gray-50 text-xs text-gray-500 text-center">
-                    Showing {candidates.length} candidates
+                    Showing {visibleCandidates.length} candidates
                 </div>
             </div>
 

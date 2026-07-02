@@ -1,48 +1,19 @@
-﻿import { useState, useRef, useEffect } from 'react';
-import { FileText, User, Clock, Search, ChevronLeft, ChevronRight, Bell, Calendar, MapPin, Building, Briefcase, DollarSign, X } from 'lucide-react';
+import { useState, useEffect } from 'react';
+import { FileText, User, Search, Briefcase } from 'lucide-react';
 import { Button } from '../../components/ui/button';
 import { StatusBadge } from '../../components/ats/StatusBadge';
 import { StatusTimeline } from '../../components/ats/StatusTimeline';
 import { CandidateHeader } from '../../components/ats/CandidateHeader';
-import { ApplicationForm } from './ApplicationForm';
-import { mockDataService, Job } from '../../services/MockDataService';
-
-interface Application {
-  id: string;
-  jobTitle: string;
-  department: string;
-  appliedDate: string;
-  status: string;
-  currentStage: string;
-}
-
-const mockApplications: Application[] = [
-  // ... existing mock data
-  {
-    id: '1',
-    jobTitle: 'Senior Frontend Developer',
-    department: 'Engineering',
-    appliedDate: 'Feb 9, 2026',
-    status: 'Interview',
-    currentStage: 'interview',
-  },
-  {
-    id: '2',
-    jobTitle: 'Product Manager',
-    department: 'Product',
-    appliedDate: 'Feb 5, 2026',
-    status: 'Shortlisted',
-    currentStage: 'shortlisted',
-  },
-  {
-    id: '3',
-    jobTitle: 'UX Designer',
-    department: 'Design',
-    appliedDate: 'Jan 28, 2026',
-    status: 'Screening',
-    currentStage: 'screening',
-  },
-];
+import { NotificationBell } from '../../components/ats/NotificationBell';
+import { useAuth } from '../../context/AuthContext';
+import { Application, getApplicationsByCandidate } from '../../services/applicationService';
+import { Offer, getOffersForCandidate, respondToOffer } from '../../services/offerService';
+import {
+  CandidateProfile,
+  getCandidateProfile,
+  updateCandidateProfile,
+  uploadProfileCv,
+} from '../../services/profileService';
 
 interface CandidateDashboardProps {
   onLogout: () => void;
@@ -65,153 +36,127 @@ export function CandidateDashboard({
   onTermsClick,
   userProfile
 }: CandidateDashboardProps) {
+  const { user } = useAuth();
   const [activeTab, setActiveTab] = useState<'applications' | 'profile'>('applications');
-  const [searchTerm, setSearchTerm] = useState('');
-  const scrollRef = useRef<HTMLDivElement>(null);
+  const [myApplications, setMyApplications] = useState<Application[]>([]);
+  const [myOffers, setMyOffers] = useState<Offer[]>([]);
 
-  // Job Flow State
-  const [featuredJobs, setFeaturedJobs] = useState<Job[]>([]);
-  const [selectedJob, setSelectedJob] = useState<Job | null>(null);
-  const [showApplicationForm, setShowApplicationForm] = useState(false);
-  const [applyingJob, setApplyingJob] = useState<Job | null>(null);
+  const loadApplications = () => {
+    if (user) {
+      getApplicationsByCandidate(user.id).then(setMyApplications).catch(() => {});
+      getOffersForCandidate(user.id).then(setMyOffers).catch(() => {});
+    }
+  };
 
-  useEffect(() => {
-    setFeaturedJobs(mockDataService.getFeaturedJobs());
-  }, []);
+  useEffect(loadApplications, [user]);
 
+  const handleOfferResponse = async (offer: Offer, decision: 'accepted' | 'rejected') => {
+    if (!user) return;
+    const verb = decision === 'accepted' ? 'accept' : 'decline';
+    if (!confirm(`Are you sure you want to ${verb} the offer for ${offer.jobTitle}?`)) return;
+    try {
+      await respondToOffer(offer, decision, user);
+      loadApplications();
+      alert(decision === 'accepted'
+        ? 'Congratulations! Your acceptance has been recorded — the team will be in touch about next steps.'
+        : 'Your response has been recorded. Thank you for letting us know.');
+    } catch (err: any) {
+      alert(err?.message || 'Failed to record your response.');
+    }
+  };
+
+  const pendingOffers = myOffers.filter((o) => o.status === 'sent');
+
+  const nameParts = (user?.name || '').split(' ');
   const [profile, setProfile] = useState({
-    firstName: 'Lynn',
-    lastName: 'Mwangi',
-    email: 'lyn.mwangi@example.com',
-    phone: '+1 (555) 123-4567',
-    gender: 'Female',
-    nationality: 'Kenyan',
-    location: 'Nairobi, Kenya',
+    firstName: nameParts[0] || '',
+    lastName: nameParts.slice(1).join(' ') || '',
+    email: user?.email || '',
+    phone: '',
+    gender: '',
+    nationality: '',
+    city: '',
+    country: '',
   });
+  const [savedCv, setSavedCv] = useState<{ url?: string; name?: string }>({});
+  const [savingProfile, setSavingProfile] = useState(false);
+  const [uploadingCv, setUploadingCv] = useState(false);
 
-  const scroll = (direction: 'left' | 'right') => {
-    if (scrollRef.current) {
-      const scrollAmount = 320;
-      scrollRef.current.scrollBy({ left: direction === 'left' ? -scrollAmount : scrollAmount, behavior: 'smooth' });
+  // Load the persisted profile from Firestore.
+  useEffect(() => {
+    if (!user) return;
+    getCandidateProfile(user.id)
+      .then((p: CandidateProfile) => {
+        const parts = (p.name || user.name || '').split(' ');
+        setProfile((prev) => ({
+          ...prev,
+          firstName: parts[0] || prev.firstName,
+          lastName: parts.slice(1).join(' ') || prev.lastName,
+          email: user.email,
+          phone: p.phone || '',
+          gender: p.gender || '',
+          nationality: p.nationality || '',
+          city: p.city || '',
+          country: p.country || '',
+        }));
+        setSavedCv({ url: p.cvUrl, name: p.cvFileName });
+      })
+      .catch(() => {});
+  }, [user]);
+
+  const handleSaveProfile = async () => {
+    if (!user) return;
+    setSavingProfile(true);
+    try {
+      await updateCandidateProfile(user.id, {
+        name: `${profile.firstName} ${profile.lastName}`.trim(),
+        phone: profile.phone,
+        gender: profile.gender,
+        nationality: profile.nationality,
+        city: profile.city,
+        country: profile.country,
+      });
+      alert('Profile saved.');
+    } catch (err: any) {
+      alert(err?.message || 'Failed to save profile.');
+    } finally {
+      setSavingProfile(false);
+    }
+  };
+
+  const handleCvUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    if (!user || !e.target.files?.[0]) return;
+    setUploadingCv(true);
+    try {
+      const up = await uploadProfileCv(user.id, e.target.files[0]);
+      setSavedCv({ url: up.url, name: up.name });
+    } catch (err: any) {
+      alert(err?.message || 'Failed to upload CV.');
+    } finally {
+      setUploadingCv(false);
     }
   };
 
   const timelineSteps = (currentStage: string) => {
-    // ... existing logic
-    const stages = ['applied', 'screening', 'shortlisted', 'interview', 'offer'];
+    const stages = ['applied', 'longlisted', 'shortlisted', 'interview', 'offer', 'hired'];
     const currentIndex = stages.indexOf(currentStage);
 
     return [
-      { label: 'Applied', status: 'completed' as const, date: 'Feb 9' },
-      { label: 'Screening', status: (currentIndex >= 1 ? ('completed' as const) : currentIndex === 0 ? ('current' as const) : ('upcoming' as const)) },
-      { label: 'Shortlisted', status: (currentIndex >= 2 ? ('completed' as const) : currentIndex === 1 ? ('current' as const) : ('upcoming' as const)) },
-      { label: 'Interview', status: (currentIndex >= 3 ? ('completed' as const) : currentIndex === 2 ? ('current' as const) : ('upcoming' as const)) },
-      { label: 'Offer', status: (currentIndex >= 4 ? ('completed' as const) : currentIndex === 3 ? ('current' as const) : ('upcoming' as const)) },
+      { label: 'Applied', status: 'completed' as const },
+      { label: 'Longlisted', status: (currentIndex >= 2 ? ('completed' as const) : currentIndex === 1 ? ('current' as const) : ('upcoming' as const)) },
+      { label: 'Shortlisted', status: (currentIndex >= 3 ? ('completed' as const) : currentIndex === 2 ? ('current' as const) : ('upcoming' as const)) },
+      { label: 'Interview', status: (currentIndex >= 4 ? ('completed' as const) : currentIndex === 3 ? ('current' as const) : ('upcoming' as const)) },
+      { label: 'Offer', status: (currentIndex >= 5 ? ('completed' as const) : currentIndex === 4 ? ('current' as const) : ('upcoming' as const)) },
     ];
   };
 
   const isLoggedIn = !!userProfile;
 
-  // Handle Application Form Display
-  if (showApplicationForm && applyingJob) {
-    return (
-      <ApplicationForm
-        jobTitle={applyingJob.title}
-        onBack={() => {
-          setShowApplicationForm(false);
-          setApplyingJob(null);
-        }}
-        onSubmit={() => {
-          setShowApplicationForm(false);
-          setApplyingJob(null);
-          alert("Application Submitted!"); // Could be replaced with a nicer toast
-        }}
-      />
-    );
-  }
-
   return (
-    <div className="min-h-screen bg-background font-sans overflow-x-hidden relative">
-      {/* Job Details Modal */}
-      {selectedJob && (
-        <div className="fixed inset-0 bg-black/50 z-50 flex items-center justify-center p-4">
-          <div className="bg-white rounded-xl shadow-xl w-full max-w-3xl max-h-[90vh] overflow-y-auto relative animate-in fade-in zoom-in-95 duration-200">
-            <button
-              onClick={() => setSelectedJob(null)}
-              className="absolute top-4 right-4 p-2 bg-gray-100 rounded-full hover:bg-gray-200"
-            >
-              <X className="size-5 text-gray-500" />
-            </button>
-
-            <div className="p-8">
-              <div className="flex gap-4 mb-6">
-                <div className="size-16 rounded-xl bg-gray-100 flex items-center justify-center text-2xl font-bold text-gray-400 shrink-0">
-                  {selectedJob.company.substring(0, 2).toUpperCase()}
-                </div>
-                <div>
-                  <h2 className="text-2xl font-bold text-gray-900 mb-1">{selectedJob.title}</h2>
-                  <div className="flex items-center gap-2 text-gray-600">
-                    <Building className="size-4" />
-                    <span>{selectedJob.company}</span>
-                  </div>
-                </div>
-              </div>
-
-              <div className="flex flex-wrap gap-4 mb-8">
-                <span className="flex items-center gap-1.5 text-sm text-gray-600 bg-gray-50 px-3 py-1.5 rounded-lg">
-                  <MapPin className="size-4 text-[var(--pumpkin-orange)]" />
-                  {selectedJob.location}
-                </span>
-                <span className="flex items-center gap-1.5 text-sm text-gray-600 bg-gray-50 px-3 py-1.5 rounded-lg">
-                  <Briefcase className="size-4 text-[var(--pumpkin-orange)]" />
-                  {selectedJob.type}
-                </span>
-                <span className="flex items-center gap-1.5 text-sm text-gray-600 bg-gray-50 px-3 py-1.5 rounded-lg">
-                  <DollarSign className="size-4 text-[var(--pumpkin-orange)]" />
-                  {selectedJob.salary}
-                </span>
-              </div>
-
-              <div className="space-y-6 text-gray-600">
-                <div>
-                  <h3 className="font-bold text-gray-900 mb-2">Description</h3>
-                  <p className="leading-relaxed whitespace-pre-line">{selectedJob.description}</p>
-                </div>
-
-                <div>
-                  <h3 className="font-bold text-gray-900 mb-2">Requirements</h3>
-                  <ul className="space-y-2">
-                    {selectedJob.requirements.map((req, i) => (
-                      <li key={i} className="flex gap-2">
-                        <div className="min-w-[6px] h-[6px] rounded-full bg-[var(--pumpkin-orange)] mt-2" />
-                        <span>{req}</span>
-                      </li>
-                    ))}
-                  </ul>
-                </div>
-              </div>
-
-              <div className="mt-8 pt-6 border-t border-gray-100 flex justify-end gap-3 sticky bottom-0 bg-white pb-2">
-                <Button variant="outline" onClick={() => setSelectedJob(null)}>Close</Button>
-                <Button
-                  className="bg-[var(--pumpkin-orange)] hover:bg-[var(--golden-yellow)] text-white"
-                  onClick={() => {
-                    setApplyingJob(selectedJob);
-                    setShowApplicationForm(true);
-                    setSelectedJob(null);
-                  }}
-                >
-                  Apply Now
-                </Button>
-              </div>
-            </div>
-          </div>
-        </div>
-      )}
-
+    <div className="min-h-screen bg-background font-sans overflow-x-hidden relative flex flex-col">
       {/* Header */}
       <CandidateHeader
-        onLoginClick={onLoginClick} // Should not be clicked when logged in
+        onLoginClick={onLoginClick}
         onAboutClick={onAboutClick}
         onHomeClick={onHomeClick}
         onJobListingsClick={onJobListingsClick}
@@ -221,131 +166,52 @@ export function CandidateDashboard({
         onLogout={onLogout}
       />
 
-      {/* Hero Section - Visible to ALL */}
-      <div
-        className="relative min-h-[75vh] w-full flex flex-col justify-center items-center p-0 m-0 border-0 box-border bg-cover bg-center bg-no-repeat"
-        style={{
-          backgroundImage: "url('/bg1.png')",
-        }}
-      >
-        <div className="absolute inset-0 bg-black/50 z-10"></div>
-        <div className="relative z-20 container mx-auto px-6 text-center">
-          <h2 className="text-5xl font-bold mb-8 text-[#EAE3D2] tracking-wide">FIND A JOB</h2>
-
-          <div className="flex flex-col md:flex-row items-center justify-center gap-4 max-w-4xl mx-auto w-full">
-            <div className="flex-1 w-full relative group">
-              <div className="absolute left-0 top-0 bottom-0 px-4 flex items-center justify-center border border-white border-r-0 rounded-l-lg bg-transparent text-white">
-                <Search className="size-5" />
-              </div>
-              <input
-                type="text"
-                placeholder="Keywords"
-                value={searchTerm}
-                onChange={(e) => setSearchTerm(e.target.value)}
-                className="w-full pl-14 pr-4 py-3 h-12 bg-[#EAE3D2]/60 text-[#222222] placeholder:text-white placeholder:opacity-100 border border-white rounded-lg focus:outline-none focus:ring-2 focus:ring-white/50 transition-all font-medium"
-              />
+      {/* Dashboard Content */}
+      {isLoggedIn && (
+        <div className="max-w-7xl mx-auto px-6 py-12 w-full flex-1">
+          <div className="mb-8 flex items-start justify-between">
+            <div>
+              <h1 className="text-3xl font-bold text-autumn-charcoal mb-2">Welcome back, {profile.firstName}!</h1>
+              <p className="text-gray-600">Here is what is happening with your job applications.</p>
             </div>
-            <div className="w-full md:w-auto">
+            <div className="flex items-center gap-3">
               <Button
-                className="w-full md:w-auto px-10 h-12 rounded-lg font-bold text-white shadow-lg hover:shadow-xl transition-all"
-                style={{ backgroundColor: 'var(--pumpkin-orange)' }}
-                onClick={onJobListingsClick} // Search goes to Job Board
+                variant="outline"
+                className="gap-2 text-autumn-orange border-autumn-orange hover:bg-autumn-orange hover:text-white"
+                onClick={onJobListingsClick}
               >
-                Search
+                <Briefcase className="size-4" />
+                Open Vacancies
               </Button>
+              <NotificationBell />
             </div>
           </div>
-        </div>
-      </div>
 
-      {/* Featured Jobs Section - Visible to ALL */}
-      <div className="w-full py-16 bg-[#b3c2a3] relative">
-        <div className="container mx-auto px-6 relative">
-          <div className="flex justify-end mb-6">
-            <Button
-              variant="ghost"
-              className="bg-white text-gray-800 hover:bg-gray-100 gap-2 font-medium"
-            >
-              <Bell className="size-4" /> Subscribe for Job Alerts
-            </Button>
-          </div>
-
-          <div className="flex justify-between items-center mb-6">
-            <h4 className="text-2xl font-bold text-gray-900">Featured Jobs</h4>
-          </div>
-
-          <div className="relative group/scroll">
-            <button
-              className="absolute -left-5 top-1/2 -translate-y-1/2 z-10 bg-white p-3 rounded-full shadow-md text-gray-600 hover:text-autumn-orange transition-all opacity-0 group-hover/scroll:opacity-100"
-              onClick={() => scroll('left')}
-            >
-              <ChevronLeft className="size-5" />
-            </button>
-
-            <div
-              ref={scrollRef}
-              className="flex overflow-x-auto gap-6 pb-4 clean-scrollbar scroll-smooth px-2"
-              style={{ scrollbarWidth: 'none', msOverflowStyle: 'none' }}
-            >
-              {featuredJobs.map((job) => (
-                <div key={job.id} className="min-w-[300px] max-w-[340px] flex-shrink-0 bg-white rounded-lg shadow-sm p-6 text-center hover:shadow-md transition-shadow relative flex flex-col h-full">
-                  <img src={job.logo} alt="Logo" className="w-16 h-16 object-contain mx-auto mb-4 rounded-md" />
-                  <h5 className="font-bold text-lg mb-2 text-gray-900 truncate" title={job.title}>{job.title}</h5>
-                  <div className="text-gray-500 text-sm space-y-2 mb-4 flex-1">
-                    <p className="truncate">{job.company}</p>
-                    <p className="flex items-center justify-center gap-1">
-                      <MapPin className="size-3" /> {job.location}
-                    </p>
-                    <p className="font-semibold text-gray-700">{job.salary}</p>
-                    <p className="text-xs flex items-center justify-center gap-1">
-                      <Clock className="size-3" /> Posted: {job.posted}
-                    </p>
-                    {job.deadline && (
-                      <p className="text-xs flex items-center justify-center gap-1">
-                        <Calendar className="size-3" /> Deadline: {job.deadline}
-                      </p>
-                    )}
-                  </div>
-                  <div className="flex gap-2 mt-auto">
-                    <Button
-                      variant="outline"
-                      className="flex-1 border-autumn-orange text-autumn-orange hover:bg-autumn-orange hover:text-white"
-                      onClick={() => setSelectedJob(job)}
-                    >
-                      View Details
+          {/* Pending offers — candidate accept/decline */}
+          {pendingOffers.length > 0 && (
+            <div className="mb-8 space-y-4">
+              {pendingOffers.map((offer) => (
+                <div key={offer.id} className="bg-green-50 border border-green-200 rounded-xl p-6">
+                  <h3 className="text-lg font-bold text-green-900 mb-1">
+                    You have an offer for {offer.jobTitle}!
+                  </h3>
+                  <p className="text-sm text-green-800 mb-4">
+                    {offer.salary ? `Compensation: ${offer.currency ?? ''} ${offer.salary}. ` : ''}
+                    {offer.startDate ? `Proposed start date: ${offer.startDate}. ` : ''}
+                    {offer.notes ? offer.notes : ''}
+                  </p>
+                  <div className="flex gap-3">
+                    <Button className="bg-green-600 hover:bg-green-700 text-white" onClick={() => handleOfferResponse(offer, 'accepted')}>
+                      Accept Offer
                     </Button>
-                    <Button
-                      variant="outline"
-                      className="flex-1 border-autumn-orange text-autumn-orange hover:bg-autumn-orange hover:text-white"
-                      onClick={() => {
-                        setApplyingJob(job);
-                        setShowApplicationForm(true);
-                      }}
-                    >
-                      Apply Now
+                    <Button variant="outline" className="text-red-600 border-red-200 hover:bg-red-50" onClick={() => handleOfferResponse(offer, 'rejected')}>
+                      Decline
                     </Button>
                   </div>
                 </div>
               ))}
             </div>
-
-            <button
-              className="absolute -right-5 top-1/2 -translate-y-1/2 z-10 bg-white p-3 rounded-full shadow-md text-gray-600 hover:text-autumn-orange transition-all opacity-0 group-hover/scroll:opacity-100"
-              onClick={() => scroll('right')}
-            >
-              <ChevronRight className="size-5" />
-            </button>
-          </div>
-        </div>
-      </div>
-
-      {/* Personalized Dashboard Content - Visible ONLY when Logged In */}
-      {isLoggedIn && (
-        <div className="max-w-7xl mx-auto px-6 py-12">
-          <div className="mb-8">
-            <h1 className="text-3xl font-bold text-autumn-charcoal mb-2">Welcome back, {profile.firstName}!</h1>
-            <p className="text-gray-600">Here is what is happening with your job applications.</p>
-          </div>
+          )}
 
           {/* Stats Cards */}
           <div className="grid grid-cols-1 md:grid-cols-3 gap-6 mb-12">
@@ -356,10 +222,8 @@ export function CandidateDashboard({
                   <FileText className="size-5" />
                 </div>
               </div>
-              <p className="text-3xl font-bold text-autumn-charcoal">12</p>
-              <p className="text-sm text-green-600 mt-2 flex items-center gap-1">
-                <span className="font-medium">+2</span> this week
-              </p>
+              <p className="text-3xl font-bold text-autumn-charcoal">{myApplications.length}</p>
+              <p className="text-sm text-gray-500 mt-2">All time</p>
             </div>
 
             <div className="bg-card rounded-xl border border-border p-6 shadow-sm">
@@ -369,24 +233,21 @@ export function CandidateDashboard({
                   <User className="size-5" />
                 </div>
               </div>
-              <p className="text-3xl font-bold text-autumn-charcoal">3</p>
-              <p className="text-sm text-gray-500 mt-2">Upcoming interviews</p>
+              <p className="text-3xl font-bold text-autumn-charcoal">{myApplications.filter((a) => a.status === 'interview').length}</p>
+              <p className="text-sm text-gray-500 mt-2">In interview stage</p>
             </div>
 
             <div className="bg-card rounded-xl border border-border p-6 shadow-sm">
               <div className="flex items-center justify-between mb-4">
-                <h3 className="font-medium text-gray-500">Profile Views</h3>
+                <h3 className="font-medium text-gray-500">Offers</h3>
                 <div className="p-2 bg-orange-50 text-autumn-orange rounded-lg">
                   <Search className="size-5" />
                 </div>
               </div>
-              <p className="text-3xl font-bold text-autumn-charcoal">45</p>
-              <p className="text-sm text-green-600 mt-2 flex items-center gap-1">
-                <span className="font-medium">+15%</span> vs last month
-              </p>
+              <p className="text-3xl font-bold text-autumn-charcoal">{myApplications.filter((a) => a.status === 'offer' || a.status === 'hired').length}</p>
+              <p className="text-sm text-gray-500 mt-2">Offers & hires</p>
             </div>
           </div>
-
 
           <div className="bg-card rounded-2xl border border-border shadow-sm overflow-hidden">
             <div className="border-b border-border">
@@ -415,28 +276,45 @@ export function CandidateDashboard({
             <div className="p-8">
               {activeTab === 'applications' ? (
                 <div className="space-y-6">
-                  {mockApplications.map((app) => (
+                  {myApplications.length === 0 && (
+                    <div className="text-center py-12 text-gray-500">
+                      <FileText className="size-10 mx-auto mb-3 text-gray-300" />
+                      <p className="font-medium text-gray-900 mb-1">No applications yet</p>
+                      <p className="text-sm mb-4">Browse the open vacancies and apply to get started.</p>
+                      <Button
+                        variant="outline"
+                        className="text-autumn-orange border-autumn-orange hover:bg-autumn-orange hover:text-white"
+                        onClick={onJobListingsClick}
+                      >
+                        View Open Vacancies
+                      </Button>
+                    </div>
+                  )}
+                  {myApplications.map((app) => (
                     <div key={app.id} className="border border-border rounded-xl p-6 hover:shadow-md transition-shadow bg-white">
                       <div className="flex items-start justify-between mb-6">
                         <div>
                           <h3 className="text-xl font-bold text-autumn-charcoal mb-1">{app.jobTitle}</h3>
-                          <p className="text-gray-500 text-sm mb-3">{app.department} â€¢ Applied on {app.appliedDate}</p>
+                          <p className="text-gray-500 text-sm mb-3">
+                            {app.department} • Applied on{' '}
+                            {app.appliedAt?.toDate ? app.appliedAt.toDate().toLocaleDateString() : '—'}
+                          </p>
                           <StatusBadge status={app.status} />
                         </div>
-                        <Button variant="outline" size="sm" className="text-autumn-orange border-autumn-orange hover:bg-autumn-orange hover:text-white">
-                          View Details
-                        </Button>
                       </div>
 
-                      <StatusTimeline
-                        steps={timelineSteps(app.currentStage)}
-                      />
+                      {['regretted', 'rejected', 'withdrawn'].includes(app.status) ? (
+                        <p className="text-sm text-gray-500">
+                          This application is no longer in progress. Thank you for your interest — we encourage you to apply for future roles.
+                        </p>
+                      ) : (
+                        <StatusTimeline steps={timelineSteps(app.status)} />
+                      )}
                     </div>
                   ))}
                 </div>
               ) : (
                 <div className="space-y-8">
-                  {/* Profile Content (Simplified for now) */}
                   <div className="grid grid-cols-1 md:grid-cols-2 gap-8">
                     <div>
                       <h3 className="text-lg font-bold text-autumn-charcoal mb-4">Personal Information</h3>
@@ -470,12 +348,101 @@ export function CandidateDashboard({
                             disabled
                           />
                         </div>
+                        <div className="grid grid-cols-2 gap-4">
+                          <div>
+                            <label className="text-sm text-gray-500 block mb-1">Phone</label>
+                            <input
+                              type="tel"
+                              value={profile.phone}
+                              onChange={(e) => setProfile({ ...profile, phone: e.target.value })}
+                              className="w-full p-2 border border-border rounded-lg"
+                            />
+                          </div>
+                          <div>
+                            <label className="text-sm text-gray-500 block mb-1">Gender</label>
+                            <select
+                              value={profile.gender}
+                              onChange={(e) => setProfile({ ...profile, gender: e.target.value })}
+                              className="w-full p-2 border border-border rounded-lg bg-white"
+                            >
+                              <option value="">Select…</option>
+                              <option value="female">Female</option>
+                              <option value="male">Male</option>
+                              <option value="other">Other</option>
+                              <option value="prefer-not-to-say">Prefer not to say</option>
+                            </select>
+                          </div>
+                        </div>
+                        <div className="grid grid-cols-3 gap-4">
+                          <div>
+                            <label className="text-sm text-gray-500 block mb-1">Nationality</label>
+                            <input
+                              type="text"
+                              value={profile.nationality}
+                              onChange={(e) => setProfile({ ...profile, nationality: e.target.value })}
+                              className="w-full p-2 border border-border rounded-lg"
+                            />
+                          </div>
+                          <div>
+                            <label className="text-sm text-gray-500 block mb-1">City</label>
+                            <input
+                              type="text"
+                              value={profile.city}
+                              onChange={(e) => setProfile({ ...profile, city: e.target.value })}
+                              className="w-full p-2 border border-border rounded-lg"
+                            />
+                          </div>
+                          <div>
+                            <label className="text-sm text-gray-500 block mb-1">Country</label>
+                            <input
+                              type="text"
+                              value={profile.country}
+                              onChange={(e) => setProfile({ ...profile, country: e.target.value })}
+                              className="w-full p-2 border border-border rounded-lg"
+                            />
+                          </div>
+                        </div>
+                      </div>
+                    </div>
+
+                    <div>
+                      <h3 className="text-lg font-bold text-autumn-charcoal mb-4">My CV</h3>
+                      <p className="text-sm text-gray-500 mb-4">
+                        Upload a CV once and reuse it when applying for jobs.
+                      </p>
+                      {savedCv.url ? (
+                        <div className="flex items-center justify-between bg-green-50 border border-green-200 rounded-lg p-4 mb-4">
+                          <div className="flex items-center gap-2 text-sm text-green-800">
+                            <FileText className="size-4" />
+                            <span className="font-medium">{savedCv.name}</span>
+                          </div>
+                          <a href={savedCv.url} target="_blank" rel="noreferrer" className="text-sm text-blue-600 hover:underline">
+                            View
+                          </a>
+                        </div>
+                      ) : (
+                        <p className="text-sm text-gray-400 italic mb-4">No CV saved yet.</p>
+                      )}
+                      <div className="relative inline-block">
+                        <Button variant="outline" className="pointer-events-none" disabled={uploadingCv}>
+                          {uploadingCv ? 'Uploading…' : savedCv.url ? 'Replace CV' : 'Upload CV'}
+                        </Button>
+                        <input
+                          type="file"
+                          accept=".pdf,.doc,.docx"
+                          className="absolute inset-0 opacity-0 cursor-pointer"
+                          onChange={handleCvUpload}
+                        />
                       </div>
                     </div>
                   </div>
                   <div className="flex justify-end pt-6 border-t border-border">
-                    <Button className="bg-autumn-orange hover:bg-autumn-pumpkin text-white px-8">
-                      Save Changes
+                    <Button
+                      className="bg-autumn-orange hover:bg-autumn-pumpkin text-white px-8"
+                      disabled={savingProfile}
+                      onClick={handleSaveProfile}
+                    >
+                      {savingProfile ? 'Saving…' : 'Save Changes'}
                     </Button>
                   </div>
                 </div>
@@ -485,31 +452,23 @@ export function CandidateDashboard({
         </div>
       )}
 
-      {/* Footer */}
-      <footer className="bg-[#1a1a1a] text-white text-center py-8">
-        <div className="container mx-auto px-6">
-          <div className="flex justify-center gap-6 mb-4">
-            <a href="#" className="text-white hover:text-autumn-orange transition-colors">Facebook</a>
-            <a href="#" className="text-white hover:text-autumn-orange transition-colors">Instagram</a>
-            <a href="#" className="text-white hover:text-autumn-orange transition-colors">LinkedIn</a>
-          </div>
-          <div className="text-sm text-gray-400">
-            <button
-              onClick={onTermsClick}
-              className="bg-transparent border-none cursor-pointer text-gray-400 hover:text-white mr-4 transition-colors"
-            >
-              Terms and Conditions
-            </button>
-            <button
-              onClick={onContactClick}
-              className="bg-transparent border-none cursor-pointer text-gray-400 hover:text-white transition-colors"
-            >
-              Contact Us
-            </button>
-          </div>
+      {/* Minimal footer */}
+      <footer className="bg-[#1a1a1a] text-white text-center py-6 mt-auto">
+        <div className="container mx-auto px-6 text-sm text-gray-400">
+          <button
+            onClick={onTermsClick}
+            className="bg-transparent border-none cursor-pointer text-gray-400 hover:text-white mr-4 transition-colors"
+          >
+            Terms and Conditions
+          </button>
+          <button
+            onClick={onContactClick}
+            className="bg-transparent border-none cursor-pointer text-gray-400 hover:text-white transition-colors"
+          >
+            Contact Us
+          </button>
         </div>
       </footer>
     </div>
   );
 }
-

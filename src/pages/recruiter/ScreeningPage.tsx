@@ -1,6 +1,13 @@
-﻿import { useState, useMemo } from 'react';
+﻿import { useState, useMemo, useEffect } from 'react';
 import { Search, AlertCircle, CheckCircle, XCircle, ChevronDown, ListOrdered } from 'lucide-react';
 import { Button } from '../../components/ui/button';
+import { useAuth } from '../../context/AuthContext';
+import {
+  Application,
+  getAllApplications,
+  updateApplicationStatus,
+  addPanelComment,
+} from '../../services/applicationService';
 
 interface KnockoutQuestion {
   question: string;
@@ -16,83 +23,100 @@ interface ScreeningResult {
   knockoutQuestions: KnockoutQuestion[];
   status: 'pending' | 'passed' | 'failed';
   notes: string;
-  knockoutPassed?: boolean;
+  application: Application;
 }
 
-const mockScreeningResults: ScreeningResult[] = [
-  {
-    id: 'SCR-001',
-    candidateName: 'Michael Chen',
-    jobTitle: 'Senior Frontend Developer',
-    overallScore: 88,
-    status: 'pending',
-    notes: 'Strong technical background, but needs to clarify notice period.',
-    knockoutQuestions: [
-      { question: 'Do you have 5+ years of React experience?', answer: 'Yes', passed: true },
-      { question: 'Are you eligible to work in the specified location?', answer: 'Yes', passed: true },
-    ]
-  },
-  {
-    id: 'SCR-002',
-    candidateName: 'Sarah Jenkins',
-    jobTitle: 'Product Manager',
-    overallScore: 92,
-    status: 'passed',
-    notes: 'Exceptional answers on product strategy.',
-    knockoutQuestions: [
-      { question: 'Have you managed a B2B SaaS product before?', answer: 'Yes', passed: true },
-    ]
-  },
-  {
-    id: 'SCR-003',
-    candidateName: 'David Miller',
-    jobTitle: 'UX Designer',
-    overallScore: 45,
-    status: 'failed',
-    notes: 'Failed knockout question regarding portfolio.',
-    knockoutQuestions: [
-      { question: 'Can you provide a link to your portfolio?', answer: 'No portfolio available currently.', passed: false },
-    ],
-    knockoutPassed: false
-  }
-];
+// Derive a screening view from a real application: an answer "passes" when
+// it earned points (or has no scoring configured but was answered).
+function toScreeningResult(app: Application): ScreeningResult {
+  const knockoutQuestions: KnockoutQuestion[] = (app.answers ?? []).map((a) => ({
+    question: a.question,
+    answer: a.answer || '—',
+    passed: a.score === undefined ? !!a.answer.trim() : a.score > 0,
+  }));
+  const allPassed = knockoutQuestions.every((q) => q.passed);
+  return {
+    id: app.id,
+    candidateName: app.candidateName,
+    jobTitle: app.jobTitle,
+    overallScore: app.prescreenScore,
+    knockoutQuestions,
+    status: app.status === 'applied' ? 'pending' : allPassed ? 'passed' : 'failed',
+    notes: '',
+    application: app,
+  };
+}
 
 export function ScreeningPage() {
+  const { user } = useAuth();
   const [searchTerm, setSearchTerm] = useState('');
   const [statusFilter, setStatusFilter] = useState('all');
   const [expandedCandidate, setExpandedCandidate] = useState<string | null>(null);
+  const [applications, setApplications] = useState<Application[]>([]);
+  const [loading, setLoading] = useState(true);
+
+  const load = () => {
+    setLoading(true);
+    getAllApplications()
+      .then((apps) =>
+        // Screening looks at candidates still early in the pipeline.
+        setApplications(apps.filter((a) => ['applied', 'longlisted'].includes(a.status)))
+      )
+      .catch((err) => console.error('Failed to load applications', err))
+      .finally(() => setLoading(false));
+  };
+
+  useEffect(load, []);
+
+  const screeningResults = useMemo(() => applications.map(toScreeningResult), [applications]);
 
   const filteredCandidates = useMemo(() => {
-    return mockScreeningResults.filter(result => {
-      const matchesSearch = result.candidateName.toLowerCase().includes(searchTerm.toLowerCase()) || 
+    return screeningResults.filter(result => {
+      const matchesSearch = result.candidateName.toLowerCase().includes(searchTerm.toLowerCase()) ||
                             result.jobTitle.toLowerCase().includes(searchTerm.toLowerCase());
-      
+
+      const allPassed = result.knockoutQuestions.every((q) => q.passed);
       let matchesStatus = true;
-      if (statusFilter === 'passed') matchesStatus = result.knockoutPassed as unknown as boolean; // use true/false based on questions in a real app
-      if (statusFilter === 'failed') matchesStatus = !(result.knockoutPassed as unknown as boolean);
+      if (statusFilter === 'passed') matchesStatus = allPassed;
+      if (statusFilter === 'failed') matchesStatus = !allPassed;
       if (statusFilter === 'pending') matchesStatus = result.status === 'pending';
-      
+
       return matchesSearch && matchesStatus;
     }).sort((a, b) => b.overallScore - a.overallScore);
-  }, [searchTerm, statusFilter]);
+  }, [screeningResults, searchTerm, statusFilter]);
 
   const toggleExpand = (id: string) => {
     setExpandedCandidate(expandedCandidate === id ? null : id);
   };
 
-  const handleMoveToShortlist = (id: string, name: string) => {
-    alert(`Moved ${name} (${id}) to Shortlist.`);
-    // In a real application, you would dispatch an action or make an API call here
+  const handleMoveToShortlist = async (result: ScreeningResult) => {
+    if (!user) return;
+    try {
+      await updateApplicationStatus(result.application, 'shortlisted', user, 'Passed screening');
+      load();
+    } catch (err: any) {
+      alert(err?.message || 'Failed to shortlist.');
+    }
   };
 
-  const handleReject = (id: string, name: string) => {
-    alert(`Rejected ${name} (${id}).`);
-    // In a real application, you would dispatch an action or make an API call here
+  const handleReject = async (result: ScreeningResult) => {
+    if (!user) return;
+    if (!confirm(`Reject ${result.candidateName}? They will be notified.`)) return;
+    try {
+      await updateApplicationStatus(result.application, 'rejected', user, 'Did not pass screening', true);
+      load();
+    } catch (err: any) {
+      alert(err?.message || 'Failed to reject.');
+    }
   };
 
-  const handleAddNote = (id: string) => {
-    alert(`Opening add note dialog for candidate ${id}`);
-    // In a real application, this would open a modal or navigate to a note-taking interface
+  const handleAddNote = async (result: ScreeningResult) => {
+    if (!user) return;
+    const text = prompt(`Add a screening note for ${result.candidateName}:`);
+    if (text?.trim()) {
+      await addPanelComment(result.id, user, text.trim(), 'screening');
+      alert('Note saved.');
+    }
   };
 
   return (
@@ -182,7 +206,7 @@ export function ScreeningPage() {
                         size="sm" 
                         className={`h-8 ${result.knockoutQuestions.every((q: KnockoutQuestion) => q.passed) ? 'bg-autumn-primary hover:bg-autumn-dark text-white' : 'bg-gray-100 text-gray-400 cursor-not-allowed'} px-3`}
                         disabled={!result.knockoutQuestions.every((q: KnockoutQuestion) => q.passed)}
-                        onClick={() => handleMoveToShortlist(result.id, result.candidateName)}
+                        onClick={() => handleMoveToShortlist(result)}
                       >
                         Move to Shortlist
                       </Button>
@@ -190,7 +214,7 @@ export function ScreeningPage() {
                         variant="outline" 
                         size="sm" 
                         className="h-8 border-gray-200 hover:text-red-600 hover:bg-red-50 hover:border-red-200 px-3"
-                        onClick={() => handleReject(result.id, result.candidateName)}
+                        onClick={() => handleReject(result)}
                       >
                         Reject
                       </Button>
@@ -235,7 +259,7 @@ export function ScreeningPage() {
                                  variant="outline" 
                                  size="sm" 
                                  className="mt-3 w-full bg-white border-orange-200 text-autumn-primary hover:bg-orange-50"
-                                 onClick={() => handleAddNote(result.id)}
+                                 onClick={() => handleAddNote(result)}
                                >
                                  Add Note
                                </Button>
@@ -246,7 +270,12 @@ export function ScreeningPage() {
                   )}
                 </optgroup>
               ))}
-              {filteredCandidates.length === 0 && (
+              {loading && (
+                <tr>
+                  <td colSpan={6} className="px-6 py-12 text-center text-gray-500">Loading screening results…</td>
+                </tr>
+              )}
+              {!loading && filteredCandidates.length === 0 && (
                 <tr>
                   <td colSpan={6} className="px-6 py-12 text-center text-gray-500">
                     <ListOrdered className="size-12 mx-auto text-gray-300 mb-3" />
