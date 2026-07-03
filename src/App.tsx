@@ -143,6 +143,19 @@ function HMCandidateDetailWrapper() {
   return <HMCandidateDetail candidateId={id || ''} onBack={() => navigate('/hiring/shortlisting')} />;
 }
 
+function RecruiterPostJobWrapper() {
+  const navigate = useNavigate();
+  const requisitionId = new URLSearchParams(window.location.search).get('req') || undefined;
+  return (
+    <CreateJob
+      fromRequisitionId={requisitionId}
+      onBack={() => navigate(requisitionId ? '/recruiter/requisitions' : '/recruiter/dashboard')}
+      onSubmit={() => navigate(requisitionId ? '/recruiter/requisitions' : '/recruiter/dashboard')}
+      onSkip={() => navigate('/recruiter/dashboard')}
+    />
+  );
+}
+
 function EditJobWrapper() {
   const navigate = useNavigate();
   const { id } = useParams();
@@ -235,7 +248,7 @@ function AppRoutes() {
       <Route path="/recruiter" element={<ProtectedRoute allowedRoles={['recruiter']}><DashboardLayout /></ProtectedRoute>}>
         <Route index element={<Navigate to="dashboard" replace />} />
         <Route path="dashboard" element={<RecruiterDashboard />} />
-        <Route path="requisitions" element={<JobRequisitionsPage onCreateRequisition={() => navigate('/recruiter/requisitions/new')} />} />
+        <Route path="requisitions" element={<JobRequisitionsPage onCreateRequisition={() => navigate('/recruiter/requisitions/new')} onPublish={(id) => navigate(`/recruiter/post-job?req=${id}`)} />} />
         <Route path="requisitions/new" element={<NewRequisitionPage onBack={() => navigate('/recruiter/requisitions')} onSuccess={() => navigate('/recruiter/requisitions')} />} />
         <Route path="adverts" element={<JobAdvertsPage onCreateAdvert={() => navigate('/recruiter/post-job')} onViewApplications={() => navigate('/recruiter/applications')} />} />
         <Route path="applications" element={<ApplicationsPage onViewCandidate={(id) => navigate(`/recruiter/candidate-detail/${id}`)} />} />
@@ -244,7 +257,7 @@ function AppRoutes() {
         <Route path="interviews" element={<RecruiterInterviewsPage />} />
         <Route path="offers" element={<OffersPage />} />
         <Route path="candidate-detail/:id" element={<RecruiterCandidateDetailWrapper />} />
-        <Route path="post-job" element={<CreateJob onBack={() => navigate('/recruiter/dashboard')} onSubmit={() => navigate('/recruiter/dashboard')} onSkip={() => navigate('/recruiter/dashboard')} />} />
+        <Route path="post-job" element={<RecruiterPostJobWrapper />} />
         <Route path="*" element={<UnderConstruction pageName="Recruiter Feature" />} />
       </Route>
 
@@ -253,6 +266,7 @@ function AppRoutes() {
         <Route index element={<Navigate to="dashboard" replace />} />
         <Route path="dashboard" element={<HiringManagerDashboard />} />
         <Route path="requisitions" element={<RequisitionApprovals />} />
+        <Route path="requisitions/new" element={<NewRequisitionPage onBack={() => navigate('/hiring/requisitions')} onSuccess={() => navigate('/hiring/requisitions')} />} />
         <Route path="shortlisting" element={<ShortlistingPage onViewCandidate={(id) => navigate(`/hiring/candidate-detail/${id}`)} />} />
         <Route path="candidate-detail/:id" element={<HMCandidateDetailWrapper />} />
         <Route path="approvals" element={<OfferApprovalPage />} />

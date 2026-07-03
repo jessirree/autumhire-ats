@@ -6,10 +6,10 @@ import { StatusBadge } from '../../components/ats/StatusBadge';
 import { useAuth } from '../../context/AuthContext';
 import {
   Requisition,
-  Approval,
+  PRIORITY_STYLES,
   getRequisitions,
-  getPendingApprovalsForUser,
-  decideApproval,
+  confirmRequisition,
+  returnToRecruiter,
 } from '../../services/requisitionService';
 import { Application, getAllApplications } from '../../services/applicationService';
 import { Offer, getOffersPendingApproval } from '../../services/offerService';
@@ -22,7 +22,7 @@ export function HiringManagerDashboard() {
   const [activeTab, setActiveTab] = useState<'requisitions' | 'approvals' | 'candidates'>('requisitions');
 
   const [requisitions, setRequisitions] = useState<Requisition[]>([]);
-  const [pendingReqApprovals, setPendingReqApprovals] = useState<{ requisition: Requisition; approval: Approval }[]>([]);
+  const [pendingConfirmations, setPendingConfirmations] = useState<Requisition[]>([]);
   const [pendingOffers, setPendingOffers] = useState<Offer[]>([]);
   const [pipeline, setPipeline] = useState<Application[]>([]);
   const [interviews, setInterviews] = useState<Interview[]>([]);
@@ -31,15 +31,16 @@ export function HiringManagerDashboard() {
   const load = async () => {
     if (!user) return;
     try {
-      const [reqs, reqApprovals, offers, apps, ivs] = await Promise.all([
+      const [reqs, offers, apps, ivs] = await Promise.all([
         getRequisitions(),
-        getPendingApprovalsForUser(user.id),
         getOffersPendingApproval(user.id),
         getAllApplications(),
         getInterviews(),
       ]);
       setRequisitions(reqs);
-      setPendingReqApprovals(reqApprovals);
+      setPendingConfirmations(
+        reqs.filter((r) => r.status === 'pending-confirmation' && r.createdById === user.id)
+      );
       setPendingOffers(offers);
       setPipeline(apps.filter((a) => ['shortlisted', 'interview', 'offer'].includes(a.status)));
       setInterviews(ivs.filter((iv) => iv.status === 'scheduled'));
@@ -52,24 +53,25 @@ export function HiringManagerDashboard() {
     load();
   }, [user]);
 
-  const handleApprove = async (item: { requisition: Requisition; approval: Approval }) => {
+  const handleConfirm = async (req: Requisition) => {
     if (!user) return;
     try {
-      await decideApproval(item.requisition.id, item.approval.level, 'approved', undefined, user);
+      await confirmRequisition(req, user, false);
       load();
     } catch (err: any) {
-      alert(err?.message || 'Failed to approve.');
+      alert(err?.message || 'Failed to confirm.');
     }
   };
 
-  const handleReject = async (item: { requisition: Requisition; approval: Approval }) => {
+  const handleReturn = async (req: Requisition) => {
     if (!user) return;
-    const comment = prompt('Reason for rejection (optional):') || undefined;
+    const comment = prompt('What should the recruiter change?');
+    if (!comment?.trim()) return;
     try {
-      await decideApproval(item.requisition.id, item.approval.level, 'rejected', comment, user);
+      await returnToRecruiter(req, user, comment.trim());
       load();
     } catch (err: any) {
-      alert(err?.message || 'Failed to reject.');
+      alert(err?.message || 'Failed to return.');
     }
   };
 
@@ -81,7 +83,7 @@ export function HiringManagerDashboard() {
   };
 
   const greeting = getGreeting();
-  const pendingApprovals = pendingReqApprovals.length + pendingOffers.length;
+  const pendingApprovals = pendingConfirmations.length + pendingOffers.length;
   const candidatesWaiting = pipeline.length;
   const displayJob = pipeline.length > 0 ? pipeline[0].jobTitle : 'your pending';
 
@@ -179,7 +181,7 @@ export function HiringManagerDashboard() {
                   </div>
                   <div className="flex items-center justify-between pt-2 border-t border-gray-50 mt-3">
                     <p className="text-xs text-gray-400 font-medium">
-                      Requested by {req.requestedByName} • Level {req.currentLevel}/{req.totalLevels}
+                      Raised by {req.createdByName} • Priority: {(PRIORITY_STYLES[req.priority] ?? PRIORITY_STYLES.medium).label}
                     </p>
                     <Button variant="outline" size="sm" className="hover:text-autumn-orange hover:border-autumn-orange" onClick={() => navigate('/hiring/requisitions')}>View Details</Button>
                   </div>
@@ -190,45 +192,50 @@ export function HiringManagerDashboard() {
 
           {activeTab === 'approvals' && (
             <div className="space-y-4">
-              {pendingReqApprovals.length === 0 && pendingOffers.length === 0 && (
+              {pendingConfirmations.length === 0 && pendingOffers.length === 0 && (
                 <p className="text-center text-gray-500 py-8">Nothing is waiting for your approval.</p>
               )}
-              {pendingReqApprovals.map((item) => (
-                <div key={item.requisition.id} className="group border border-gray-100 hover:border-yellow-200 rounded-xl p-5 bg-white transition-all hover:shadow-md border-l-4 border-l-autumn-yellow">
-                  <div className="flex items-start justify-between mb-4">
-                    <div>
-                      <div className="flex items-center gap-2 mb-2">
-                        <span className="px-2.5 py-0.5 rounded-full bg-yellow-50 text-autumn-yellow text-xs font-semibold uppercase tracking-wide">Pending Approval</span>
-                        <span className="text-sm font-medium text-gray-500">• Job Requisition (level {item.approval.level})</span>
+              {pendingConfirmations.map((req) => {
+                const pr = PRIORITY_STYLES[req.priority] ?? PRIORITY_STYLES.medium;
+                return (
+                  <div key={req.id} className={`group border border-gray-100 hover:border-yellow-200 rounded-xl p-5 bg-white transition-all hover:shadow-md ${pr.row}`}>
+                    <div className="flex items-start justify-between mb-4">
+                      <div>
+                        <div className="flex items-center gap-2 mb-2 flex-wrap">
+                          <span className="px-2.5 py-0.5 rounded-full bg-yellow-50 text-autumn-yellow text-xs font-semibold uppercase tracking-wide">Awaiting Your Confirmation</span>
+                          <span className={`px-2 py-0.5 rounded-full text-xs font-bold border ${pr.badge}`}>{pr.label}</span>
+                        </div>
+                        <h3 className="font-bold text-lg text-gray-900 mb-1">{req.positionTitle} • Grade {req.grade}</h3>
+                        <p className="text-sm text-gray-500">
+                          {req.department} • {req.vacancies} vacanc{req.vacancies === 1 ? 'y' : 'ies'} • {req.referenceNumber}
+                        </p>
                       </div>
-                      <h3 className="font-bold text-lg text-gray-900 mb-1">{item.requisition.positionTitle}{item.requisition.grade ? ` • Grade ${item.requisition.grade}` : ''}</h3>
-                      <p className="text-sm text-gray-500">
-                        Requested by <span className="font-medium text-gray-700">{item.requisition.requestedByName}</span> • {item.requisition.referenceNumber}
-                      </p>
+                    </div>
+                    <div className="flex gap-3">
+                      <Button
+                        size="sm"
+                        className="bg-autumn-green hover:bg-forest-green text-white shadow-sm"
+                        onClick={() => handleConfirm(req)}
+                      >
+                        <CheckCircle className="size-4 mr-2" />
+                        Confirm
+                      </Button>
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        onClick={() => handleReturn(req)}
+                        className="text-autumn-red border-autumn-red/20 hover:bg-red-50 hover:text-autumn-red hover:border-autumn-red"
+                      >
+                        <XCircle className="size-4 mr-2" />
+                        Return to Recruiter
+                      </Button>
+                      <Button variant="ghost" size="sm" className="text-gray-500 hover:text-gray-900" onClick={() => navigate('/hiring/requisitions')}>
+                        View Details / Skip Options
+                      </Button>
                     </div>
                   </div>
-                  <div className="flex gap-3">
-                    <Button
-                      size="sm"
-                      className="bg-autumn-green hover:bg-forest-green text-white shadow-sm"
-                      onClick={() => handleApprove(item)}
-                    >
-                      <CheckCircle className="size-4 mr-2" />
-                      Approve
-                    </Button>
-                    <Button
-                      variant="outline"
-                      size="sm"
-                      onClick={() => handleReject(item)}
-                      className="text-autumn-red border-autumn-red/20 hover:bg-red-50 hover:text-autumn-red hover:border-autumn-red"
-                    >
-                      <XCircle className="size-4 mr-2" />
-                      Reject
-                    </Button>
-                    <Button variant="ghost" size="sm" className="text-gray-500 hover:text-gray-900" onClick={() => navigate('/hiring/requisitions')}>View Details</Button>
-                  </div>
-                </div>
-              ))}
+                );
+              })}
               {pendingOffers.map((offer) => (
                 <div key={offer.id} className="group border border-gray-100 hover:border-yellow-200 rounded-xl p-5 bg-white transition-all hover:shadow-md border-l-4 border-l-autumn-yellow">
                   <div className="flex items-start justify-between mb-4">
