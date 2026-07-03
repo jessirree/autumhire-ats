@@ -7,6 +7,7 @@ import { useAuth } from '../../context/AuthContext';
 import { Job, JobInput, JobStatus, createJob, updateJob, getJobById, getJobs } from '../../services/jobService';
 import { Workflow, getWorkflows } from '../../services/workflowService';
 import { BankQuestion, getQuestionBank, bankToJobQuestion } from '../../services/questionBankService';
+import { getRequisitionById, markRequisitionPublished } from '../../services/requisitionService';
 import { regenerateJobsFeed } from '../../services/feedService';
 import { notifyJobAlertSubscribers } from '../../services/jobAlertService';
 
@@ -136,7 +137,7 @@ function jobToFormState(job: Job): { details: JobDetails; settings: JobSettings;
     };
 }
 
-export function CreateJob({ onBack, onSubmit, onSkip, editJobId }: { onBack: () => void, onSubmit: () => void, onSkip: () => void, editJobId?: string }) {
+export function CreateJob({ onBack, onSubmit, onSkip, editJobId, fromRequisitionId }: { onBack: () => void, onSubmit: () => void, onSkip: () => void, editJobId?: string, fromRequisitionId?: string }) {
     const { user } = useAuth();
     const [currentStep, setCurrentStep] = useState(1);
     const [jobDetails, setJobDetails] = useState<JobDetails>(initialJobDetails);
@@ -206,6 +207,24 @@ export function CreateJob({ onBack, onSubmit, onSkip, editJobId }: { onBack: () 
             }
         })();
     }, []);
+
+    // Prefill from an approved requisition (recruiter publish flow).
+    useEffect(() => {
+        if (!fromRequisitionId || editJobId) return;
+        (async () => {
+            const requisition = await getRequisitionById(fromRequisitionId);
+            if (!requisition) return;
+            setJobDetails(prev => ({
+                ...prev,
+                jobTitle: requisition.positionTitle,
+                department: requisition.department,
+                showOnCareerSite: requisition.advertType === 'external',
+                requisitionId: requisition.referenceNumber,
+                status: 'Active',
+            }));
+            setQuestions((requisition.questions ?? []).map(bankToJobQuestion));
+        })();
+    }, [fromRequisitionId, editJobId]);
 
     // Load the job being edited
     useEffect(() => {
@@ -283,7 +302,10 @@ export function CreateJob({ onBack, onSubmit, onSkip, editJobId }: { onBack: () 
             if (editJobId) {
                 await updateJob(editJobId, buildJobInput(effectiveStatus), user);
             } else {
-                await createJob(buildJobInput(effectiveStatus), user);
+                const created = await createJob(buildJobInput(effectiveStatus), user);
+                if (fromRequisitionId && effectiveStatus === 'Active') {
+                    await markRequisitionPublished(fromRequisitionId, created.id, user).catch(() => {});
+                }
             }
             if (effectiveStatus === 'Active') {
                 // Keep the public RSS feed in sync + tell subscribers (best-effort).

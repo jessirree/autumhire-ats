@@ -1,127 +1,174 @@
-import { useState, useEffect } from 'react';
-import { Loader2, AlertCircle, CheckSquare, ThumbsUp, ThumbsDown, FileText } from 'lucide-react';
+import { useEffect, useState } from 'react';
+import { useNavigate } from 'react-router-dom';
+import { CheckCircle, XCircle, Plus, FastForward, Undo2 } from 'lucide-react';
 import { Button } from '../../components/ui/button';
-import { StatusBadge } from '../../components/ats/StatusBadge';
 import { useAuth } from '../../context/AuthContext';
-import { Requisition, Approval, getPendingApprovalsForUser, decideApproval } from '../../services/requisitionService';
+import {
+  Requisition,
+  PRIORITY_STYLES,
+  STATUS_LABELS,
+  getRequisitions,
+  confirmRequisition,
+  adminDecideRequisition,
+  returnToRecruiter,
+} from '../../services/requisitionService';
 
+/**
+ * Role-aware approvals page:
+ *  - hiring managers confirm requisitions the recruiter sent back (with the
+ *    documented option to skip admin approval)
+ *  - admins approve/reject confirmed requisitions
+ */
 export function RequisitionApprovals() {
   const { user } = useAuth();
-  const [items, setItems] = useState<{ requisition: Requisition; approval: Approval }[]>([]);
+  const navigate = useNavigate();
+  const [requisitions, setRequisitions] = useState<Requisition[]>([]);
   const [loading, setLoading] = useState(true);
-  const [error, setError] = useState('');
-  const [actingOn, setActingOn] = useState<string | null>(null);
-  const [comments, setComments] = useState<Record<string, string>>({});
+  const isAdmin = user?.role === 'admin';
 
-  const load = async () => {
-    if (!user) return;
+  const load = () => {
     setLoading(true);
+    getRequisitions()
+      .then(setRequisitions)
+      .catch((err) => console.error('Failed to load requisitions', err))
+      .finally(() => setLoading(false));
+  };
+
+  useEffect(load, []);
+
+  const pending = requisitions.filter((r) =>
+    isAdmin
+      ? r.status === 'pending-admin'
+      : r.status === 'pending-confirmation' && r.createdById === user?.id
+  );
+
+  const handleConfirm = async (req: Requisition, skip: boolean) => {
+    if (!user) return;
+    let reason: string | undefined;
+    if (skip) {
+      reason = prompt(
+        'You are skipping admin approval — this will be documented on the requisition and in the audit trail.\n\nReason for skipping:'
+      ) || undefined;
+      if (reason === undefined) return; // cancelled
+    }
     try {
-      setItems(await getPendingApprovalsForUser(user.id));
-    } catch (e: any) {
-      setError('Failed to load pending approvals: ' + e.message);
-    } finally {
-      setLoading(false);
+      await confirmRequisition(req, user, skip, reason);
+      load();
+    } catch (err: any) {
+      alert(err?.message || 'Failed to confirm.');
     }
   };
 
-  useEffect(() => { load(); }, [user?.id]);
-
-  const handleDecision = async (requisitionId: string, level: number, decision: 'approved' | 'rejected') => {
+  const handleReturn = async (req: Requisition) => {
     if (!user) return;
-    setActingOn(requisitionId);
-    setError('');
+    const comment = prompt('What should the recruiter change?');
+    if (!comment?.trim()) return;
     try {
-      await decideApproval(requisitionId, level, decision, comments[requisitionId], { id: user.id, name: user.name });
-      await load();
-    } catch (e: any) {
-      setError('Failed to record decision: ' + e.message);
-    } finally {
-      setActingOn(null);
+      await returnToRecruiter(req, user, comment.trim());
+      load();
+    } catch (err: any) {
+      alert(err?.message || 'Failed to return.');
+    }
+  };
+
+  const handleAdminDecision = async (req: Requisition, decision: 'approved' | 'rejected') => {
+    if (!user) return;
+    const comment = prompt(`Comment for the ${decision === 'approved' ? 'approval' : 'rejection'} (optional):`) || undefined;
+    try {
+      await adminDecideRequisition(req, decision, comment, user);
+      load();
+    } catch (err: any) {
+      alert(err?.message || 'Failed to record decision.');
     }
   };
 
   return (
     <div className="p-8 max-w-5xl mx-auto space-y-6">
-      <div className="bg-white p-6 rounded-2xl border border-gray-100 shadow-sm">
-        <h1 className="text-2xl font-bold text-autumn-charcoal mb-2">Requisition Approvals</h1>
-        <p className="text-gray-500">Requisitions awaiting your decision, in approval order.</p>
+      <div className="flex justify-between items-center bg-white p-6 rounded-2xl border border-gray-100 shadow-sm">
+        <div>
+          <h1 className="text-2xl font-bold text-autumn-charcoal mb-2">
+            {isAdmin ? 'Requisition Approvals' : 'Requisition Confirmations'}
+          </h1>
+          <p className="text-gray-500">
+            {isAdmin
+              ? 'Requisitions confirmed by the hiring manager, awaiting your approval.'
+              : 'Requisitions the recruiting team refined and sent back for your confirmation.'}
+          </p>
+        </div>
+        {!isAdmin && (
+          <Button
+            onClick={() => navigate('/hiring/requisitions/new')}
+            className="bg-autumn-primary hover:bg-autumn-dark text-white gap-2 rounded-xl"
+          >
+            <Plus className="size-4" />
+            New Requisition
+          </Button>
+        )}
       </div>
 
-      {error && (
-        <div className="bg-red-50 border border-red-200 text-red-700 px-4 py-3 rounded-xl flex items-center gap-3 text-sm">
-          <AlertCircle className="size-4 shrink-0" /> {error}
+      {loading && <p className="text-gray-500 text-center py-8">Loading…</p>}
+      {!loading && pending.length === 0 && (
+        <div className="bg-white rounded-2xl border border-gray-100 p-12 text-center text-gray-500">
+          <CheckCircle className="size-12 mx-auto text-green-300 mb-3" />
+          <p className="text-lg font-medium text-gray-900">All caught up</p>
+          <p className="text-sm mt-1">Nothing is waiting for you here.</p>
         </div>
       )}
 
-      {loading ? (
-        <div className="flex justify-center py-12"><Loader2 className="size-8 animate-spin text-gray-300" /></div>
-      ) : items.length === 0 ? (
-        <div className="bg-white rounded-2xl border border-gray-100 shadow-sm p-12 text-center text-gray-500">
-          <CheckSquare className="size-12 mx-auto text-gray-300 mb-3" />
-          <p className="text-lg font-medium text-gray-900">Nothing pending</p>
-          <p className="text-sm">You have no requisitions waiting on your approval.</p>
-        </div>
-      ) : (
-        <div className="space-y-4">
-          {items.map(({ requisition, approval }) => (
-            <div key={requisition.id} className="bg-white rounded-2xl border border-gray-100 shadow-sm p-6">
-              <div className="flex flex-wrap items-start justify-between gap-3 mb-4">
-                <div>
-                  <div className="flex items-center gap-2">
-                    <h3 className="font-bold text-gray-900">{requisition.positionTitle}{requisition.grade ? ` • Grade ${requisition.grade}` : ''}</h3>
-                    <span className="text-xs text-gray-500 font-mono">{requisition.referenceNumber}</span>
-                  </div>
-                  <p className="text-sm text-gray-500 mt-1">
-                    {requisition.department} · {requisition.vacancies} vacanc{requisition.vacancies === 1 ? 'y' : 'ies'} · {requisition.advertType === 'internal' ? 'Internal' : 'External'} advert
-                  </p>
-                  <p className="text-xs text-gray-400 mt-1">Requested by {requisition.requestedByName}</p>
-                </div>
-                <div className="flex items-center gap-2">
-                  <StatusBadge status={`Level ${approval.level} of ${requisition.totalLevels}`} size="sm" />
-                  {requisition.jobDescriptionUrl && (
-                    <a
-                      href={requisition.jobDescriptionUrl}
-                      target="_blank"
-                      rel="noreferrer"
-                      className="text-xs flex items-center gap-1 text-autumn-primary hover:underline"
-                    >
-                      <FileText className="size-3.5" /> View JD
-                    </a>
-                  )}
-                </div>
-              </div>
-
-              <textarea
-                placeholder="Optional comment for your decision…"
-                className="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-autumn-primary/20 focus:border-autumn-primary mb-3"
-                rows={2}
-                value={comments[requisition.id] || ''}
-                onChange={(e) => setComments({ ...comments, [requisition.id]: e.target.value })}
-              />
-
-              <div className="flex justify-end gap-3">
-                <Button
-                  variant="outline"
-                  onClick={() => handleDecision(requisition.id, approval.level, 'rejected')}
-                  disabled={actingOn === requisition.id}
-                  className="border-red-200 text-red-600 hover:bg-red-50"
-                >
-                  <ThumbsDown className="size-4 mr-2" /> Reject
-                </Button>
-                <Button
-                  onClick={() => handleDecision(requisition.id, approval.level, 'approved')}
-                  disabled={actingOn === requisition.id}
-                  className="bg-autumn-primary hover:bg-autumn-dark text-white"
-                >
-                  {actingOn === requisition.id ? <Loader2 className="size-4 animate-spin mr-2" /> : <ThumbsUp className="size-4 mr-2" />}
-                  Approve
-                </Button>
-              </div>
+      {pending.map((req) => {
+        const pr = PRIORITY_STYLES[req.priority] ?? PRIORITY_STYLES.medium;
+        return (
+          <div key={req.id} className={`bg-white rounded-xl border border-gray-100 shadow-sm p-6 ${pr.row}`}>
+            <div className="flex items-center gap-2 flex-wrap mb-2">
+              <h3 className="font-bold text-lg text-gray-900">{req.positionTitle}</h3>
+              <span className="text-xs text-gray-400 font-mono">{req.referenceNumber}</span>
+              <span className={`px-2 py-0.5 rounded-full text-xs font-bold border ${pr.badge}`}>{pr.label}</span>
+              <span className="px-2 py-0.5 rounded-full text-xs font-medium bg-gray-100 text-gray-600">
+                {STATUS_LABELS[req.status]}
+              </span>
             </div>
-          ))}
-        </div>
-      )}
+            <p className="text-sm text-gray-500 mb-1">
+              {req.department} • Grade <span className="font-bold">{req.grade}</span> • {req.vacancies} vacanc{req.vacancies === 1 ? 'y' : 'ies'} • {req.advertType} advert
+              {(req.questions ?? []).length > 0 && <> • {req.questions.length} screening question{req.questions.length > 1 ? 's' : ''}</>}
+            </p>
+            <p className="text-xs text-gray-400 mb-4">Raised by {req.createdByName}{req.notes ? ` — “${req.notes}”` : ''}</p>
+
+            <div className="flex gap-3 flex-wrap">
+              {isAdmin ? (
+                <>
+                  <Button size="sm" className="bg-green-600 hover:bg-green-700 text-white gap-1.5" onClick={() => handleAdminDecision(req, 'approved')}>
+                    <CheckCircle className="size-4" /> Approve
+                  </Button>
+                  <Button size="sm" variant="outline" className="text-red-600 border-red-200 hover:bg-red-50 gap-1.5" onClick={() => handleAdminDecision(req, 'rejected')}>
+                    <XCircle className="size-4" /> Reject
+                  </Button>
+                  <Button size="sm" variant="outline" className="gap-1.5" onClick={() => handleReturn(req)}>
+                    <Undo2 className="size-4" /> Return to Recruiter
+                  </Button>
+                </>
+              ) : (
+                <>
+                  <Button size="sm" className="bg-green-600 hover:bg-green-700 text-white gap-1.5" onClick={() => handleConfirm(req, false)}>
+                    <CheckCircle className="size-4" /> Confirm — send to Admin
+                  </Button>
+                  <Button
+                    size="sm"
+                    variant="outline"
+                    className="text-fuchsia-700 border-fuchsia-200 hover:bg-fuchsia-50 gap-1.5"
+                    title="Fast-track: the skip is documented on the requisition and audit trail"
+                    onClick={() => handleConfirm(req, true)}
+                  >
+                    <FastForward className="size-4" /> Confirm & Skip Admin Approval
+                  </Button>
+                  <Button size="sm" variant="outline" className="gap-1.5" onClick={() => handleReturn(req)}>
+                    <Undo2 className="size-4" /> Return to Recruiter
+                  </Button>
+                </>
+              )}
+            </div>
+          </div>
+        );
+      })}
     </div>
   );
 }

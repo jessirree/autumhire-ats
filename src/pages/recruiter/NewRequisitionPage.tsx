@@ -1,16 +1,19 @@
 import { useState, useEffect } from 'react';
-import { collection, getDocs, query, orderBy } from 'firebase/firestore';
-import { Loader2, AlertCircle, CheckCircle2, Upload, X, ArrowUp, ArrowDown, FileText } from 'lucide-react';
+import { ArrowLeft, CheckCircle2, FileText } from 'lucide-react';
 import { Button } from '../../components/ui/button';
-import { db } from '../../lib/firebase';
 import { useAuth } from '../../context/AuthContext';
-import { Position, AdvertType, ApproverInput, getPositions, createRequisition } from '../../services/requisitionService';
-
-interface StaffUser {
-  id: string;
-  name: string;
-  role: string;
-}
+import {
+  Position,
+  AdvertType,
+  RequisitionPriority,
+  GRADE_LEVELS,
+  GRADE_STEPS,
+  PRIORITY_STYLES,
+  getPositions,
+  createRequisition,
+} from '../../services/requisitionService';
+import { BankQuestion, getQuestionBank } from '../../services/questionBankService';
+import { STORAGE_ENABLED } from '../../lib/featureFlags';
 
 interface NewRequisitionPageProps {
   onBack: () => void;
@@ -20,69 +23,46 @@ interface NewRequisitionPageProps {
 export function NewRequisitionPage({ onBack, onSuccess }: NewRequisitionPageProps) {
   const { user } = useAuth();
   const [positions, setPositions] = useState<Position[]>([]);
-  const [staff, setStaff] = useState<StaffUser[]>([]);
-  const [loading, setLoading] = useState(true);
-  const [submitting, setSubmitting] = useState(false);
-  const [error, setError] = useState('');
-  const [referenceNumber, setReferenceNumber] = useState<string | null>(null);
+  const [questionBank, setQuestionBank] = useState<BankQuestion[]>([]);
 
   const [positionId, setPositionId] = useState('');
-  const [grade, setGrade] = useState('');
+  const [gradeLevel, setGradeLevel] = useState('');
+  const [gradeStep, setGradeStep] = useState('');
+  const [priority, setPriority] = useState<RequisitionPriority>('medium');
   const [vacancies, setVacancies] = useState(1);
   const [advertType, setAdvertType] = useState<AdvertType>('external');
+  const [selectedQuestionIds, setSelectedQuestionIds] = useState<string[]>([]);
+  const [notes, setNotes] = useState('');
   const [jobDescriptionFile, setJobDescriptionFile] = useState<File | null>(null);
-  const [approverToAdd, setApproverToAdd] = useState('');
-  const [approvers, setApprovers] = useState<ApproverInput[]>([]);
+
+  const [submitting, setSubmitting] = useState(false);
+  const [error, setError] = useState('');
+  const [referenceNumber, setReferenceNumber] = useState('');
 
   useEffect(() => {
-    (async () => {
-      setLoading(true);
-      try {
-        const [positionList, staffSnap] = await Promise.all([
-          getPositions(true),
-          getDocs(query(collection(db, 'Users'), orderBy('createdAt', 'desc'))),
-        ]);
-        setPositions(positionList);
-        setStaff(
-          staffSnap.docs
-            .map((d) => ({ id: d.id, ...d.data() } as any))
-            .filter((u) => u.role === 'hiring-manager' || u.role === 'admin')
-            .map((u) => ({ id: u.id, name: u.name, role: u.role }))
-        );
-      } catch (e: any) {
-        setError('Failed to load form data: ' + e.message);
-      } finally {
-        setLoading(false);
-      }
-    })();
+    getPositions().then(setPositions).catch(() => {});
+    getQuestionBank().then(setQuestionBank).catch(() => {});
   }, []);
 
   const selectedPosition = positions.find((p) => p.id === positionId);
 
-  // Prefill the grade from the position's Job Evaluation hint when it changes.
+  // Prefill from the position's Job Evaluation hint (e.g. "3b").
   useEffect(() => {
-    if (selectedPosition?.gradeHint) setGrade(selectedPosition.gradeHint);
+    const hint = selectedPosition?.gradeHint?.trim().toLowerCase() || '';
+    if (/^[1-6][abc]$/.test(hint)) {
+      setGradeLevel(hint[0]);
+      setGradeStep(hint[1]);
+    }
   }, [positionId]);
 
-  const addApprover = () => {
-    if (!approverToAdd) return;
-    const candidate = staff.find((s) => s.id === approverToAdd);
-    if (!candidate || approvers.some((a) => a.id === candidate.id)) return;
-    setApprovers([...approvers, { id: candidate.id, name: candidate.name }]);
-    setApproverToAdd('');
+  const grade = gradeLevel && gradeStep ? `${gradeLevel}${gradeStep}` : '';
+  const canSubmit = !!selectedPosition && !!grade && vacancies >= 1 && !submitting;
+
+  const toggleQuestion = (id: string) => {
+    setSelectedQuestionIds((prev) =>
+      prev.includes(id) ? prev.filter((x) => x !== id) : [...prev, id]
+    );
   };
-
-  const removeApprover = (id: string) => setApprovers(approvers.filter((a) => a.id !== id));
-
-  const moveApprover = (index: number, direction: -1 | 1) => {
-    const next = [...approvers];
-    const target = index + direction;
-    if (target < 0 || target >= next.length) return;
-    [next[index], next[target]] = [next[target], next[index]];
-    setApprovers(next);
-  };
-
-  const canSubmit = !!selectedPosition && !!grade.trim() && vacancies >= 1 && approvers.length >= 1 && !submitting;
 
   const handleSubmit = async () => {
     if (!selectedPosition || !user) return;
@@ -94,12 +74,13 @@ export function NewRequisitionPage({ onBack, onSuccess }: NewRequisitionPageProp
         positionTitle: selectedPosition.title,
         department: selectedPosition.department,
         grade,
+        priority,
         vacancies,
         advertType,
+        questions: questionBank.filter((q) => selectedQuestionIds.includes(q.id)),
+        notes: notes.trim() || undefined,
         jobDescriptionFile,
-        approvers,
-        requestedById: user.id,
-        requestedByName: user.name,
+        createdBy: user,
       });
       setReferenceNumber(requisition.referenceNumber);
     } catch (e: any) {
@@ -113,41 +94,40 @@ export function NewRequisitionPage({ onBack, onSuccess }: NewRequisitionPageProp
     return (
       <div className="p-8 max-w-2xl mx-auto">
         <div className="bg-white rounded-2xl border border-gray-100 shadow-sm p-10 text-center">
-          <CheckCircle2 className="size-14 text-green-500 mx-auto mb-4" />
-          <h2 className="text-xl font-bold text-gray-900 mb-1">Requisition Submitted</h2>
-          <p className="text-gray-500 mb-4">
-            Reference number <span className="font-mono font-semibold text-gray-900">{referenceNumber}</span> has been sent for approval.
+          <CheckCircle2 className="size-12 text-green-500 mx-auto mb-4" />
+          <h1 className="text-2xl font-bold text-gray-900 mb-2">Requisition raised</h1>
+          <p className="text-gray-600 mb-2">
+            Reference <span className="font-mono font-bold">{referenceNumber}</span>
           </p>
-          <Button onClick={onSuccess} className="bg-autumn-primary hover:bg-autumn-dark text-white rounded-xl">
-            Back to Requisitions
-          </Button>
+          <p className="text-sm text-gray-500 mb-6">
+            The recruiting team has been notified and will refine the requisition, then send it back for confirmation.
+          </p>
+          <Button onClick={onSuccess}>Done</Button>
         </div>
-      </div>
-    );
-  }
-
-  if (loading) {
-    return (
-      <div className="p-8 flex justify-center">
-        <Loader2 className="size-8 animate-spin text-gray-300" />
       </div>
     );
   }
 
   return (
     <div className="p-8 max-w-3xl mx-auto space-y-6">
+      <button onClick={onBack} className="flex items-center gap-2 text-gray-600 hover:text-gray-900">
+        <ArrowLeft className="size-4" />
+        Back
+      </button>
+
       <div className="bg-white p-6 rounded-2xl border border-gray-100 shadow-sm">
-        <h1 className="text-2xl font-bold text-autumn-charcoal mb-2">New Requisition</h1>
-        <p className="text-gray-500">Raise a requisition to fill vacancies against a pre-loaded position.</p>
+        <h1 className="text-2xl font-bold text-autumn-charcoal mb-2">New Job Requisition</h1>
+        <p className="text-gray-500">
+          Raise a requisition against a pre-loaded position. It goes to the recruiting team first,
+          returns for hiring-manager confirmation, then admin approval before publishing.
+        </p>
       </div>
 
       {error && (
-        <div className="bg-red-50 border border-red-200 text-red-700 px-4 py-3 rounded-xl flex items-center gap-3 text-sm">
-          <AlertCircle className="size-4 shrink-0" /> {error}
-        </div>
+        <div className="bg-red-50 border border-red-200 text-red-700 rounded-lg p-4">{error}</div>
       )}
 
-      <div className="bg-white rounded-2xl border border-gray-100 shadow-sm p-6 space-y-5">
+      <div className="bg-white p-6 rounded-2xl border border-gray-100 shadow-sm space-y-6">
         <div>
           <label className="block text-sm font-medium text-gray-700 mb-1">Position</label>
           {positions.length === 0 ? (
@@ -168,32 +148,60 @@ export function NewRequisitionPage({ onBack, onSuccess }: NewRequisitionPageProp
           )}
         </div>
 
-        <div>
-          <label className="block text-sm font-medium text-gray-700 mb-1">
-            Job Grade <span className="text-red-500">*</span>
-          </label>
-          <input
-            type="text"
-            className="w-48 px-3 py-2 border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-autumn-primary/20 focus:border-autumn-primary"
-            placeholder="e.g. G7"
-            value={grade}
-            onChange={(e) => setGrade(e.target.value)}
-          />
-          <p className="text-xs text-gray-500 mt-1">
-            From the Job Evaluation. The requisition cannot proceed without a grade
-            {selectedPosition?.gradeHint ? ` (suggested for this position: ${selectedPosition.gradeHint})` : ''}.
-          </p>
-        </div>
+        <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+          <div>
+            <label className="block text-sm font-medium text-gray-700 mb-1">
+              Job Grade <span className="text-red-500">*</span>
+            </label>
+            <div className="flex gap-2">
+              <select
+                className="flex-1 px-3 py-2 border border-gray-200 rounded-lg focus:outline-none"
+                value={gradeLevel}
+                onChange={(e) => setGradeLevel(e.target.value)}
+              >
+                <option value="">Level…</option>
+                {GRADE_LEVELS.map((l) => <option key={l} value={l}>{l}</option>)}
+              </select>
+              <select
+                className="flex-1 px-3 py-2 border border-gray-200 rounded-lg focus:outline-none"
+                value={gradeStep}
+                onChange={(e) => setGradeStep(e.target.value)}
+              >
+                <option value="">Step…</option>
+                {GRADE_STEPS.map((s) => <option key={s} value={s}>{s}</option>)}
+              </select>
+            </div>
+            <p className="text-xs text-gray-500 mt-1">
+              Levels 1–6, steps a–c{grade ? ` — selected: ${grade}` : ''}. Required to proceed.
+            </p>
+          </div>
 
-        <div>
-          <label className="block text-sm font-medium text-gray-700 mb-1">Vacancies</label>
-          <input
-            type="number"
-            min={1}
-            className="w-32 px-3 py-2 border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-autumn-primary/20 focus:border-autumn-primary"
-            value={vacancies}
-            onChange={(e) => setVacancies(Math.max(1, Number(e.target.value)))}
-          />
+          <div>
+            <label className="block text-sm font-medium text-gray-700 mb-1">Priority</label>
+            <select
+              className="w-full px-3 py-2 border border-gray-200 rounded-lg focus:outline-none"
+              value={priority}
+              onChange={(e) => setPriority(e.target.value as RequisitionPriority)}
+            >
+              {(Object.keys(PRIORITY_STYLES) as RequisitionPriority[]).map((p) => (
+                <option key={p} value={p}>{PRIORITY_STYLES[p].label}</option>
+              ))}
+            </select>
+            <span className={`inline-block mt-2 px-2 py-0.5 rounded-full text-xs font-bold border ${PRIORITY_STYLES[priority].badge}`}>
+              {PRIORITY_STYLES[priority].label} priority
+            </span>
+          </div>
+
+          <div>
+            <label className="block text-sm font-medium text-gray-700 mb-1">Vacancies</label>
+            <input
+              type="number"
+              min={1}
+              className="w-full px-3 py-2 border border-gray-200 rounded-lg focus:outline-none"
+              value={vacancies}
+              onChange={(e) => setVacancies(Math.max(1, Number(e.target.value)))}
+            />
+          </div>
         </div>
 
         <div>
@@ -207,92 +215,74 @@ export function NewRequisitionPage({ onBack, onSuccess }: NewRequisitionPageProp
                   checked={advertType === type}
                   onChange={() => setAdvertType(type)}
                 />
-                {type === 'external' ? 'External' : 'Internal'}
+                <span className="capitalize">{type}</span>
               </label>
             ))}
           </div>
         </div>
 
         <div>
-          <label className="block text-sm font-medium text-gray-700 mb-1">Job Description (optional)</label>
-          {jobDescriptionFile ? (
-            <div className="flex items-center gap-2 text-sm text-gray-700 bg-gray-50 border border-gray-200 rounded-lg px-3 py-2 w-fit">
-              <FileText className="size-4 text-autumn-primary" />
-              {jobDescriptionFile.name}
-              <button onClick={() => setJobDescriptionFile(null)} className="text-gray-400 hover:text-red-600">
-                <X className="size-4" />
-              </button>
-            </div>
+          <label className="block text-sm font-medium text-gray-700 mb-1">Screening Question Templates</label>
+          <p className="text-xs text-gray-500 mb-2">
+            Maintained by admins in the Pre-screening Builder. Selected questions travel with the requisition into the job advert.
+          </p>
+          {questionBank.length === 0 ? (
+            <p className="text-sm text-gray-400 italic">No question templates yet — an admin can add them in the Pre-screening Builder.</p>
           ) : (
-            <label className="flex items-center gap-2 text-sm text-gray-600 border border-dashed border-gray-300 rounded-lg px-4 py-3 w-fit cursor-pointer hover:border-autumn-primary hover:text-autumn-primary">
-              <Upload className="size-4" />
-              Attach job description
-              <input
-                type="file"
-                className="hidden"
-                accept=".pdf,.doc,.docx"
-                onChange={(e) => setJobDescriptionFile(e.target.files?.[0] || null)}
-              />
-            </label>
+            <div className="border border-gray-200 rounded-lg p-3 max-h-44 overflow-y-auto space-y-1.5">
+              {questionBank.map((q) => (
+                <label key={q.id} className="flex items-start gap-2 text-sm text-gray-700 cursor-pointer">
+                  <input
+                    type="checkbox"
+                    className="mt-0.5"
+                    checked={selectedQuestionIds.includes(q.id)}
+                    onChange={() => toggleQuestion(q.id)}
+                  />
+                  <span>
+                    {q.text}
+                    <span className="text-xs text-gray-400"> — {q.type}{q.score ? `, ${q.score} pts` : ''}</span>
+                  </span>
+                </label>
+              ))}
+            </div>
           )}
         </div>
 
         <div>
-          <label className="block text-sm font-medium text-gray-700 mb-2">Approval Chain</label>
-          {staff.length === 0 ? (
-            <p className="text-sm text-amber-700 bg-amber-50 border border-amber-200 rounded-lg p-3">
-              No hiring managers or admins exist yet to approve this requisition.
-            </p>
+          <label className="block text-sm font-medium text-gray-700 mb-1">Notes for the recruiter</label>
+          <textarea
+            className="w-full px-3 py-2 border border-gray-200 rounded-lg focus:outline-none h-20 resize-none"
+            placeholder="Context, must-haves, timeline…"
+            value={notes}
+            onChange={(e) => setNotes(e.target.value)}
+          />
+        </div>
+
+        <div>
+          <label className="block text-sm font-medium text-gray-700 mb-1">Job Description (optional)</label>
+          {STORAGE_ENABLED ? (
+            <input
+              type="file"
+              accept=".pdf,.doc,.docx"
+              onChange={(e) => setJobDescriptionFile(e.target.files?.[0] ?? null)}
+              className="text-sm"
+            />
           ) : (
-            <>
-              <div className="flex gap-2 mb-3">
-                <select
-                  className="flex-1 px-3 py-2 border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-autumn-primary/20 focus:border-autumn-primary"
-                  value={approverToAdd}
-                  onChange={(e) => setApproverToAdd(e.target.value)}
-                >
-                  <option value="">Select an approver to add…</option>
-                  {staff.filter((s) => !approvers.some((a) => a.id === s.id)).map((s) => (
-                    <option key={s.id} value={s.id}>{s.name} ({s.role === 'admin' ? 'Admin' : 'Hiring Manager'})</option>
-                  ))}
-                </select>
-                <Button variant="outline" onClick={addApprover} disabled={!approverToAdd}>Add</Button>
-              </div>
-              {approvers.length > 0 && (
-                <ol className="space-y-2">
-                  {approvers.map((a, index) => (
-                    <li key={a.id} className="flex items-center gap-3 bg-gray-50 border border-gray-200 rounded-lg px-3 py-2">
-                      <span className="size-6 rounded-full bg-autumn-primary/10 text-autumn-primary text-xs font-bold flex items-center justify-center shrink-0">
-                        {index + 1}
-                      </span>
-                      <span className="text-sm text-gray-800 flex-1">{a.name}</span>
-                      <button onClick={() => moveApprover(index, -1)} disabled={index === 0} className="text-gray-400 hover:text-gray-700 disabled:opacity-30">
-                        <ArrowUp className="size-4" />
-                      </button>
-                      <button onClick={() => moveApprover(index, 1)} disabled={index === approvers.length - 1} className="text-gray-400 hover:text-gray-700 disabled:opacity-30">
-                        <ArrowDown className="size-4" />
-                      </button>
-                      <button onClick={() => removeApprover(a.id)} className="text-gray-400 hover:text-red-600">
-                        <X className="size-4" />
-                      </button>
-                    </li>
-                  ))}
-                </ol>
-              )}
-            </>
+            <p className="text-xs text-amber-700 bg-amber-50 border border-amber-200 rounded-lg p-2 flex items-center gap-2">
+              <FileText className="size-4 shrink-0" /> Attachments are unavailable until document storage is enabled.
+            </p>
           )}
         </div>
       </div>
 
       <div className="flex justify-end gap-3">
-        <Button variant="outline" onClick={onBack}>Cancel</Button>
+        <Button variant="outline" onClick={onBack} disabled={submitting}>Cancel</Button>
         <Button
-          onClick={handleSubmit}
+          className="bg-autumn-primary hover:bg-autumn-dark text-white px-8"
           disabled={!canSubmit}
-          className="bg-autumn-primary hover:bg-autumn-dark text-white rounded-xl"
+          onClick={handleSubmit}
         >
-          {submitting ? <Loader2 className="size-4 animate-spin mr-2" /> : null}
-          Submit Requisition
+          {submitting ? 'Submitting…' : 'Raise Requisition'}
         </Button>
       </div>
     </div>
