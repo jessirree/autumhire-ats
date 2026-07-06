@@ -116,7 +116,7 @@ export function TermsandConditions({
                         </ul>
 
                         <h4 className="font-bold text-lg mb-2">6. Data Retention</h4>
-                        <p className="mb-6">We retain your personal information only as long as needed for the purposes outlined in this policy or to comply with legal, accounting, or reporting requirements. You may request account or data deletion by emailing privacy@timhr.com. We will delete your data unless retention is required for legitimate business or legal purposes.</p>
+                        <p className="mb-6">We retain your personal information only as long as needed for the purposes outlined in this policy or to comply with legal, accounting, or reporting requirements. You may request account or data deletion by emailing privacy@autumhire.com. We will delete your data unless retention is required for legitimate business or legal purposes.</p>
 
                         <h4 className="font-bold text-lg mb-2">7. Data Security</h4>
                         <p className="mb-6">We implement reasonable security measures to protect your data from unauthorized access, loss, or misuse. However, no data transmission or storage method is completely secure, and we cannot guarantee absolute security.</p>

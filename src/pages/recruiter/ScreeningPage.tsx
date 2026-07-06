@@ -1,6 +1,8 @@
 ﻿import { useState, useMemo, useEffect } from 'react';
+import { toast } from 'sonner';
 import { Search, AlertCircle, CheckCircle, XCircle, ChevronDown, ListOrdered } from 'lucide-react';
 import { Button } from '../../components/ui/button';
+import { confirm, promptText } from '../../components/ui/confirm-dialog';
 import { useAuth } from '../../context/AuthContext';
 import {
   Application,
@@ -95,27 +97,27 @@ export function ScreeningPage() {
       await updateApplicationStatus(result.application, 'shortlisted', user, 'Passed screening');
       load();
     } catch (err: any) {
-      alert(err?.message || 'Failed to shortlist.');
+      toast.error(err?.message || 'Failed to shortlist.');
     }
   };
 
   const handleReject = async (result: ScreeningResult) => {
     if (!user) return;
-    if (!confirm(`Reject ${result.candidateName}? They will be notified.`)) return;
+    if (!(await confirm({ title: `Reject ${result.candidateName}? They will be notified.`, variant: 'destructive' }))) return;
     try {
       await updateApplicationStatus(result.application, 'rejected', user, 'Did not pass screening', true);
       load();
     } catch (err: any) {
-      alert(err?.message || 'Failed to reject.');
+      toast.error(err?.message || 'Failed to reject.');
     }
   };
 
   const handleAddNote = async (result: ScreeningResult) => {
     if (!user) return;
-    const text = prompt(`Add a screening note for ${result.candidateName}:`);
+    const text = await promptText({ title: `Add a screening note for ${result.candidateName}:` });
     if (text?.trim()) {
       await addPanelComment(result.id, user, text.trim(), 'screening');
-      alert('Note saved.');
+      toast.success('Note saved.');
     }
   };
 

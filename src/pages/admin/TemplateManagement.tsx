@@ -1,4 +1,5 @@
 ﻿import { useState, useMemo, useEffect } from 'react';
+import { toast } from 'sonner';
 import {
     FileText,
     Mail,
@@ -11,6 +12,7 @@ import {
     X
 } from 'lucide-react';
 import { Button } from '../../components/ui/button';
+import { confirm } from '../../components/ui/confirm-dialog';
 import { StatusBadge } from '../../components/ats/StatusBadge';
 import { useAuth } from '../../context/AuthContext';
 import {
@@ -81,12 +83,12 @@ export function TemplateManagement() {
 
     const handleDelete = async (id: string) => {
         if (!user) return;
-        if (confirm('Are you sure you want to delete this template?')) {
+        if (await confirm({ title: 'Are you sure you want to delete this template?', variant: 'destructive' })) {
             try {
                 await deleteTemplate(id, user);
                 load();
             } catch (err: any) {
-                alert(err?.message || 'Failed to delete template.');
+                toast.error(err?.message || 'Failed to delete template.');
             }
         }
     };
@@ -103,7 +105,7 @@ export function TemplateManagement() {
             setCurrentTemplate(null);
             load();
         } catch (err: any) {
-            alert(err?.message || 'Failed to save template.');
+            toast.error(err?.message || 'Failed to save template.');
         }
     };
 

@@ -1,4 +1,5 @@
 ﻿import { useState, useEffect } from 'react';
+import { toast } from 'sonner';
 import { ArrowLeft, CheckCircle, ChevronRight, Copy, HelpCircle, Plus, Trash2, Edit2, GripVertical, Search, X, FileText, CheckSquare, Linkedin, ExternalLink, ChevronUp, ChevronDown } from 'lucide-react';
 import { collection, getDocs } from 'firebase/firestore';
 import { Button } from '../../components/ui/button';
@@ -283,14 +284,14 @@ export function CreateJob({ onBack, onSubmit, onSkip, editJobId, fromRequisition
     });
 
     const handleSave = async (isDraft: boolean = false) => {
-        if (!user) { alert('You must be signed in.'); return; }
+        if (!user) { toast.error('You must be signed in.'); return; }
         // Validation for final submission (non-draft)
         if (!isDraft) {
-            if (!jobDetails.jobTitle.trim()) { alert('Please enter a Job Title.'); return; }
-            if (!jobDetails.description.trim()) { alert('Please enter a Job Description.'); return; }
-            if (!jobDetails.location.trim()) { alert('Please enter a Location — adverts cannot be posted without one.'); return; }
-            if (hiringTeam.length === 0) { alert('Please add at least one member to the hiring team.'); return; }
-            if (!hiringCoordinatorId) { alert('Please select a hiring team coordinator.'); return; }
+            if (!jobDetails.jobTitle.trim()) { toast.error('Please enter a Job Title.'); return; }
+            if (!jobDetails.description.trim()) { toast.error('Please enter a Job Description.'); return; }
+            if (!jobDetails.location.trim()) { toast.error('Please enter a Location — adverts cannot be posted without one.'); return; }
+            if (hiringTeam.length === 0) { toast.error('Please add at least one member to the hiring team.'); return; }
+            if (!hiringCoordinatorId) { toast.error('Please select a hiring team coordinator.'); return; }
         }
 
         const effectiveStatus: JobStatus = isDraft
@@ -313,14 +314,14 @@ export function CreateJob({ onBack, onSubmit, onSkip, editJobId, fromRequisition
                 notifyJobAlertSubscribers(jobDetails.jobTitle, jobDetails.location).catch(() => {});
             }
             if (isDraft) {
-                alert('Draft saved successfully!');
+                toast.success('Draft saved successfully!');
                 onBack();
             } else {
-                alert(editJobId ? 'Job updated successfully!' : 'Job posted successfully!');
+                toast.success(editJobId ? 'Job updated successfully!' : 'Job posted successfully!');
                 onSubmit();
             }
         } catch (err: any) {
-            alert(err?.message || 'Failed to save job.');
+            toast.error(err?.message || 'Failed to save job.');
         } finally {
             setSaving(false);
         }
@@ -365,11 +366,11 @@ export function CreateJob({ onBack, onSubmit, onSkip, editJobId, fromRequisition
     const handleNext = () => {
         if (currentStep === 1) {
             if (!jobDetails.jobTitle.trim()) {
-                alert('Please enter a Job Title.');
+                toast.error('Please enter a Job Title.');
                 return;
             }
             if (!jobDetails.description.trim()) {
-                alert('Please enter a Job Description.');
+                toast.error('Please enter a Job Description.');
                 return;
             }
         }

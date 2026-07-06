@@ -1,7 +1,9 @@
 import { useEffect, useState } from 'react';
+import { toast } from 'sonner';
 import { Button } from '../../components/ui/button';
+import { confirm, promptText } from '../../components/ui/confirm-dialog';
 import { StatusBadge } from '../../components/ats/StatusBadge';
-import { Search, Filter, Plus, Users, CalendarDays, ExternalLink, Briefcase, RefreshCw, XCircle, Share2, Rss, Linkedin, Copy, MessageCircle } from 'lucide-react';
+import { Search, Filter, Plus, Users, CalendarDays, ExternalLink, Briefcase, RefreshCw, XCircle, Share2, Rss, Linkedin, Copy, MessageCircle, Archive, ArchiveRestore } from 'lucide-react';
 import {
   regenerateJobsFeed,
   jobPublicUrl,
@@ -9,7 +11,7 @@ import {
   twitterShareUrl,
   whatsAppShareUrl,
 } from '../../services/feedService';
-import { Job, getJobs, closeJob, reopenJob } from '../../services/jobService';
+import { Job, getJobs, closeJob, reopenJob, setJobsArchived } from '../../services/jobService';
 import { Application, getAllApplications } from '../../services/applicationService';
 import { useAuth } from '../../context/AuthContext';
 
@@ -47,32 +49,44 @@ export function JobAdvertsPage({ onViewApplications, onCreateAdvert }: JobAdvert
   const [error, setError] = useState<string | null>(null);
   const [shareJobId, setShareJobId] = useState<string | null>(null);
   const [feedBusy, setFeedBusy] = useState(false);
+  const [selected, setSelected] = useState<string[]>([]);
+  const [showArchived, setShowArchived] = useState(false);
+  const [archiving, setArchiving] = useState(false);
 
   const handleRssFeed = async () => {
     setFeedBusy(true);
     try {
       const url = await regenerateJobsFeed();
-      await navigator.clipboard.writeText(url).catch(() => {});
-      alert(`RSS feed updated and URL copied to clipboard:\n${url}\n\nPaste it into LinkedIn/X automation tools or any RSS reader.`);
+      let copied = true;
+      try { await navigator.clipboard.writeText(url); } catch { copied = false; }
+      toast.success(
+        copied
+          ? `RSS feed updated and URL copied to clipboard:\n${url}\n\nPaste it into LinkedIn/X automation tools or any RSS reader.`
+          : `RSS feed updated:\n${url}\n\nCopy the URL manually (clipboard access was blocked), then paste it into your RSS reader.`
+      );
     } catch (err: any) {
-      alert(err?.message || 'Failed to generate feed.');
+      toast.error(err?.message || 'Failed to generate feed.');
     } finally {
       setFeedBusy(false);
     }
   };
 
   const handleCopyLink = async (job: Job) => {
-    await navigator.clipboard.writeText(jobPublicUrl(job.id)).catch(() => {});
     setShareJobId(null);
-    alert('Public link copied to clipboard.');
+    try {
+      await navigator.clipboard.writeText(jobPublicUrl(job.id));
+      toast.success('Public link copied to clipboard.');
+    } catch {
+      toast.error('Could not copy the link — clipboard access was blocked.');
+    }
   };
 
   const load = async () => {
     setLoading(true);
     setError(null);
     try {
-      const [jobList, appList] = await Promise.all([getJobs(), getAllApplications()]);
-      setJobs(jobList);
+      const [jobList, appList] = await Promise.all([getJobs(showArchived), getAllApplications()]);
+      setJobs(showArchived ? jobList.filter((j) => j.archived) : jobList);
       setApplications(appList);
     } catch (err: any) {
       setError(err?.message || 'Failed to load job adverts.');
@@ -82,12 +96,24 @@ export function JobAdvertsPage({ onViewApplications, onCreateAdvert }: JobAdvert
   };
 
   useEffect(() => {
+    setSelected([]);
     load();
-  }, []);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [showArchived]);
+
+  // Drop selections when the visible set changes so a bulk archive can never
+  // act on rows the user can no longer see.
+  useEffect(() => {
+    setSelected([]);
+  }, [searchTerm, statusFilter]);
 
   const handleClose = async (job: Job) => {
     if (!user) return;
-    if (!confirm(`Close "${job.title}"? Candidates will no longer be able to apply.`)) return;
+    if (!(await confirm({
+      title: `Close "${job.title}"?`,
+      description: 'Candidates will no longer be able to apply.',
+      variant: 'destructive',
+    }))) return;
     await closeJob(job.id, user);
     regenerateJobsFeed().catch(() => {});
     load();
@@ -95,7 +121,8 @@ export function JobAdvertsPage({ onViewApplications, onCreateAdvert }: JobAdvert
 
   const handleReopen = async (job: Job) => {
     if (!user) return;
-    const newDate = prompt('New closing date (YYYY-MM-DD), or leave blank to keep none:', '');
+    const newDate = await promptText({ title: 'New closing date (YYYY-MM-DD), or leave blank to keep none:', defaultValue: '' });
+    if (newDate === null) return; // cancelled — don't reopen (blank string still reopens with no deadline)
     await reopenJob(job.id, newDate || undefined, user);
     regenerateJobsFeed().catch(() => {});
     load();
@@ -110,6 +137,30 @@ export function JobAdvertsPage({ onViewApplications, onCreateAdvert }: JobAdvert
     return matchesSearch && matchesStatus;
   });
 
+  const toggleSelect = (id: string) =>
+    setSelected((prev) => (prev.includes(id) ? prev.filter((x) => x !== id) : [...prev, id]));
+
+  const toggleSelectAll = () =>
+    setSelected((prev) =>
+      prev.length === filteredAdverts.length ? [] : filteredAdverts.map((j) => j.id)
+    );
+
+  const handleArchiveSelected = async (archived: boolean) => {
+    if (!user || selected.length === 0) return;
+    setArchiving(true);
+    try {
+      await setJobsArchived(selected, archived, user);
+      toast.success(`${selected.length} advert(s) ${archived ? 'archived' : 'restored to active'}.`);
+      setSelected([]);
+      regenerateJobsFeed().catch(() => {});
+      load();
+    } catch (err: any) {
+      toast.error(err?.message || 'Failed to update archive status.');
+    } finally {
+      setArchiving(false);
+    }
+  };
+
   return (
     <div className="p-8 max-w-7xl mx-auto space-y-6">
       <div className="flex justify-between items-center bg-white p-6 rounded-2xl border border-gray-100 shadow-sm">
@@ -118,6 +169,14 @@ export function JobAdvertsPage({ onViewApplications, onCreateAdvert }: JobAdvert
           <p className="text-gray-500">Manage your published job postings and their visibility.</p>
         </div>
         <div className="flex gap-3">
+          <Button
+            variant="outline"
+            className={`gap-2 rounded-xl ${showArchived ? 'bg-orange-50 text-autumn-primary border-autumn-primary/40' : ''}`}
+            onClick={() => setShowArchived((v) => !v)}
+          >
+            {showArchived ? <ArchiveRestore className="size-4" /> : <Archive className="size-4" />}
+            {showArchived ? 'Viewing Archived' : 'Show Archived'}
+          </Button>
           <Button variant="outline" className="gap-2 rounded-xl" disabled={feedBusy} onClick={handleRssFeed}>
             <Rss className="size-4" />
             {feedBusy ? 'Generating…' : 'RSS Feed'}
@@ -162,10 +221,39 @@ export function JobAdvertsPage({ onViewApplications, onCreateAdvert }: JobAdvert
           </div>
         </div>
 
+        {selected.length > 0 && (
+          <div className="flex items-center gap-4 p-4 bg-orange-50/50 border-b border-orange-100">
+            <span className="text-sm font-semibold text-autumn-charcoal">
+              {selected.length} advert{selected.length > 1 ? 's' : ''} selected
+            </span>
+            <div className="ml-auto">
+              <Button
+                onClick={() => handleArchiveSelected(!showArchived)}
+                size="sm"
+                variant="outline"
+                disabled={archiving}
+                className="rounded-lg h-9 gap-2 border-gray-300"
+              >
+                {showArchived ? <ArchiveRestore className="size-4" /> : <Archive className="size-4" />}
+                {showArchived ? 'Unarchive selected' : 'Archive selected'}
+              </Button>
+            </div>
+          </div>
+        )}
+
         <div className="overflow-x-auto">
           <table className="w-full">
             <thead className="bg-gray-50/80 border-b border-gray-100">
               <tr>
+                <th className="px-6 py-4 text-left w-12">
+                  <input
+                    type="checkbox"
+                    checked={selected.length === filteredAdverts.length && filteredAdverts.length > 0}
+                    onChange={toggleSelectAll}
+                    className="size-4 rounded border-gray-300 text-autumn-primary focus:ring-autumn-primary"
+                    aria-label="Select all adverts"
+                  />
+                </th>
                 <th className="px-6 py-4 text-left text-xs font-semibold text-gray-500 uppercase tracking-wider">Job Details</th>
                 <th className="px-6 py-4 text-left text-xs font-semibold text-gray-500 uppercase tracking-wider">Pipeline Stats</th>
                 <th className="px-6 py-4 text-left text-xs font-semibold text-gray-500 uppercase tracking-wider">Hiring Team</th>
@@ -177,18 +265,27 @@ export function JobAdvertsPage({ onViewApplications, onCreateAdvert }: JobAdvert
             <tbody className="divide-y divide-gray-100 bg-white">
               {loading && (
                 <tr>
-                  <td colSpan={6} className="px-6 py-12 text-center text-gray-500">Loading adverts…</td>
+                  <td colSpan={7} className="px-6 py-12 text-center text-gray-500">Loading adverts…</td>
                 </tr>
               )}
               {!loading && error && (
                 <tr>
-                  <td colSpan={6} className="px-6 py-12 text-center text-red-500">{error}</td>
+                  <td colSpan={7} className="px-6 py-12 text-center text-red-500">{error}</td>
                 </tr>
               )}
               {!loading && !error && filteredAdverts.map((job) => {
                 const stats = statsForJob(job.id, applications);
                 return (
                   <tr key={job.id} className="hover:bg-orange-50/30 transition-colors group">
+                    <td className="px-6 py-4">
+                      <input
+                        type="checkbox"
+                        checked={selected.includes(job.id)}
+                        onChange={() => toggleSelect(job.id)}
+                        className="size-4 rounded border-gray-300 text-autumn-primary focus:ring-autumn-primary"
+                        aria-label={`Select ${job.title}`}
+                      />
+                    </td>
                     <td className="px-6 py-4 whitespace-nowrap">
                       <div className="flex flex-col">
                         <span className="text-sm font-bold text-gray-900">
@@ -303,7 +400,7 @@ export function JobAdvertsPage({ onViewApplications, onCreateAdvert }: JobAdvert
               })}
               {!loading && !error && filteredAdverts.length === 0 && (
                 <tr>
-                  <td colSpan={6} className="px-6 py-12 text-center text-gray-500">
+                  <td colSpan={7} className="px-6 py-12 text-center text-gray-500">
                     <Briefcase className="size-12 mx-auto text-gray-300 mb-3" />
                     <p className="text-lg font-medium text-gray-900">No job adverts found</p>
                     <p className="text-sm text-gray-500 mt-1">Create your first advert or adjust the filters.</p>

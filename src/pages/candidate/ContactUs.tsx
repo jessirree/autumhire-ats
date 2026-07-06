@@ -113,7 +113,7 @@ export function ContactUs({
 
                             {success && (
                                 <div className="bg-green-50 border border-green-200 text-green-700 px-4 py-3 rounded mb-6 relative">
-                                    <span className="block sm:inline">Your message has been sent successfully! We've sent you a confirmation email and will get back to you soon.</span>
+                                    <span className="block sm:inline">Thanks for reaching out — your message has been received and our team will get back to you as soon as possible.</span>
                                     <button className="absolute top-0 bottom-0 right-0 px-4 py-3" onClick={() => setSuccess(false)}>
                                         <span className="text-green-500">&times;</span>
                                     </button>

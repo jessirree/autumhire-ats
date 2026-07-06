@@ -1,4 +1,5 @@
 ﻿import { useEffect, useState } from 'react';
+import { toast } from 'sonner';
 import {
     CheckCircle,
     XCircle,
@@ -8,6 +9,7 @@ import {
     Filter
 } from 'lucide-react';
 import { Button } from '../../components/ui/button';
+import { promptText } from '../../components/ui/confirm-dialog';
 import { StatusBadge } from '../../components/ats/StatusBadge';
 import { useAuth } from '../../context/AuthContext';
 import {
@@ -68,16 +70,16 @@ export function ShortlistingPage({ onViewCandidate }: ShortlistingPageProps) {
     const handleStatusChange = async (candidate: Candidate, newStatus: 'shortlisted' | 'rejected') => {
         if (!user) return;
         // Provision for rationale supporting the shortlisting decision.
-        const rationale = prompt(
-            newStatus === 'shortlisted'
+        const rationale = await promptText({
+            title: newStatus === 'shortlisted'
                 ? `Rationale for shortlisting ${candidate.name} (optional):`
                 : `Rationale for rejecting ${candidate.name} (optional):`
-        ) || undefined;
+        }) || undefined;
         try {
             await updateApplicationStatus(candidate.application, newStatus, user, rationale, newStatus === 'rejected');
             load();
         } catch (err: any) {
-            alert(err?.message || 'Failed to update status.');
+            toast.error(err?.message || 'Failed to update status.');
         }
     };
 

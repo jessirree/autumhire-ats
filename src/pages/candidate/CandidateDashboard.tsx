@@ -1,6 +1,8 @@
 import { useState, useEffect } from 'react';
+import { toast } from 'sonner';
 import { FileText, User, Search, Briefcase } from 'lucide-react';
 import { Button } from '../../components/ui/button';
+import { confirm } from '../../components/ui/confirm-dialog';
 import { StatusBadge } from '../../components/ats/StatusBadge';
 import { StatusTimeline } from '../../components/ats/StatusTimeline';
 import { CandidateHeader } from '../../components/ats/CandidateHeader';
@@ -53,15 +55,18 @@ export function CandidateDashboard({
   const handleOfferResponse = async (offer: Offer, decision: 'accepted' | 'rejected') => {
     if (!user) return;
     const verb = decision === 'accepted' ? 'accept' : 'decline';
-    if (!confirm(`Are you sure you want to ${verb} the offer for ${offer.jobTitle}?`)) return;
+    if (!(await confirm({
+      title: `Are you sure you want to ${verb} the offer for ${offer.jobTitle}?`,
+      variant: decision === 'accepted' ? 'default' : 'destructive',
+    }))) return;
     try {
       await respondToOffer(offer, decision, user);
       loadApplications();
-      alert(decision === 'accepted'
+      toast.success(decision === 'accepted'
         ? 'Congratulations! Your acceptance has been recorded — the team will be in touch about next steps.'
         : 'Your response has been recorded. Thank you for letting us know.');
     } catch (err: any) {
-      alert(err?.message || 'Failed to record your response.');
+      toast.error(err?.message || 'Failed to record your response.');
     }
   };
 
@@ -116,9 +121,9 @@ export function CandidateDashboard({
         city: profile.city,
         country: profile.country,
       });
-      alert('Profile saved.');
+      toast.success('Profile saved.');
     } catch (err: any) {
-      alert(err?.message || 'Failed to save profile.');
+      toast.error(err?.message || 'Failed to save profile.');
     } finally {
       setSavingProfile(false);
     }
@@ -131,7 +136,7 @@ export function CandidateDashboard({
       const up = await uploadProfileCv(user.id, e.target.files[0]);
       setSavedCv({ url: up.url, name: up.name });
     } catch (err: any) {
-      alert(err?.message || 'Failed to upload CV.');
+      toast.error(err?.message || 'Failed to upload CV.');
     } finally {
       setUploadingCv(false);
     }

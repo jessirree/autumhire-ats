@@ -1,4 +1,5 @@
 ﻿import { useState, useCallback, useRef, useEffect } from 'react';
+import { toast } from 'sonner';
 import { DndProvider, useDrag, useDrop } from 'react-dnd';
 import { HTML5Backend } from 'react-dnd-html5-backend';
 import {
@@ -168,9 +169,9 @@ export function PrescreeningBuilder() {
         setSaving(true);
         try {
             await saveQuestionBank(questions, user);
-            alert('Question library saved. These questions are now available when creating jobs.');
+            toast.success('Question library saved. These questions are now available when creating jobs.');
         } catch (err: any) {
-            alert(err?.message || 'Failed to save question library.');
+            toast.error(err?.message || 'Failed to save question library.');
         } finally {
             setSaving(false);
         }

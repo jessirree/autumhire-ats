@@ -1,4 +1,5 @@
 ﻿import { useState, useMemo, useEffect } from 'react';
+import { toast } from 'sonner';
 import { Search, Filter, Download, Briefcase, Mail, Phone, MapPin } from 'lucide-react';
 import { Button } from '../../components/ui/button';
 import { StatusBadge } from '../../components/ats/StatusBadge';
@@ -312,7 +313,7 @@ export function CandidatesPage({ onViewCandidate }: CandidatesPageProps) {
               <Button 
                 className="bg-autumn-primary hover:bg-autumn-dark text-white" 
                 onClick={() => {
-                  alert('Candidate added successfully!');
+                  toast.success('Candidate added successfully!');
                   setIsAddModalOpen(false);
                 }}
               >

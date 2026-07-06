@@ -1,5 +1,6 @@
 ﻿import { useState, useEffect } from 'react';
-import { Search, Filter, Download } from 'lucide-react';
+import { toast } from 'sonner';
+import { Search, Filter, Download, Archive, ArchiveRestore } from 'lucide-react';
 import { Button } from '../../components/ui/button';
 import { StatusBadge } from '../../components/ats/StatusBadge';
 import { useAuth } from '../../context/AuthContext';
@@ -8,6 +9,7 @@ import {
   ApplicationStatus,
   getAllApplications,
   bulkUpdateStatus,
+  setApplicationsArchived,
 } from '../../services/applicationService';
 
 interface ApplicationsPageProps {
@@ -49,16 +51,28 @@ export function ApplicationsPage({ onViewCandidate }: ApplicationsPageProps) {
   const [departmentFilter, setDepartmentFilter] = useState('');
   const [selectedApplications, setSelectedApplications] = useState<string[]>([]);
   const [bulkAction, setBulkAction] = useState('Bulk Actions');
+  const [showArchived, setShowArchived] = useState(false);
+  const [archiving, setArchiving] = useState(false);
 
   const load = () => {
     setLoading(true);
-    getAllApplications()
-      .then(setApplications)
+    getAllApplications(showArchived)
+      .then((apps) => setApplications(showArchived ? apps.filter((a) => a.archived) : apps))
       .catch((err) => console.error('Failed to load applications', err))
       .finally(() => setLoading(false));
   };
 
-  useEffect(load, []);
+  useEffect(() => {
+    setSelectedApplications([]);
+    load();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [showArchived]);
+
+  // Drop selections when the visible set changes so a bulk action can never
+  // act on rows the user can no longer see.
+  useEffect(() => {
+    setSelectedApplications([]);
+  }, [searchTerm, statusFilter, departmentFilter]);
 
   const departments = Array.from(new Set(applications.map((a) => a.department).filter(Boolean)));
 
@@ -96,7 +110,24 @@ export function ApplicationsPage({ onViewCandidate }: ApplicationsPageProps) {
       setBulkAction('Bulk Actions');
       load();
     } catch (err: any) {
-      alert(err?.message || 'Bulk update failed.');
+      toast.error(err?.message || 'Bulk update failed.');
+    }
+  };
+
+  const handleArchiveSelected = async (archived: boolean) => {
+    if (!user || selectedApplications.length === 0) return;
+    setArchiving(true);
+    try {
+      await setApplicationsArchived(selectedApplications, archived, user);
+      toast.success(
+        `${selectedApplications.length} candidate file(s) ${archived ? 'archived' : 'restored to active'}.`
+      );
+      setSelectedApplications([]);
+      load();
+    } catch (err: any) {
+      toast.error(err?.message || 'Failed to update archive status.');
+    } finally {
+      setArchiving(false);
     }
   };
 
@@ -108,6 +139,14 @@ export function ApplicationsPage({ onViewCandidate }: ApplicationsPageProps) {
           <p className="text-gray-500">Manage and review all candidate applications across your jobs.</p>
         </div>
         <div className="flex gap-3">
+          <Button
+            variant="outline"
+            className={`gap-2 rounded-xl ${showArchived ? 'bg-orange-50 text-autumn-primary border-autumn-primary/40' : ''}`}
+            onClick={() => setShowArchived((v) => !v)}
+          >
+            {showArchived ? <ArchiveRestore className="size-4" /> : <Archive className="size-4" />}
+            {showArchived ? 'Viewing Archived' : 'Show Archived'}
+          </Button>
           <Button variant="outline" className="gap-2 rounded-xl" onClick={() => exportToCSV(filteredApplications)}>
             <Download className="size-4" />
             Export to CSV
@@ -170,22 +209,36 @@ export function ApplicationsPage({ onViewCandidate }: ApplicationsPageProps) {
               {selectedApplications.length} candidate{selectedApplications.length > 1 ? 's' : ''} selected
             </span>
             <div className="flex items-center gap-3 ml-auto">
-              <select 
-                value={bulkAction}
-                onChange={(e) => setBulkAction(e.target.value)}
-                className="px-3 py-1.5 text-sm border border-orange-200 rounded-lg bg-white font-medium text-gray-700 focus:outline-none focus:ring-2 focus:ring-autumn-primary/20"
+              {!showArchived && (
+                <>
+                  <select
+                    value={bulkAction}
+                    onChange={(e) => setBulkAction(e.target.value)}
+                    className="px-3 py-1.5 text-sm border border-orange-200 rounded-lg bg-white font-medium text-gray-700 focus:outline-none focus:ring-2 focus:ring-autumn-primary/20"
+                  >
+                    <option value="Bulk Actions">Bulk Actions</option>
+                    {BULK_ACTIONS.map((a) => (
+                      <option key={a.label} value={a.label}>{a.label}</option>
+                    ))}
+                  </select>
+                  <Button
+                    onClick={handleApplyBulkAction}
+                    size="sm"
+                    className="bg-autumn-primary hover:bg-autumn-dark text-white rounded-lg h-9"
+                  >
+                    Apply Action
+                  </Button>
+                </>
+              )}
+              <Button
+                onClick={() => handleArchiveSelected(!showArchived)}
+                size="sm"
+                variant="outline"
+                disabled={archiving}
+                className="rounded-lg h-9 gap-2 border-gray-300"
               >
-                <option value="Bulk Actions">Bulk Actions</option>
-                {BULK_ACTIONS.map((a) => (
-                  <option key={a.label} value={a.label}>{a.label}</option>
-                ))}
-              </select>
-              <Button 
-                onClick={handleApplyBulkAction}
-                size="sm" 
-                className="bg-autumn-primary hover:bg-autumn-dark text-white rounded-lg h-9"
-              >
-                Apply Action
+                {showArchived ? <ArchiveRestore className="size-4" /> : <Archive className="size-4" />}
+                {showArchived ? 'Unarchive' : 'Archive'}
               </Button>
             </div>
           </div>

@@ -1,4 +1,5 @@
 import { useEffect, useState } from 'react';
+import { toast } from 'sonner';
 import { Plus, Send, Rocket, Pencil, X, History } from 'lucide-react';
 import { Button } from '../../components/ui/button';
 import { useAuth } from '../../context/AuthContext';
@@ -89,7 +90,7 @@ export function JobRequisitionsPage({ onCreateRequisition, onPublish }: JobRequi
       setEditing(null);
       load();
     } catch (err: any) {
-      alert(err?.message || 'Failed to save requisition.');
+      toast.error(err?.message || 'Failed to save requisition.');
     } finally {
       setSaving(false);
     }

@@ -1,8 +1,10 @@
 import { useEffect, useState } from 'react';
+import { toast } from 'sonner';
 import { Search, Filter, Mail, DollarSign, Clock, FileCheck, Plus, X, CheckCircle2, XCircle, Download } from 'lucide-react';
 import { getApplicationById } from '../../services/applicationService';
 import { collection, getDocs } from 'firebase/firestore';
 import { Button } from '../../components/ui/button';
+import { confirm } from '../../components/ui/confirm-dialog';
 import { db } from '../../lib/firebase';
 import { useAuth } from '../../context/AuthContext';
 import { Application, getAllApplications } from '../../services/applicationService';
@@ -72,7 +74,7 @@ export function OffersPage() {
   const handleCreate = async () => {
     if (!user) return;
     const application = candidates.find((c) => c.id === form.applicationId);
-    if (!application) { alert('Select a candidate.'); return; }
+    if (!application) { toast.error('Select a candidate.'); return; }
     setSaving(true);
     try {
       const approver = approvers.find((a) => a.id === form.approverId);
@@ -84,7 +86,7 @@ export function OffersPage() {
       setForm({ applicationId: '', salary: '', currency: 'KES', startDate: '', notes: '', approverId: '' });
       load();
     } catch (err: any) {
-      alert(err?.message || 'Failed to create offer.');
+      toast.error(err?.message || 'Failed to create offer.');
     } finally {
       setSaving(false);
     }
@@ -98,26 +100,31 @@ export function OffersPage() {
 
   const handleFinalizeHire = async (offer: Offer) => {
     if (!user) return;
-    const regrets = confirm(`Finalize the hire of ${offer.candidateName}?\n\nOK = also send regret notifications to the remaining candidates for this job.\nCancel on the next prompt keeps regrets unsent.`);
+    const regrets = await confirm({
+      title: `Finalize the hire of ${offer.candidateName}?`,
+      description: 'The application will be marked as Hired. You can also send regret notifications to the remaining candidates for this job.',
+      confirmText: 'Hire & send regrets',
+      cancelText: 'Hire only',
+    });
     try {
       await finalizeHire(offer, user, { sendRegrets: regrets });
       load();
-      alert('Hire finalized — application marked as Hired.');
+      toast.success('Hire finalized — application marked as Hired.');
     } catch (err: any) {
-      alert(err?.message || 'Failed to finalize hire.');
+      toast.error(err?.message || 'Failed to finalize hire.');
     }
   };
 
   const handleDecision = async (offer: Offer, decision: 'accepted' | 'rejected') => {
     if (!user) return;
     const regrets = decision === 'accepted'
-      ? confirm(`${offer.candidateName} accepted — also send regret notifications to the remaining candidates for this job?`)
+      ? await confirm({ title: `${offer.candidateName} accepted — also send regret notifications to the remaining candidates for this job?` })
       : false;
     try {
       await recordOfferDecision(offer, decision, user, { sendRegrets: regrets });
       load();
     } catch (err: any) {
-      alert(err?.message || 'Failed to record decision.');
+      toast.error(err?.message || 'Failed to record decision.');
     }
   };
 
@@ -125,7 +132,7 @@ export function OffersPage() {
   const handleExportHired = async () => {
     const accepted = offers.filter((o) => o.status === 'accepted');
     if (accepted.length === 0) {
-      alert('No accepted offers to export yet.');
+      toast.error('No accepted offers to export yet.');
       return;
     }
     const rows: string[][] = [
