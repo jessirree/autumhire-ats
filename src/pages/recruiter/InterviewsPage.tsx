@@ -1,7 +1,10 @@
 import { useEffect, useState } from 'react';
-import { Search, Filter, CalendarPlus, UserCheck, Video, MapPin, Clock, X } from 'lucide-react';
+import { toast } from 'sonner';
+import { Search, Filter, CalendarPlus, UserCheck, Video, MapPin, Clock, X, Printer } from 'lucide-react';
 import { collection, getDocs } from 'firebase/firestore';
 import { Button } from '../../components/ui/button';
+import { confirm } from '../../components/ui/confirm-dialog';
+import { printInterviewReport } from '../../lib/printInterviewReport';
 import { db } from '../../lib/firebase';
 import { useAuth } from '../../context/AuthContext';
 import { Application, getAllApplications } from '../../services/applicationService';
@@ -82,7 +85,7 @@ export function InterviewsPage() {
     if (!user) return;
     const application = candidates.find((c) => c.id === form.applicationId);
     if (!application || !form.scheduledAt || form.panelIds.length === 0) {
-      alert('Select a candidate, date/time and at least one panel member.');
+      toast.error('Select a candidate, date/time and at least one panel member.');
       return;
     }
     setSaving(true);
@@ -103,7 +106,7 @@ export function InterviewsPage() {
       setForm({ applicationId: '', scheduledAt: '', durationMinutes: 60, mode: 'video', locationOrLink: '', panelIds: [], questions: '' });
       load();
     } catch (err: any) {
-      alert(err?.message || 'Failed to schedule interview.');
+      toast.error(err?.message || 'Failed to schedule interview.');
     } finally {
       setSaving(false);
     }
@@ -118,7 +121,7 @@ export function InterviewsPage() {
       comments: myComments,
     });
     load();
-    alert('Score recorded.');
+    toast.success('Score recorded.');
   };
 
   const handleComplete = async () => {
@@ -130,7 +133,7 @@ export function InterviewsPage() {
 
   const handleCancel = async () => {
     if (!managing || !user) return;
-    if (!confirm('Cancel this interview?')) return;
+    if (!(await confirm({ title: 'Cancel this interview?', variant: 'destructive' }))) return;
     await cancelInterview(managing.id, user);
     setManaging(null);
     load();
@@ -501,11 +504,25 @@ export function InterviewsPage() {
                   </div>
                 </div>
               )}
-              {managing.status === 'completed' && managing.notes && (
+              {managing.status === 'completed' && (
                 <div className="border-t border-gray-100 pt-4">
-                  <h3 className="text-sm font-bold text-gray-900 mb-1">Interview Report</h3>
-                  <p className="text-sm text-gray-600">Result: <span className="font-medium">{managing.result}</span></p>
-                  <p className="text-sm text-gray-600 mt-1 whitespace-pre-line">{managing.notes}</p>
+                  <div className="flex items-center justify-between mb-1">
+                    <h3 className="text-sm font-bold text-gray-900">Interview Report</h3>
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      className="gap-2"
+                      onClick={() => {
+                        if (!printInterviewReport(managing)) {
+                          toast.error('Please allow pop-ups to open the printable report.');
+                        }
+                      }}
+                    >
+                      <Printer className="size-4" /> Export / Print Report
+                    </Button>
+                  </div>
+                  <p className="text-sm text-gray-600">Result: <span className="font-medium">{managing.result ?? '—'}</span></p>
+                  {managing.notes && <p className="text-sm text-gray-600 mt-1 whitespace-pre-line">{managing.notes}</p>}
                 </div>
               )}
             </div>

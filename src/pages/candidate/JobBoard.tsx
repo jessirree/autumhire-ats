@@ -1,4 +1,5 @@
 ﻿import { useState, useEffect, useMemo } from 'react';
+import { toast } from 'sonner';
 import { Search, MapPin, Briefcase, Clock, ChevronRight, Filter, Building, DollarSign, Calendar, Bell, BellOff } from 'lucide-react';
 import { useAuth } from '../../context/AuthContext';
 import { subscribeToJobAlerts, unsubscribeFromJobAlerts, isSubscribed } from '../../services/jobAlertService';
@@ -90,7 +91,7 @@ export function JobBoard({
 
   const handleToggleAlerts = async () => {
     if (!user) {
-      alert('Sign in to subscribe to job alerts.');
+      toast.error('Sign in to subscribe to job alerts.');
       onLoginClick();
       return;
     }
@@ -101,10 +102,10 @@ export function JobBoard({
       } else {
         await subscribeToJobAlerts(user);
         setSubscribed(true);
-        alert('Subscribed! You will be notified whenever a new job is posted.');
+        toast.success('Subscribed! You will be notified whenever a new job is posted.');
       }
     } catch (err: any) {
-      alert(err?.message || 'Failed to update subscription.');
+      toast.error(err?.message || 'Failed to update subscription.');
     }
   };
 
@@ -151,7 +152,7 @@ export function JobBoard({
         onSubmit={() => {
           setShowApplicationForm(false);
           setActiveJobId(null);
-          alert('Application submitted successfully! You will receive a confirmation notification.');
+          toast.success('Application submitted successfully! You will receive a confirmation notification.');
         }}
       />
     );

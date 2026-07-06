@@ -1,7 +1,9 @@
 import { useEffect, useState } from 'react';
+import { toast } from 'sonner';
 import { useNavigate } from 'react-router-dom';
 import { CheckCircle, XCircle, Clock } from 'lucide-react';
 import { Button } from '../../components/ui/button';
+import { promptText } from '../../components/ui/confirm-dialog';
 import { StatusBadge } from '../../components/ats/StatusBadge';
 import { useAuth } from '../../context/AuthContext';
 import {
@@ -59,19 +61,19 @@ export function HiringManagerDashboard() {
       await confirmRequisition(req, user, false);
       load();
     } catch (err: any) {
-      alert(err?.message || 'Failed to confirm.');
+      toast.error(err?.message || 'Failed to confirm.');
     }
   };
 
   const handleReturn = async (req: Requisition) => {
     if (!user) return;
-    const comment = prompt('What should the recruiter change?');
+    const comment = await promptText({ title: 'What should the recruiter change?' });
     if (!comment?.trim()) return;
     try {
       await returnToRecruiter(req, user, comment.trim());
       load();
     } catch (err: any) {
-      alert(err?.message || 'Failed to return.');
+      toast.error(err?.message || 'Failed to return.');
     }
   };
 

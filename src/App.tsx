@@ -2,7 +2,10 @@ import React from 'react';
 import { BrowserRouter, Routes, Route, Navigate, useNavigate, useParams, Outlet } from 'react-router-dom';
 import './index.css';
 
+import { toast } from 'sonner';
 import { AuthProvider, useAuth } from './context/AuthContext';
+import { Toaster } from './components/ui/sonner';
+import { DialogHost } from './components/ui/confirm-dialog';
 import { Job as JobType, getJobById } from './services/jobService';
 import { ProtectedRoute } from './components/auth/ProtectedRoute';
 import { DashboardLayout } from './layouts/DashboardLayout';
@@ -47,8 +50,6 @@ import { TemplateManagement } from './pages/admin/TemplateManagement';
 import { PrescreeningBuilder } from './pages/admin/PrescreeningBuilder';
 import { ReportsPage } from './pages/admin/ReportsPage';
 import { WorkflowConfiguration } from './pages/admin/WorkflowConfiguration';
-import { PlanSelection } from './pages/admin/PlanSelection';
-import { PaymentPage } from './pages/admin/PaymentPage';
 
 // A wrapper to handle the complex mock properties previously passed to Candidate views
 function CandidateViewsWrapper({ children }: { children: React.ReactNode }) {
@@ -124,7 +125,7 @@ function ApplicationFormWrapper() {
       job={job}
       onBack={() => navigate(-1)}
       onSubmit={() => {
-        alert('Application submitted successfully! You will receive a confirmation notification.');
+        toast.success('Application submitted successfully! You will receive a confirmation notification.');
         navigate('/jobs');
       }}
     />
@@ -164,7 +165,7 @@ function EditJobWrapper() {
       editJobId={id}
       onBack={() => navigate('/admin/dashboard')}
       onSubmit={() => navigate('/admin/dashboard')}
-      onSkip={() => navigate('/admin/select-plan')}
+      onSkip={() => navigate('/admin/dashboard')}
     />
   );
 }
@@ -237,10 +238,8 @@ function AppRoutes() {
         <Route path="screening" element={<PrescreeningBuilder />} />
         <Route path="workflow" element={<WorkflowConfiguration />} />
         <Route path="reports" element={<ReportsPage />} />
-        <Route path="post-job" element={<CreateJob onBack={() => navigate('/admin/dashboard')} onSubmit={() => navigate('/admin/dashboard')} onSkip={() => navigate('/admin/select-plan')} />} />
+        <Route path="post-job" element={<CreateJob onBack={() => navigate('/admin/dashboard')} onSubmit={() => navigate('/admin/dashboard')} onSkip={() => navigate('/admin/dashboard')} />} />
         <Route path="edit-job/:id" element={<EditJobWrapper />} />
-        <Route path="select-plan" element={<PlanSelection onSelectPlan={(planId) => planId === 'free' ? navigate('/admin/dashboard') : navigate(`/admin/payment/${planId}`)} />} />
-        <Route path="payment/:planId" element={<PaymentPage planId="premium" onBack={() => navigate('/admin/select-plan')} onPay={() => navigate('/admin/dashboard')} />} />
         <Route path="*" element={<UnderConstruction pageName="Admin Feature" />} />
       </Route>
 
@@ -285,6 +284,8 @@ export default function App() {
     <AuthProvider>
       <BrowserRouter>
         <AppRoutes />
+        <Toaster richColors closeButton position="top-right" />
+        <DialogHost />
       </BrowserRouter>
     </AuthProvider>
   );

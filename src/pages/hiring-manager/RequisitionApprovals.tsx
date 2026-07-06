@@ -1,7 +1,9 @@
 import { useEffect, useState } from 'react';
+import { toast } from 'sonner';
 import { useNavigate } from 'react-router-dom';
 import { CheckCircle, XCircle, Plus, FastForward, Undo2 } from 'lucide-react';
 import { Button } from '../../components/ui/button';
+import { promptText } from '../../components/ui/confirm-dialog';
 import { useAuth } from '../../context/AuthContext';
 import {
   Requisition,
@@ -46,39 +48,40 @@ export function RequisitionApprovals() {
     if (!user) return;
     let reason: string | undefined;
     if (skip) {
-      reason = prompt(
-        'You are skipping admin approval — this will be documented on the requisition and in the audit trail.\n\nReason for skipping:'
-      ) || undefined;
+      reason = await promptText({
+        title: 'You are skipping admin approval — this will be documented on the requisition and in the audit trail.',
+        description: 'Reason for skipping:',
+      }) || undefined;
       if (reason === undefined) return; // cancelled
     }
     try {
       await confirmRequisition(req, user, skip, reason);
       load();
     } catch (err: any) {
-      alert(err?.message || 'Failed to confirm.');
+      toast.error(err?.message || 'Failed to confirm.');
     }
   };
 
   const handleReturn = async (req: Requisition) => {
     if (!user) return;
-    const comment = prompt('What should the recruiter change?');
+    const comment = await promptText({ title: 'What should the recruiter change?' });
     if (!comment?.trim()) return;
     try {
       await returnToRecruiter(req, user, comment.trim());
       load();
     } catch (err: any) {
-      alert(err?.message || 'Failed to return.');
+      toast.error(err?.message || 'Failed to return.');
     }
   };
 
   const handleAdminDecision = async (req: Requisition, decision: 'approved' | 'rejected') => {
     if (!user) return;
-    const comment = prompt(`Comment for the ${decision === 'approved' ? 'approval' : 'rejection'} (optional):`) || undefined;
+    const comment = await promptText({ title: `Comment for the ${decision === 'approved' ? 'approval' : 'rejection'} (optional):` }) || undefined;
     try {
       await adminDecideRequisition(req, decision, comment, user);
       load();
     } catch (err: any) {
-      alert(err?.message || 'Failed to record decision.');
+      toast.error(err?.message || 'Failed to record decision.');
     }
   };
 

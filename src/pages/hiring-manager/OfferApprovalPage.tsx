@@ -1,4 +1,5 @@
 import { useEffect, useState } from 'react';
+import { toast } from 'sonner';
 import { CheckCircle, XCircle, DollarSign, Calendar, User, FileText, AlertCircle } from 'lucide-react';
 import { Button } from '../../components/ui/button';
 import { useAuth } from '../../context/AuthContext';
@@ -25,14 +26,14 @@ export function OfferApprovalPage() {
         if (!user) return;
         const note = notes[offer.id]?.trim();
         if (decision === 'declined-approval' && !note) {
-            alert('Please add a note explaining why you are declining.');
+            toast.error('Please add a note explaining why you are declining.');
             return;
         }
         try {
             await decideOfferApproval(offer, decision, note || undefined, user);
             load();
         } catch (err: any) {
-            alert(err?.message || 'Failed to record decision.');
+            toast.error(err?.message || 'Failed to record decision.');
         }
     };
 

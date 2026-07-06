@@ -60,7 +60,7 @@ export function AboutUs({
                         </div>
                         <div className="mission-vision-card">
                             <h2 className="section-title">Our Vision</h2>
-                            <p className="section-content">Talkent acquisition practices into the global village through innovation and modern technology.</p>
+                            <p className="section-content">Talent acquisition practices into the global village through innovation and modern technology.</p>
                         </div>
                     </div>
                 </div>
@@ -92,7 +92,7 @@ export function AboutUs({
                         {/* Service 1 */}
                         <div className="service-card">
                             <h3>Strategic Talent Acquisition & Recruitment</h3>
-                            <p>We don't just fill positions â€” we build high-performing teams that drive your business forward.</p>
+                            <p>We don't just fill positions — we build high-performing teams that drive your business forward.</p>
                             <ul className="service-list">
                                 <li><strong className="text-[#4A4A4A]">Executive & Leadership Search:</strong> Discreet, targeted headhunting for C-suite and strategic roles</li>
                                 <li><strong>Permanent Recruitment:</strong> Comprehensive sourcing and placement for critical long-term hires</li>
@@ -173,7 +173,7 @@ export function AboutUs({
                 <div className="partner-section">
                     <h2 className="section-title text-center">Why partner with Autumhire?</h2>
                     <p className="section-content mb-4 text-lg">
-                        Because we combine the aggression of a boutique search firm, the scale of a large agency, and the innovation of a tech-driven HR partner â€” all delivered with integrity, excellence, and a genuine passion for people.
+                        Because we combine the aggression of a boutique search firm, the scale of a large agency, and the innovation of a tech-driven HR partner — all delivered with integrity, excellence, and a genuine passion for people.
                     </p>
                     <p className="font-medium text-[#595C5F]">
                         We're not just filling roles. We're shaping futures, building legacies, and powering organizations to thrive in today's dynamic world with flexible, reliable talent solutions.
@@ -223,7 +223,7 @@ export function AboutUs({
                     <h2 className="section-title">Get in Touch</h2>
                     <p className="section-content mb-4">Have questions or feedback? We'd love to hear from you.</p>
                     <p className="text-xl font-bold text-[#595C5F]">
-                        Ready to transform your talent strategy? Contact us today â€” let's create something extraordinary together.
+                        Ready to transform your talent strategy? Contact us today — let's create something extraordinary together.
                     </p>
                 </section>
 

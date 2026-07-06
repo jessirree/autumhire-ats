@@ -93,6 +93,8 @@ export interface Application {
   statusHistory: StatusHistoryEntry[];
   referees?: Referee[];
   consentGiven: boolean;
+  /** Archived candidate files are hidden from active views but never deleted. */
+  archived?: boolean;
   appliedAt?: Timestamp | null;
   updatedAt?: Timestamp | null;
 }
@@ -301,9 +303,44 @@ export async function applyToJob(input: {
 
 // ── Reads (staff) ───────────────────────────────────────────────────
 
-export async function getAllApplications(): Promise<Application[]> {
+/**
+ * All applications — staff view. Archived candidate files are excluded by
+ * default; pass `includeArchived` to load them (e.g. the "Show archived"
+ * toggle). Filtering is client-side, consistent with the rest of this service,
+ * so no new composite index is required.
+ */
+export async function getAllApplications(includeArchived = false): Promise<Application[]> {
   const snap = await getDocs(query(collection(db, COL), orderBy('appliedAt', 'desc')));
-  return snap.docs.map((d) => toApplication(d.id, d.data()));
+  const apps = snap.docs.map((d) => toApplication(d.id, d.data()));
+  return includeArchived ? apps : apps.filter((a) => !a.archived);
+}
+
+/**
+ * Archive or unarchive a batch of candidate files. Never deletes — sets the
+ * `archived` flag so files drop out of / return to active views.
+ * Writes are chunked into batches of ≤500 (the Firestore batched-write cap).
+ */
+export async function setApplicationsArchived(
+  ids: string[],
+  archived: boolean,
+  by: { id: string; name: string }
+): Promise<void> {
+  if (ids.length === 0) return;
+  for (let i = 0; i < ids.length; i += 500) {
+    const chunk = ids.slice(i, i + 500);
+    const batch = writeBatch(db);
+    for (const id of chunk) {
+      batch.update(doc(db, COL, id), { archived, updatedAt: serverTimestamp() });
+    }
+    await batch.commit();
+  }
+  await logAudit(
+    by,
+    'update',
+    'Application',
+    ids.join(','),
+    `${archived ? 'Archived' : 'Unarchived'} ${ids.length} candidate file(s)`
+  );
 }
 
 export async function getApplicationsForJob(jobId: string): Promise<Application[]> {

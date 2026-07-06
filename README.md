@@ -55,7 +55,7 @@ Storage is set up — that is the only change needed.**
 - **Applications** — candidate accounts with persisted profiles; bio-data capture (gender, nationality, DOB, location); prevention of duplicate applications; blocked on closed jobs; accuracy declaration + consent; per-job **pre-screening questions with auto-scoring** (points + expected answers); internal/ex-employee flags; source tracking.
 - **Screening & long-listing** — score-ranked screening view with knockout analysis; bulk status updates; candidate CRM with search/filter and cross-job history; CSV export.
 - **Shortlisting** — hiring-manager review with rationale prompts and panel comments (collaboration notes).
-- **Interviews** — scheduling with panel, questions, mode/location; per-panelist scores and comments; completion with result + report notes; candidate notified.
+- **Interviews** — scheduling with panel, questions, mode/location; per-panelist scores and comments; completion with result + report notes; candidate notified; **printable/exportable evaluation report** (per-panelist scores, average, consensus & recommendation) opened in a print-optimised window.
 - **Reference checks** — auto-generated referee emails (mailto draft) from application data; responses recorded.
 - **Offers** — creation with optional HM approval step; send to candidate; **candidate accepts/declines from their own dashboard**; recruiter finalizes the hire; regret notifications to remaining candidates; onboarding handoff CSV export of hired candidates.
 - **Notifications** — every event (application received, status changes, interview invites, offers, regrets, job alerts) is written to a `Notifications` collection, shown in an in-app bell (staff + candidates). The same collection is the outbox for the future email sender.
@@ -64,9 +64,16 @@ Storage is set up — that is the only change needed.**
 - **Sharing** — LinkedIn / X / WhatsApp / copy-link share for live adverts; RSS feed generator (behind the storage flag).
 - **Security** — role-based Firestore rules for every collection; candidates can never edit applications after submission; audit log is append-only; candidate offer-response rule is tightly scoped.
 
+### Workflow & data-management UX
+
+- **Modern dialogs** — every native browser `alert/confirm/prompt` across all dashboards has been replaced with **sonner toasts** and **accessible, promise-based confirm / input modals** (focus-trapped, keyboard-navigable, `await`-able). Mounted once at the app root.
+- **Share candidate profile** — one-click **email draft** (`mailto:`, prefilled subject + concise summary of bio-data, screening scores and panelist history) plus **Copy full summary** to clipboard for the complete profile (works around mailto length limits).
+- **Bulk archiving** — bulk-select checkboxes on the recruiter Job Adverts, recruiter Applications and admin Jobs tables to **archive** filled/cancelled adverts and historical candidate files out of active views (and **unarchive** them back). Never hard-deletes — sets an `archived` flag; bulk writes are chunked into batches of ≤500. A **Show archived** toggle switches each table between active and archived views. No new composite indexes required (archived filtering is client-side, consistent with the existing readers).
+- **Static content** — removed the leftover Plan Selection / Payment template pages and their routes; Terms of Service, About Us and Contact pages carry real, presentable copy.
+
 ### Verified
 
-- `tsc --noEmit`: **0 errors** · `vite build`: passing.
+- `tsc --noEmit`: **0 errors** · `vite build`: passing (2,474 modules).
 
 ## Status: what's left ⏳
 
@@ -79,13 +86,11 @@ Storage is set up — that is the only change needed.**
 ### Remaining work (not blocked)
 
 - Deploy a demo (Firebase Hosting free tier, or cPanel subdomain).
-- Replace browser `alert/confirm/prompt` dialogs with proper toasts/dialogs (sonner is already installed).
-- Interview report download (printable per-interview report).
-- Share candidate profile by email (mailto draft with summary + answers).
-- Bulk archiving of old jobs/candidates.
-- CSV import of positions/candidates ("import from Excel" requirement).
-- Remove leftover Plan Selection / Payment template pages; real content for Terms/About/Contact.
 - Full end-to-end test pass of the pipeline with real accounts.
+
+### Descoped
+
+- **CSV / Excel import of positions & candidates** — removed from scope: the client attaches candidates to specific jobs (not a standalone talent bank), runs only a handful of trial accounts, and has no bulk-import use case.
 
 ## Structure
 

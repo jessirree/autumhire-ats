@@ -1,11 +1,12 @@
 ﻿import { useEffect, useState } from 'react';
-import { Users, Mail, FileText, Settings, Plus, Edit2, Trash2 } from 'lucide-react';
+import { Users, Mail, FileText, Settings, Plus, Edit2, Trash2, Archive, ArchiveRestore } from 'lucide-react';
 import { collection, getDocs } from 'firebase/firestore';
 import { Button } from '../../components/ui/button';
+import { confirm } from '../../components/ui/confirm-dialog';
 import { StatusBadge } from '../../components/ats/StatusBadge';
 import { UserManagement } from './UserManagement';
 import { db } from '../../lib/firebase';
-import { Job, getJobs, closeJob } from '../../services/jobService';
+import { Job, getJobs, closeJob, setJobsArchived } from '../../services/jobService';
 import { Template, getTemplates } from '../../services/templateService';
 import { useAuth } from '../../context/AuthContext';
 import { TemplateManagement } from './TemplateManagement';
@@ -22,6 +23,9 @@ export function AdminDashboard({ onNavigate, initialTab = 'users' }: AdminDashbo
   const { user } = useAuth();
   const [activeTab, setActiveTab] = useState(initialTab);
   const [jobs, setJobs] = useState<Job[]>([]);
+  const [selectedJobs, setSelectedJobs] = useState<string[]>([]);
+  const [showArchivedJobs, setShowArchivedJobs] = useState(false);
+  const [archiving, setArchiving] = useState(false);
   const [userCount, setUserCount] = useState(0);
   const [templates, setTemplates] = useState<Template[]>([]);
   const [workflows, setWorkflows] = useState<Workflow[]>([]);
@@ -29,7 +33,8 @@ export function AdminDashboard({ onNavigate, initialTab = 'users' }: AdminDashbo
 
   const loadJobs = async () => {
     try {
-      setJobs(await getJobs());
+      // Load everything (including archived) once; the table filters client-side.
+      setJobs(await getJobs(true));
     } catch (err) {
       console.error('Failed to load jobs', err);
     }
@@ -47,9 +52,35 @@ export function AdminDashboard({ onNavigate, initialTab = 'users' }: AdminDashbo
 
   const handleCloseJob = async (job: Job) => {
     if (!user) return;
-    if (!confirm(`Close "${job.title}"? Candidates will no longer be able to apply.`)) return;
+    if (!(await confirm({
+      title: `Close "${job.title}"?`,
+      description: 'Candidates will no longer be able to apply.',
+      variant: 'destructive',
+    }))) return;
     await closeJob(job.id, user);
     loadJobs();
+  };
+
+  const tableJobs = jobs.filter((j) => (showArchivedJobs ? j.archived : !j.archived));
+
+  const toggleSelectJob = (id: string) =>
+    setSelectedJobs((prev) => (prev.includes(id) ? prev.filter((x) => x !== id) : [...prev, id]));
+
+  const toggleSelectAllJobs = () =>
+    setSelectedJobs((prev) => (prev.length === tableJobs.length ? [] : tableJobs.map((j) => j.id)));
+
+  const handleArchiveSelectedJobs = async (archived: boolean) => {
+    if (!user || selectedJobs.length === 0) return;
+    setArchiving(true);
+    try {
+      await setJobsArchived(selectedJobs, archived, user);
+      setSelectedJobs([]);
+      loadJobs();
+    } catch (err) {
+      console.error('Failed to update archive status', err);
+    } finally {
+      setArchiving(false);
+    }
   };
 
   return (
@@ -78,7 +109,7 @@ export function AdminDashboard({ onNavigate, initialTab = 'users' }: AdminDashbo
           <div className="flex items-center justify-between">
             <div>
               <p className="text-sm text-gray-600 mb-1">Active Jobs</p>
-              <p className="text-3xl font-semibold">{jobs.filter((j) => j.status === 'Active' || j.status === 'Re-advertised').length}</p>
+              <p className="text-3xl font-semibold">{jobs.filter((j) => !j.archived && (j.status === 'Active' || j.status === 'Re-advertised')).length}</p>
             </div>
             <div className="p-3 bg-purple-50 text-purple-600 rounded-lg">
               <FileText className="size-6" />
@@ -143,12 +174,44 @@ export function AdminDashboard({ onNavigate, initialTab = 'users' }: AdminDashbo
           {activeTab === 'jobs' && (
             <div>
               <div className="flex items-center justify-between mb-6">
-                <h3 className="font-semibold">All Jobs</h3>
+                <h3 className="font-semibold">{showArchivedJobs ? 'Archived Jobs' : 'All Jobs'}</h3>
+                <div className="flex items-center gap-3">
+                  {selectedJobs.length > 0 && (
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      disabled={archiving}
+                      className="gap-2"
+                      onClick={() => handleArchiveSelectedJobs(!showArchivedJobs)}
+                    >
+                      {showArchivedJobs ? <ArchiveRestore className="size-4" /> : <Archive className="size-4" />}
+                      {showArchivedJobs ? `Unarchive (${selectedJobs.length})` : `Archive (${selectedJobs.length})`}
+                    </Button>
+                  )}
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    className={`gap-2 ${showArchivedJobs ? 'bg-blue-50 text-blue-700 border-blue-200' : ''}`}
+                    onClick={() => { setShowArchivedJobs((v) => !v); setSelectedJobs([]); }}
+                  >
+                    {showArchivedJobs ? <ArchiveRestore className="size-4" /> : <Archive className="size-4" />}
+                    {showArchivedJobs ? 'Viewing Archived' : 'Show Archived'}
+                  </Button>
+                </div>
               </div>
               <div className="overflow-x-auto">
                 <table className="w-full">
                   <thead className="bg-gray-50 border-b border-gray-200">
                     <tr>
+                      <th className="px-6 py-3 text-left w-12">
+                        <input
+                          type="checkbox"
+                          checked={selectedJobs.length === tableJobs.length && tableJobs.length > 0}
+                          onChange={toggleSelectAllJobs}
+                          className="size-4 rounded border-gray-300 text-blue-600 focus:ring-blue-500"
+                          aria-label="Select all jobs"
+                        />
+                      </th>
                       <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Job Title</th>
                       <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Department</th>
                       <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Location</th>
@@ -158,8 +221,17 @@ export function AdminDashboard({ onNavigate, initialTab = 'users' }: AdminDashbo
                     </tr>
                   </thead>
                   <tbody className="divide-y divide-gray-200">
-                    {jobs.map((job) => (
+                    {tableJobs.map((job) => (
                       <tr key={job.id} className="hover:bg-gray-50 transition-colors">
+                        <td className="px-6 py-4">
+                          <input
+                            type="checkbox"
+                            checked={selectedJobs.includes(job.id)}
+                            onChange={() => toggleSelectJob(job.id)}
+                            className="size-4 rounded border-gray-300 text-blue-600 focus:ring-blue-500"
+                            aria-label={`Select ${job.title}`}
+                          />
+                        </td>
                         <td className="px-6 py-4 font-medium text-gray-900">
                           {job.title}
                           <span className="block text-xs text-gray-400 font-normal">{job.referenceNumber}</span>
@@ -194,10 +266,10 @@ export function AdminDashboard({ onNavigate, initialTab = 'users' }: AdminDashbo
                         </td>
                       </tr>
                     ))}
-                    {jobs.length === 0 && (
+                    {tableJobs.length === 0 && (
                       <tr>
-                        <td colSpan={6} className="px-6 py-8 text-center text-gray-500">
-                          No jobs found. Click "Post New Job" to create one.
+                        <td colSpan={7} className="px-6 py-8 text-center text-gray-500">
+                          {showArchivedJobs ? 'No archived jobs.' : 'No jobs found. Click "Post New Job" to create one.'}
                         </td>
                       </tr>
                     )}

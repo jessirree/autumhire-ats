@@ -1,6 +1,9 @@
 import { useState, useEffect } from 'react';
-import { ArrowLeft, Mail, Phone, MapPin, FileText, Download, Star, Save, UserCheck, Calendar, CheckCircle2, XCircle, MessageSquare, Send } from 'lucide-react';
+import { toast } from 'sonner';
+import { ArrowLeft, Mail, Phone, MapPin, FileText, Download, Star, Save, UserCheck, Calendar, CheckCircle2, XCircle, MessageSquare, Send, Share2, ClipboardCopy } from 'lucide-react';
 import { Button } from '../../components/ui/button';
+import { promptText } from '../../components/ui/confirm-dialog';
+import { shareCandidateProfileByEmail, copyFullCandidateSummary } from '../../lib/shareCandidateProfile';
 import { StatusBadge } from '../../components/ats/StatusBadge';
 import { useAuth } from '../../context/AuthContext';
 import {
@@ -74,7 +77,7 @@ export function CandidateDetail({ candidateId, onBack }: CandidateDetailProps) {
       await updateApplicationStatus(application, status, user, undefined, status === 'rejected');
       setApplication({ ...application, status });
     } catch (err: any) {
-      alert(err?.message || 'Failed to update status.');
+      toast.error(err?.message || 'Failed to update status.');
     }
   };
 
@@ -88,7 +91,7 @@ export function CandidateDetail({ candidateId, onBack }: CandidateDetailProps) {
   const handleCreateReferenceCheck = async () => {
     if (!application || !user) return;
     if (!refForm.name.trim() || !refForm.email.trim()) {
-      alert('Referee name and email are required.');
+      toast.error('Referee name and email are required.');
       return;
     }
     await createReferenceCheck(application, { ...refForm }, user);
@@ -98,11 +101,23 @@ export function CandidateDetail({ candidateId, onBack }: CandidateDetailProps) {
   };
 
   const handleRecordResponse = async (check: ReferenceCheck) => {
-    const response = prompt(`Record the response from ${check.referee.name}:`, check.response || '');
+    const response = await promptText({ title: `Record the response from ${check.referee.name}:`, defaultValue: check.response || '' });
     if (response?.trim() && application) {
       await recordReferenceResponse(check.id, response.trim());
       setReferenceChecks(await getReferenceChecks(application.id));
     }
+  };
+
+  const handleShareByEmail = () => {
+    if (!application) return;
+    shareCandidateProfileByEmail(application, interviews);
+  };
+
+  const handleCopyFullSummary = async () => {
+    if (!application) return;
+    const ok = await copyFullCandidateSummary(application, interviews);
+    if (ok) toast.success('Full candidate summary copied to clipboard.');
+    else toast.error('Could not access the clipboard. Try the email option instead.');
   };
 
   if (loading) return <div className="p-8">Loading candidate details...</div>;
@@ -121,10 +136,20 @@ export function CandidateDetail({ candidateId, onBack }: CandidateDetailProps) {
 
   return (
     <div className="p-8">
-      <button onClick={onBack} className="flex items-center gap-2 text-gray-600 hover:text-gray-900 mb-6">
-        <ArrowLeft className="size-4" />
-        Back to Applications
-      </button>
+      <div className="flex items-center justify-between mb-6">
+        <button onClick={onBack} className="flex items-center gap-2 text-gray-600 hover:text-gray-900">
+          <ArrowLeft className="size-4" />
+          Back to Applications
+        </button>
+        <div className="flex items-center gap-2">
+          <Button variant="outline" size="sm" className="gap-2" onClick={handleShareByEmail}>
+            <Share2 className="size-4" /> Share Profile
+          </Button>
+          <Button variant="outline" size="sm" className="gap-2" onClick={handleCopyFullSummary}>
+            <ClipboardCopy className="size-4" /> Copy Full Summary
+          </Button>
+        </div>
+      </div>
 
       {/* Candidate Header */}
       <div className="bg-white rounded-lg border border-gray-200 p-6 mb-6">

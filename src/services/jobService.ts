@@ -10,6 +10,7 @@ import {
   orderBy,
   serverTimestamp,
   runTransaction,
+  writeBatch,
   Timestamp,
 } from 'firebase/firestore';
 import { db } from '../lib/firebase';
@@ -63,6 +64,8 @@ export interface Job {
   isFeatured: boolean;
   requireResume: boolean;
   requireCoverLetter: boolean;
+  /** Archived adverts are hidden from active staff views but never deleted. */
+  archived?: boolean;
   closingDate?: string; // yyyy-mm-dd
   questions: ScreeningQuestion[];
   hiringTeam: TeamMember[];
@@ -197,11 +200,47 @@ export async function reopenJob(
   await logAudit(by, 'update', 'Job', id, 'Re-opened job (re-advertised)');
 }
 
-/** All jobs — staff view. Auto-closes expired adverts as a side effect. */
-export async function getJobs(): Promise<Job[]> {
+/**
+ * All jobs — staff view. Auto-closes expired adverts as a side effect.
+ * Archived adverts are excluded by default (they drop out of active views);
+ * pass `includeArchived` to load them (e.g. the "Show archived" toggle).
+ *
+ * Note: filtering happens client-side, consistent with the rest of this
+ * service, so no new composite index is required.
+ */
+export async function getJobs(includeArchived = false): Promise<Job[]> {
   const snap = await getDocs(query(collection(db, JOBS), orderBy('createdAt', 'desc')));
   const jobs = snap.docs.map((d) => toJob(d.id, d.data()));
-  return autoCloseExpired(jobs);
+  const live = await autoCloseExpired(jobs);
+  return includeArchived ? live : live.filter((j) => !j.archived);
+}
+
+/**
+ * Archive or unarchive a batch of jobs. Never deletes — sets the `archived`
+ * flag so listings drop out of / return to active views.
+ * Writes are chunked into batches of ≤500 (the Firestore batched-write cap).
+ */
+export async function setJobsArchived(
+  ids: string[],
+  archived: boolean,
+  by: { id: string; name: string }
+): Promise<void> {
+  if (ids.length === 0) return;
+  for (let i = 0; i < ids.length; i += 500) {
+    const chunk = ids.slice(i, i + 500);
+    const batch = writeBatch(db);
+    for (const id of chunk) {
+      batch.update(doc(db, JOBS, id), { archived, updatedAt: serverTimestamp() });
+    }
+    await batch.commit();
+  }
+  await logAudit(
+    by,
+    'update',
+    'Job',
+    ids.join(','),
+    `${archived ? 'Archived' : 'Unarchived'} ${ids.length} job advert(s)`
+  );
 }
 
 /**
@@ -224,7 +263,7 @@ export async function getPublicJobs(): Promise<Job[]> {
   );
   return snap.docs
     .map((d) => toJob(d.id, d.data()))
-    .filter((j) => !isPastDeadline(j))
+    .filter((j) => !isPastDeadline(j) && !j.archived)
     .sort((a, b) => (b.postedAt?.toMillis?.() ?? 0) - (a.postedAt?.toMillis?.() ?? 0));
 }
 

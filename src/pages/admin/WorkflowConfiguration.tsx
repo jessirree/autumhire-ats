@@ -1,4 +1,5 @@
 ﻿import { useState, useRef, useCallback, useEffect } from 'react';
+import { toast } from 'sonner';
 import { DndProvider, useDrag, useDrop } from 'react-dnd';
 import { HTML5Backend } from 'react-dnd-html5-backend';
 import {
@@ -12,6 +13,7 @@ import {
     Mail
 } from 'lucide-react';
 import { Button } from '../../components/ui/button';
+import { confirm, promptText } from '../../components/ui/confirm-dialog';
 import { useAuth } from '../../context/AuthContext';
 import {
     Workflow,
@@ -229,14 +231,14 @@ export function WorkflowConfiguration() {
             if (selectedId) {
                 await updateWorkflow(selectedId, { stages }, user);
             } else {
-                const name = prompt('Name for this workflow:', 'Standard');
+                const name = await promptText({ title: 'Name for this workflow:', defaultValue: 'Standard' });
                 if (!name?.trim()) { setSaving(false); return; }
                 const id = await createWorkflow(name.trim(), stages, user);
                 await load(id);
             }
-            alert('Workflow saved.');
+            toast.success('Workflow saved.');
         } catch (err: any) {
-            alert(err?.message || 'Failed to save workflow.');
+            toast.error(err?.message || 'Failed to save workflow.');
         } finally {
             setSaving(false);
         }
@@ -244,20 +246,20 @@ export function WorkflowConfiguration() {
 
     const handleNewWorkflow = async () => {
         if (!user) return;
-        const name = prompt('Name for the new workflow (e.g. Executive Search):');
+        const name = await promptText({ title: 'Name for the new workflow (e.g. Executive Search):' });
         if (!name?.trim()) return;
         try {
             const id = await createWorkflow(name.trim(), DEFAULT_STAGES, user);
             await load(id);
         } catch (err: any) {
-            alert(err?.message || 'Failed to create workflow.');
+            toast.error(err?.message || 'Failed to create workflow.');
         }
     };
 
     const handleDeleteWorkflow = async () => {
         if (!user || !selectedId) return;
         const wf = workflows.find((w) => w.id === selectedId);
-        if (!confirm(`Delete workflow "${wf?.name}"?`)) return;
+        if (!(await confirm({ title: `Delete workflow "${wf?.name}"?`, variant: 'destructive' }))) return;
         await deleteWorkflow(selectedId, user);
         setSelectedId('');
         setStages(DEFAULT_STAGES);
@@ -289,7 +291,7 @@ export function WorkflowConfiguration() {
 
     const handleDeleteStage = (id: string) => {
         if (stages.length <= 2) {
-            alert("A pipeline must have at least 2 stages.");
+            toast.error("A pipeline must have at least 2 stages.");
             return;
         }
         setStages(stages.filter(s => s.id !== id));
