@@ -133,16 +133,23 @@ export function scoreAnswers(questions: ScreeningQuestion[], answers: ScreeningA
   let total = 0;
   const scored = answers.map((a) => {
     const q = questions.find((qq) => qq.id === a.questionId);
-    if (!q || !q.score) return a;
+    if (!q) return a;
+    const hasChoices = !!q.choices && q.choices.length > 0;
+    if (!hasChoices && !q.score) return a;
     let earned = 0;
-    if (q.type === 'checkbox') {
+    if (hasChoices) {
+      const match = q.choices!.find(
+        (c) => c.label.trim().toLowerCase() === a.answer.trim().toLowerCase()
+      );
+      earned = match ? match.points : 0;
+    } else if (q.type === 'checkbox') {
       const expected = (q.expectedAnswer ?? 'yes').toLowerCase();
-      if (a.answer.trim().toLowerCase() === expected) earned = q.score;
+      if (a.answer.trim().toLowerCase() === expected) earned = q.score!;
     } else if (q.type === 'number') {
       const expected = Number(q.expectedAnswer);
-      if (!Number.isNaN(expected) && Number(a.answer) >= expected) earned = q.score;
+      if (!Number.isNaN(expected) && Number(a.answer) >= expected) earned = q.score!;
     } else if (a.answer.trim()) {
-      earned = q.score; // free-text: full marks for answering; recruiter can adjust
+      earned = q.score!; // free-text: full marks for answering; recruiter can adjust
     }
     total += earned;
     return { ...a, score: earned };

@@ -15,6 +15,9 @@ import {
 } from 'firebase/firestore';
 import { db } from '../lib/firebase';
 import { logAudit } from './auditService';
+import type { QuestionChoice } from './questionBankService';
+
+export type { QuestionChoice };
 
 export type JobStatus =
   | 'Draft'
@@ -34,6 +37,8 @@ export interface ScreeningQuestion {
   expectedAnswer?: string;
   /** Points awarded when the answer matches / passes. */
   score?: number;
+  /** Per-choice scoring for 'checkbox' (Yes/No) and 'dropdown' (Multiple Choice) questions. */
+  choices?: QuestionChoice[];
 }
 
 export interface TeamMember {

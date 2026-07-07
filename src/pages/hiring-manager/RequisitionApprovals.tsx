@@ -136,6 +136,24 @@ export function RequisitionApprovals() {
             </p>
             <p className="text-xs text-gray-400 mb-4">Raised by {req.createdByName}{req.notes ? ` — “${req.notes}”` : ''}</p>
 
+            {(req.questions ?? []).length > 0 && (
+              <div className="mb-4 space-y-1.5">
+                {req.questions.map((q) => (
+                  <div key={q.id} className="text-xs p-2 bg-gray-50 border border-gray-200 rounded text-gray-600">
+                    <div className="font-medium text-gray-700">{q.text}</div>
+                    <div className="text-gray-500 mt-0.5">
+                      <span className="inline-block mr-2">{q.type}</span>
+                      {q.choices?.length ? (
+                        <span className="inline-block">{q.choices.map((c) => `${c.label} = ${c.points} pts`).join(' · ')}</span>
+                      ) : q.score ? (
+                        <span className="inline-block">{q.score} pts</span>
+                      ) : null}
+                    </div>
+                  </div>
+                ))}
+              </div>
+            )}
+
             <div className="flex gap-3 flex-wrap">
               {isAdmin ? (
                 <>

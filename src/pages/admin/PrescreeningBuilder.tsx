@@ -14,19 +14,10 @@ import {
 import { Button } from '../../components/ui/button';
 import { StatusBadge } from '../../components/ats/StatusBadge';
 import { useAuth } from '../../context/AuthContext';
-import { getQuestionBank, saveQuestionBank } from '../../services/questionBankService';
+import { getQuestionBank, saveQuestionBank, BankQuestion, QuestionChoice, BankQuestionType } from '../../services/questionBankService';
 
 // --- Types ---
-export type QuestionType = 'Short Text' | 'Long Text' | 'Yes/No' | 'Multiple Choice' | 'File Upload';
-
-export interface Question {
-    id: string;
-    text: string;
-    type: QuestionType;
-    required: boolean;
-    score: number; // For automated scoring
-    options?: string[]; // For Multiple Choice
-}
+export type QuestionType = BankQuestionType;
 
 const ITEM_TYPE = 'QUESTION';
 
@@ -34,7 +25,7 @@ const ITEM_TYPE = 'QUESTION';
 
 // 1. Draggable Question Item
 interface QuestionItemProps {
-    question: Question;
+    question: BankQuestion;
     index: number;
     moveQuestion: (dragIndex: number, hoverIndex: number) => void;
     onEdit: (id: string) => void;
@@ -127,7 +118,10 @@ const QuestionItem = ({ question, index, moveQuestion, onEdit, onDelete, isSelec
                         <div className="flex gap-2">
                             {question.required && <StatusBadge status="Required" size="sm" />}
                             <span className="text-xs font-medium px-2 py-0.5 rounded bg-gray-100 text-gray-600">
-                                {question.score} pts
+                                {(question.type === 'Yes/No' || question.type === 'Multiple Choice') && question.choices && question.choices.length > 0
+                                    ? `${Math.max(0, ...question.choices.map(c => c.points))} pts max`
+                                    : `${question.score} pts`
+                                }
                             </span>
                         </div>
                     </div>
@@ -153,14 +147,14 @@ const QuestionItem = ({ question, index, moveQuestion, onEdit, onDelete, isSelec
 // 2. Main Builder Component
 export function PrescreeningBuilder() {
     const { user } = useAuth();
-    const [questions, setQuestions] = useState<Question[]>([]);
+    const [questions, setQuestions] = useState<BankQuestion[]>([]);
     const [saving, setSaving] = useState(false);
 
     // The question bank is a shared library — jobs can pull questions from
     // it in the Create Job wizard (Screening Questions step).
     useEffect(() => {
         getQuestionBank()
-            .then((qs) => setQuestions(qs as Question[]))
+            .then((qs) => setQuestions(qs as BankQuestion[]))
             .catch((err) => console.error('Failed to load question bank', err));
     }, []);
 
@@ -189,7 +183,7 @@ export function PrescreeningBuilder() {
     }, []);
 
     const handleAddQuestion = () => {
-        const newQuestion: Question = {
+        const newQuestion: BankQuestion = {
             id: Math.random().toString(36).substr(2, 9),
             text: 'New Question',
             type: 'Short Text',
@@ -200,7 +194,7 @@ export function PrescreeningBuilder() {
         setSelectedQuestionId(newQuestion.id);
     };
 
-    const handleUpdateQuestion = (id: string, updates: Partial<Question>) => {
+    const handleUpdateQuestion = (id: string, updates: Partial<BankQuestion>) => {
         setQuestions(questions.map(q => q.id === id ? { ...q, ...updates } : q));
     };
 
@@ -291,7 +285,21 @@ export function PrescreeningBuilder() {
                                             <select
                                                 className="w-full px-3 py-2 border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-[var(--pumpkin-orange)]/20 focus:border-[var(--pumpkin-orange)]"
                                                 value={selectedQuestion.type}
-                                                onChange={(e) => handleUpdateQuestion(selectedQuestion.id, { type: e.target.value as QuestionType })}
+                                                onChange={(e) => {
+                                                    const newType = e.target.value as QuestionType;
+                                                    const updates: Partial<BankQuestion> = { type: newType };
+                                                    if (newType === 'Yes/No') {
+                                                        // Always normalize to a Yes/No pair, keeping points if labels match.
+                                                        const prev = selectedQuestion.choices || [];
+                                                        const pts = (label: string) => prev.find((c) => c.label.toLowerCase() === label.toLowerCase())?.points ?? 0;
+                                                        updates.choices = [{ label: 'Yes', points: pts('Yes') }, { label: 'No', points: pts('No') }];
+                                                    } else if (newType === 'Multiple Choice' && (!selectedQuestion.choices || selectedQuestion.choices.length === 0)) {
+                                                        updates.choices = selectedQuestion.options && selectedQuestion.options.length > 0
+                                                            ? selectedQuestion.options.map(opt => ({ label: opt, points: 0 }))
+                                                            : [{ label: 'New Option', points: 0 }];
+                                                    }
+                                                    handleUpdateQuestion(selectedQuestion.id, updates);
+                                                }}
                                             >
                                                 <option value="Short Text">Short Text</option>
                                                 <option value="Long Text">Long Text</option>
@@ -300,15 +308,17 @@ export function PrescreeningBuilder() {
                                                 <option value="File Upload">File Upload</option>
                                             </select>
                                         </div>
-                                        <div>
-                                            <label className="block text-sm font-medium text-gray-700 mb-1">Score Value</label>
-                                            <input
-                                                type="number"
-                                                className="w-full px-3 py-2 border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-[var(--pumpkin-orange)]/20 focus:border-[var(--pumpkin-orange)]"
-                                                value={selectedQuestion.score}
-                                                onChange={(e) => handleUpdateQuestion(selectedQuestion.id, { score: parseInt(e.target.value) || 0 })}
-                                            />
-                                        </div>
+                                        {selectedQuestion.type !== 'Yes/No' && selectedQuestion.type !== 'Multiple Choice' && (
+                                            <div>
+                                                <label className="block text-sm font-medium text-gray-700 mb-1">Score Value</label>
+                                                <input
+                                                    type="number"
+                                                    className="w-full px-3 py-2 border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-[var(--pumpkin-orange)]/20 focus:border-[var(--pumpkin-orange)]"
+                                                    value={selectedQuestion.score}
+                                                    onChange={(e) => handleUpdateQuestion(selectedQuestion.id, { score: parseInt(e.target.value) || 0 })}
+                                                />
+                                            </div>
+                                        )}
                                     </div>
 
                                     <div className="flex items-center gap-2">
@@ -322,28 +332,73 @@ export function PrescreeningBuilder() {
                                         <label htmlFor="required-toggle" className="text-sm font-medium text-gray-700">Required Question</label>
                                     </div>
 
+                                    {/* Yes/No Choices */}
+                                    {selectedQuestion.type === 'Yes/No' && (
+                                        <div className="pt-4 border-t border-gray-100 space-y-3">
+                                            {(selectedQuestion.choices?.length === 2
+                                                ? selectedQuestion.choices
+                                                : [{ label: 'Yes', points: 0 }, { label: 'No', points: 0 }]
+                                            ).map((choice, idx) => (
+                                                <div key={idx}>
+                                                    <label className="block text-sm font-medium text-gray-700 mb-1">Points for {choice.label}</label>
+                                                    <input
+                                                        type="number"
+                                                        min="0"
+                                                        className="w-full px-3 py-2 border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-[var(--pumpkin-orange)]/20 focus:border-[var(--pumpkin-orange)]"
+                                                        value={choice.points}
+                                                        onChange={(e) => {
+                                                            const base = selectedQuestion.choices?.length === 2
+                                                                ? selectedQuestion.choices
+                                                                : [{ label: 'Yes', points: 0 }, { label: 'No', points: 0 }];
+                                                            const newChoices = [...base];
+                                                            newChoices[idx] = { ...newChoices[idx], points: parseInt(e.target.value) || 0 };
+                                                            handleUpdateQuestion(selectedQuestion.id, { choices: newChoices });
+                                                        }}
+                                                    />
+                                                </div>
+                                            ))}
+                                        </div>
+                                    )}
+
                                     {/* Multiple Choice Options */}
                                     {selectedQuestion.type === 'Multiple Choice' && (
                                         <div className="pt-4 border-t border-gray-100">
                                             <label className="block text-sm font-medium text-gray-700 mb-2">Options</label>
                                             <div className="space-y-2">
-                                                {(selectedQuestion.options || []).map((option, idx) => (
-                                                    <div key={idx} className="flex gap-2">
-                                                        <input
-                                                            type="text"
-                                                            className="flex-1 px-3 py-2 border border-gray-200 rounded-lg text-sm"
-                                                            value={option}
-                                                            onChange={(e) => {
-                                                                const newOptions = [...(selectedQuestion.options || [])];
-                                                                newOptions[idx] = e.target.value;
-                                                                handleUpdateQuestion(selectedQuestion.id, { options: newOptions });
-                                                            }}
-                                                        />
+                                                {(selectedQuestion.choices || []).map((choice, idx) => (
+                                                    <div key={idx} className="flex gap-2 items-end">
+                                                        <div className="flex-1">
+                                                            <input
+                                                                type="text"
+                                                                className="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm"
+                                                                value={choice.label}
+                                                                onChange={(e) => {
+                                                                    const newChoices = [...(selectedQuestion.choices || [])];
+                                                                    newChoices[idx] = { ...newChoices[idx], label: e.target.value };
+                                                                    handleUpdateQuestion(selectedQuestion.id, { choices: newChoices });
+                                                                }}
+                                                                placeholder="Option label"
+                                                            />
+                                                        </div>
+                                                        <div className="w-24">
+                                                            <input
+                                                                type="number"
+                                                                min="0"
+                                                                className="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm"
+                                                                value={choice.points}
+                                                                onChange={(e) => {
+                                                                    const newChoices = [...(selectedQuestion.choices || [])];
+                                                                    newChoices[idx] = { ...newChoices[idx], points: parseInt(e.target.value) || 0 };
+                                                                    handleUpdateQuestion(selectedQuestion.id, { choices: newChoices });
+                                                                }}
+                                                                placeholder="Pts"
+                                                            />
+                                                        </div>
                                                         <button
                                                             onClick={() => {
-                                                                const newOptions = [...(selectedQuestion.options || [])];
-                                                                newOptions.splice(idx, 1);
-                                                                handleUpdateQuestion(selectedQuestion.id, { options: newOptions });
+                                                                const newChoices = [...(selectedQuestion.choices || [])];
+                                                                newChoices.splice(idx, 1);
+                                                                handleUpdateQuestion(selectedQuestion.id, { choices: newChoices });
                                                             }}
                                                             className="p-2 text-gray-400 hover:text-red-500"
                                                         >
@@ -355,8 +410,8 @@ export function PrescreeningBuilder() {
                                                     size="sm"
                                                     variant="outline"
                                                     onClick={() => {
-                                                        const newOptions = [...(selectedQuestion.options || []), 'New Option'];
-                                                        handleUpdateQuestion(selectedQuestion.id, { options: newOptions });
+                                                        const newChoices = [...(selectedQuestion.choices || []), { label: 'New Option', points: 0 }];
+                                                        handleUpdateQuestion(selectedQuestion.id, { choices: newChoices });
                                                     }}
                                                 >
                                                     <Plus className="size-3 mr-1" /> Add Option
@@ -408,7 +463,10 @@ export function PrescreeningBuilder() {
 
                                             {q.type === 'Multiple Choice' && (
                                                 <div className="space-y-2">
-                                                    {(q.options || ['Option 1', 'Option 2']).map((opt, idx) => (
+                                                    {(q.choices && q.choices.length > 0
+                                                        ? q.choices.map(c => c.label)
+                                                        : q.options || ['Option 1', 'Option 2']
+                                                    ).map((opt, idx) => (
                                                         <label key={idx} className="flex items-center gap-2">
                                                             <input type="radio" name={`q - ${q.id} `} disabled />
                                                             <span className="text-sm text-gray-700">{opt}</span>

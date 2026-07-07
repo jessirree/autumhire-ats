@@ -1,13 +1,13 @@
 ﻿import { useState, useEffect } from 'react';
 import { toast } from 'sonner';
-import { ArrowLeft, CheckCircle, ChevronRight, Copy, HelpCircle, Plus, Trash2, Edit2, GripVertical, Search, X, FileText, CheckSquare, Linkedin, ExternalLink, ChevronUp, ChevronDown } from 'lucide-react';
+import { ArrowLeft, Briefcase, Calendar, CheckCircle, ChevronRight, Clock, Copy, DollarSign, HelpCircle, MapPin, Plus, Trash2, GripVertical, X, FileText, CheckSquare, Linkedin, ExternalLink, ChevronUp, ChevronDown } from 'lucide-react';
 import { collection, getDocs } from 'firebase/firestore';
 import { Button } from '../../components/ui/button';
 import { db } from '../../lib/firebase';
 import { useAuth } from '../../context/AuthContext';
 import { Job, JobInput, JobStatus, createJob, updateJob, getJobById, getJobs } from '../../services/jobService';
 import { Workflow, getWorkflows } from '../../services/workflowService';
-import { BankQuestion, getQuestionBank, bankToJobQuestion } from '../../services/questionBankService';
+import { BankQuestion, QuestionChoice, getQuestionBank, bankToJobQuestion } from '../../services/questionBankService';
 import { getRequisitionById, markRequisitionPublished } from '../../services/requisitionService';
 import { regenerateJobsFeed } from '../../services/feedService';
 import { notifyJobAlertSubscribers } from '../../services/jobAlertService';
@@ -54,6 +54,8 @@ interface Question {
     expectedAnswer?: string;
     /** Points awarded when the answer matches/passes. 0 = unscored. */
     score?: number;
+    /** Per-choice points for checkbox (Yes/No) and dropdown questions. */
+    choices?: QuestionChoice[];
 }
 
 interface StaffMember {
@@ -103,7 +105,7 @@ function jobToFormState(job: Job): { details: JobDetails; settings: JobSettings;
             jobTitle: job.title,
             isConfidential: job.isConfidential,
             status: job.status,
-            requisitionId: job.referenceNumber,
+            requisitionId: job.requisitionId || job.referenceNumber,
             showOnCareerSite: job.showOnCareerSite,
             jobType: job.jobType || 'Full-time',
             department: job.department || '',
@@ -131,14 +133,14 @@ function jobToFormState(job: Job): { details: JobDetails; settings: JobSettings;
         },
         questions: (job.questions || []).map((q) => ({
             id: q.id, text: q.text, type: q.type, mandatory: q.mandatory, instructions: q.instructions || '',
-            expectedAnswer: q.expectedAnswer, score: q.score,
+            expectedAnswer: q.expectedAnswer, score: q.score, choices: q.choices,
         })),
         team: job.hiringTeam || [],
         coordinatorId: job.coordinatorId || '',
     };
 }
 
-export function CreateJob({ onBack, onSubmit, onSkip, editJobId, fromRequisitionId }: { onBack: () => void, onSubmit: () => void, onSkip: () => void, editJobId?: string, fromRequisitionId?: string }) {
+export function CreateJob({ onBack, onSubmit, editJobId, fromRequisitionId }: { onBack: () => void, onSubmit: () => void, onSkip?: () => void, editJobId?: string, fromRequisitionId?: string }) {
     const { user } = useAuth();
     const [currentStep, setCurrentStep] = useState(1);
     const [jobDetails, setJobDetails] = useState<JobDetails>(initialJobDetails);
@@ -146,6 +148,7 @@ export function CreateJob({ onBack, onSubmit, onSkip, editJobId, fromRequisition
     const [duplicateJobId, setDuplicateJobId] = useState('');
     const [existingJobs, setExistingJobs] = useState<Job[]>([]);
     const [staffMembers, setStaffMembers] = useState<StaffMember[]>([]);
+    const [showPreview, setShowPreview] = useState(false);
     const [workflows, setWorkflows] = useState<Workflow[]>([]);
     const [questionBank, setQuestionBank] = useState<BankQuestion[]>([]);
     const [saving, setSaving] = useState(false);
@@ -171,7 +174,6 @@ export function CreateJob({ onBack, onSubmit, onSkip, editJobId, fromRequisition
     ];
 
     const [questions, setQuestions] = useState<Question[]>(initialQuestions);
-    const [editingQuestionId, setEditingQuestionId] = useState<string | null>(null);
     const [currentQuestion, setCurrentQuestion] = useState<Question>({
         id: '',
         text: '',
@@ -183,7 +185,6 @@ export function CreateJob({ onBack, onSubmit, onSkip, editJobId, fromRequisition
     // Hiring Team State
     const [hiringTeam, setHiringTeam] = useState<StaffMember[]>([]);
     const [hiringCoordinatorId, setHiringCoordinatorId] = useState<string>('');
-    const [staffSearch, setStaffSearch] = useState('');
 
     // Load staff (for the hiring team picker) and existing jobs (for duplication)
     useEffect(() => {
@@ -274,9 +275,11 @@ export function CreateJob({ onBack, onSubmit, onSkip, editJobId, fromRequisition
             instructions: q.instructions,
             ...(q.score !== undefined && !Number.isNaN(q.score) ? { score: q.score } : {}),
             ...(q.expectedAnswer ? { expectedAnswer: q.expectedAnswer } : {}),
+            ...(q.choices?.length ? { choices: q.choices.map((c) => ({ label: c.label, points: c.points })) } : {}),
         })),
         hiringTeam,
         coordinatorId: hiringCoordinatorId,
+        requisitionId: jobDetails.requisitionId && jobDetails.requisitionId !== 'Auto-generated on save' ? jobDetails.requisitionId : undefined,
         hiringWorkflow: jobSettings.hiringWorkflow,
         ...(jobSettings.recruitmentCost.trim() && !Number.isNaN(Number(jobSettings.recruitmentCost))
             ? { recruitmentCost: Number(jobSettings.recruitmentCost) }
@@ -285,18 +288,17 @@ export function CreateJob({ onBack, onSubmit, onSkip, editJobId, fromRequisition
 
     const handleSave = async (isDraft: boolean = false) => {
         if (!user) { toast.error('You must be signed in.'); return; }
-        // Validation for final submission (non-draft)
+        if (!jobDetails.jobTitle.trim()) { toast.error('Please enter a Job Title.'); return; }
+        if (!jobDetails.description.trim()) { toast.error('Please enter a Job Description.'); return; }
+        if (!jobDetails.location.trim()) { toast.error('Please enter a Location — this is required.'); return; }
         if (!isDraft) {
-            if (!jobDetails.jobTitle.trim()) { toast.error('Please enter a Job Title.'); return; }
-            if (!jobDetails.description.trim()) { toast.error('Please enter a Job Description.'); return; }
-            if (!jobDetails.location.trim()) { toast.error('Please enter a Location — adverts cannot be posted without one.'); return; }
             if (hiringTeam.length === 0) { toast.error('Please add at least one member to the hiring team.'); return; }
             if (!hiringCoordinatorId) { toast.error('Please select a hiring team coordinator.'); return; }
         }
 
         const effectiveStatus: JobStatus = isDraft
             ? 'Draft'
-            : (editJobId ? (jobDetails.status as JobStatus) : 'Active');
+            : (editJobId && jobDetails.status === 'Draft' ? 'Active' : (editJobId ? (jobDetails.status as JobStatus) : 'Active'));
 
         setSaving(true);
         try {
@@ -315,7 +317,7 @@ export function CreateJob({ onBack, onSubmit, onSkip, editJobId, fromRequisition
             }
             if (isDraft) {
                 toast.success('Draft saved successfully!');
-                onBack();
+                onSubmit();
             } else {
                 toast.success(editJobId ? 'Job updated successfully!' : 'Job posted successfully!');
                 onSubmit();
@@ -373,6 +375,10 @@ export function CreateJob({ onBack, onSubmit, onSkip, editJobId, fromRequisition
                 toast.error('Please enter a Job Description.');
                 return;
             }
+            if (!jobDetails.location.trim()) {
+                toast.error('Please enter a Location — this is required.');
+                return;
+            }
         }
         if (currentStep < 5) setCurrentStep(currentStep + 1);
     };
@@ -386,12 +392,7 @@ export function CreateJob({ onBack, onSubmit, onSkip, editJobId, fromRequisition
     const handleAddQuestion = () => {
         if (!currentQuestion.text.trim()) return;
 
-        if (editingQuestionId) {
-            setQuestions(prev => prev.map(q => q.id === editingQuestionId ? { ...currentQuestion, id: editingQuestionId } : q));
-            setEditingQuestionId(null);
-        } else {
-            setQuestions(prev => [...prev, { ...currentQuestion, id: Math.random().toString(36).substr(2, 9) }]);
-        }
+        setQuestions(prev => [...prev, { ...currentQuestion, id: Math.random().toString(36).substr(2, 9) }]);
 
         // Reset form
         setCurrentQuestion({
@@ -413,34 +414,8 @@ export function CreateJob({ onBack, onSubmit, onSkip, editJobId, fromRequisition
         setQuestions(newQuestions);
     };
 
-    const handleEditQuestion = (question: Question) => {
-        setCurrentQuestion(question);
-        setEditingQuestionId(question.id);
-    };
-
     const handleDeleteQuestion = (id: string) => {
         setQuestions(prev => prev.filter(q => q.id !== id));
-        if (editingQuestionId === id) {
-            setEditingQuestionId(null);
-            setCurrentQuestion({
-                id: '',
-                text: '',
-                type: 'text',
-                mandatory: false,
-                instructions: ''
-            });
-        }
-    };
-
-    const handleCancelEdit = () => {
-        setEditingQuestionId(null);
-        setCurrentQuestion({
-            id: '',
-            text: '',
-            type: 'text',
-            mandatory: false,
-            instructions: ''
-        });
     };
 
     // Hiring Team Handlers
@@ -448,7 +423,6 @@ export function CreateJob({ onBack, onSubmit, onSkip, editJobId, fromRequisition
         if (!hiringTeam.find(m => m.id === member.id)) {
             setHiringTeam(prev => [...prev, member]);
         }
-        setStaffSearch('');
     };
 
     const handleRemoveTeamMember = (id: string) => {
@@ -458,12 +432,9 @@ export function CreateJob({ onBack, onSubmit, onSkip, editJobId, fromRequisition
         }
     };
 
-    const filteredStaff = staffMembers.filter(
-        member =>
-            !hiringTeam.find(m => m.id === member.id) &&
-            (member.name.toLowerCase().includes(staffSearch.toLowerCase()) ||
-                member.email.toLowerCase().includes(staffSearch.toLowerCase()))
-    );
+    const availableStaff = staffMembers.filter(member => !hiringTeam.find(m => m.id === member.id));
+
+    const ROLE_LABELS: Record<string, string> = { admin: 'Admin', recruiter: 'Recruiter', 'hiring-manager': 'Hiring Manager' };
 
     return (
         <div className="bg-gray-50 min-h-screen pb-12">
@@ -485,12 +456,9 @@ export function CreateJob({ onBack, onSubmit, onSkip, editJobId, fromRequisition
                             <ChevronRight className="size-4 ml-1" />
                         </Button>
                     ) : (
-                        <div className="flex gap-3">
-                            <Button variant="outline" onClick={onSkip}>Skip & Publish</Button>
-                            <Button style={{ backgroundColor: 'var(--pumpkin-orange)' }} disabled={saving} onClick={() => handleSave(false)}>
-                                {saving ? 'Saving…' : (editJobId ? 'Save Changes' : 'Submit for Approval')} <CheckCircle className="size-4 ml-1" />
-                            </Button>
-                        </div>
+                        <Button style={{ backgroundColor: 'var(--pumpkin-orange)' }} disabled={saving} onClick={() => handleSave(false)}>
+                            {saving ? 'Saving…' : (editJobId ? 'Save Changes' : 'Publish Job')} <CheckCircle className="size-4 ml-1" />
+                        </Button>
                     )}
 
                 </div>
@@ -715,9 +683,10 @@ export function CreateJob({ onBack, onSubmit, onSkip, editJobId, fromRequisition
 
                                 {/* Location */}
                                 <div>
-                                    <label className="block text-sm font-medium text-gray-700 mb-1">Location</label>
+                                    <label className="block text-sm font-medium text-gray-700 mb-1">Location <span className="text-red-500">*</span></label>
                                     <input
                                         type="text"
+                                        required
                                         className="w-full p-3 border border-gray-200 rounded-lg focus:ring-2 focus:ring-[var(--pumpkin-orange)]/20 focus:border-[var(--pumpkin-orange)] outline-none transition-all"
                                         placeholder="e.g. San Francisco, CA"
                                         value={jobDetails.location}
@@ -759,6 +728,7 @@ export function CreateJob({ onBack, onSubmit, onSkip, editJobId, fromRequisition
                                         value={jobDetails.currency}
                                         onChange={(e) => handleChange('currency', e.target.value)}
                                     >
+                                        <option>KES (Ksh)</option>
                                         <option>USD ($)</option>
                                         <option>EUR (â‚¬)</option>
                                         <option>GBP (Â£)</option>
@@ -991,9 +961,6 @@ export function CreateJob({ onBack, onSubmit, onSkip, editJobId, fromRequisition
                                                             <ChevronDown className="size-4" />
                                                         </button>
                                                     </div>
-                                                    <button onClick={() => handleEditQuestion(question)} className="p-2 hover:bg-blue-50 text-blue-500 rounded-lg transition-colors">
-                                                        <Edit2 className="size-4" />
-                                                    </button>
                                                     <button onClick={() => handleDeleteQuestion(question.id)} className="p-2 hover:bg-red-50 text-red-500 rounded-lg transition-colors">
                                                         <Trash2 className="size-4" />
                                                     </button>
@@ -1004,9 +971,11 @@ export function CreateJob({ onBack, onSubmit, onSkip, editJobId, fromRequisition
                                                 {question.mandatory && (
                                                     <span className="bg-red-50 text-red-600 px-2 py-1 rounded text-xs uppercase font-medium">Mandatory</span>
                                                 )}
-                                                {!!question.score && (
+                                                {(!!question.score || !!question.choices?.length) && (
                                                     <span className="bg-blue-50 text-blue-600 px-2 py-1 rounded text-xs uppercase font-medium">
-                                                        {question.score} pts{question.expectedAnswer ? ` • expects ${question.expectedAnswer}` : ''}
+                                                        {question.choices?.length
+                                                          ? question.choices.map((c) => `${c.label} = ${c.points} pts`).join(' · ')
+                                                          : `${question.score} pts${question.expectedAnswer ? ` • expects ${question.expectedAnswer}` : ''}`}
                                                     </span>
                                                 )}
                                             </div>
@@ -1038,7 +1007,7 @@ export function CreateJob({ onBack, onSubmit, onSkip, editJobId, fromRequisition
                                                 className={`px-3 py-1.5 rounded-full text-sm border transition-colors ${alreadyAdded
                                                     ? 'bg-gray-100 text-gray-400 border-gray-200 cursor-not-allowed'
                                                     : 'bg-orange-50 text-[var(--pumpkin-orange)] border-orange-200 hover:bg-[var(--pumpkin-orange)] hover:text-white'}`}
-                                                title={alreadyAdded ? 'Already added' : `${bq.type}${bq.score ? ` • ${bq.score} pts` : ''}`}
+                                                title={alreadyAdded ? 'Already added' : `${bq.type}${bq.choices?.length ? ` • ${bq.choices.map((c) => `${c.label} = ${c.points} pts`).join(' · ')}` : bq.score ? ` • ${bq.score} pts` : ''}`}
                                             >
                                                 + {bq.text}
                                             </button>
@@ -1051,8 +1020,8 @@ export function CreateJob({ onBack, onSubmit, onSkip, editJobId, fromRequisition
                         {/* Add/Edit Question Form */}
                         <div className="bg-white rounded-xl shadow-sm border border-gray-100 p-8 transition-shadow hover:shadow-md border-l-4 border-l-[var(--pumpkin-orange)]">
                             <h3 className="text-lg font-bold text-gray-900 mb-6 flex items-center gap-2">
-                                {editingQuestionId ? <Edit2 className="size-5" /> : <Plus className="size-5" />}
-                                {editingQuestionId ? 'Edit Question' : 'Add New Question'}
+                                <Plus className="size-5" />
+                                Add New Question
                             </h3>
 
                             <div className="grid grid-cols-1 md:grid-cols-2 gap-6 mb-6">
@@ -1072,7 +1041,26 @@ export function CreateJob({ onBack, onSubmit, onSkip, editJobId, fromRequisition
                                     <select
                                         className="w-full p-3 border border-gray-200 rounded-lg focus:ring-2 focus:ring-[var(--pumpkin-orange)]/20 focus:border-[var(--pumpkin-orange)] outline-none transition-all"
                                         value={currentQuestion.type}
-                                        onChange={(e) => setCurrentQuestion(prev => ({ ...prev, type: e.target.value as any }))}
+                                        onChange={(e) => {
+                                            const newType = e.target.value as Question['type'];
+                                            setCurrentQuestion(prev => {
+                                                const next: Question = { ...prev, type: newType };
+                                                if (newType === 'checkbox') {
+                                                    // Always normalize to a Yes/No pair, keeping points if labels match.
+                                                    const pts = (label: string) => prev.choices?.find(c => c.label.toLowerCase() === label.toLowerCase())?.points ?? 0;
+                                                    next.choices = [{ label: 'Yes', points: pts('Yes') }, { label: 'No', points: pts('No') }];
+                                                    next.expectedAnswer = undefined;
+                                                    next.score = undefined;
+                                                } else if (newType === 'dropdown') {
+                                                    next.choices = prev.choices?.length ? prev.choices : [{ label: 'New Option', points: 0 }];
+                                                    next.expectedAnswer = undefined;
+                                                    next.score = undefined;
+                                                } else {
+                                                    next.choices = undefined;
+                                                }
+                                                return next;
+                                            });
+                                        }}
                                     >
                                         <option value="text">Single Line Text</option>
                                         <option value="checkbox">Checkbox (Yes/No)</option>
@@ -1095,42 +1083,114 @@ export function CreateJob({ onBack, onSubmit, onSkip, editJobId, fromRequisition
                                     </label>
                                 </div>
 
-                                <div>
-                                    <label className="block text-sm font-medium text-gray-700 mb-1">Score (points)</label>
-                                    <input
-                                        type="number"
-                                        min={0}
-                                        className="w-full p-3 border border-gray-200 rounded-lg focus:ring-2 focus:ring-[var(--pumpkin-orange)]/20 focus:border-[var(--pumpkin-orange)] outline-none transition-all"
-                                        placeholder="0 = unscored"
-                                        value={currentQuestion.score ?? ''}
-                                        onChange={(e) => setCurrentQuestion(prev => ({ ...prev, score: e.target.value === '' ? undefined : Number(e.target.value) }))}
-                                    />
-                                    <p className="text-xs text-gray-500 mt-1">Points added to the candidate's screening score when the answer passes.</p>
-                                </div>
-
-                                {(currentQuestion.type === 'checkbox' || currentQuestion.type === 'number') && (
+                                {currentQuestion.type !== 'checkbox' && currentQuestion.type !== 'dropdown' && (
                                     <div>
-                                        <label className="block text-sm font-medium text-gray-700 mb-1">
-                                            {currentQuestion.type === 'checkbox' ? 'Expected answer' : 'Minimum value to pass'}
-                                        </label>
-                                        {currentQuestion.type === 'checkbox' ? (
-                                            <select
-                                                className="w-full p-3 border border-gray-200 rounded-lg focus:ring-2 focus:ring-[var(--pumpkin-orange)]/20 focus:border-[var(--pumpkin-orange)] outline-none transition-all"
-                                                value={currentQuestion.expectedAnswer ?? 'yes'}
-                                                onChange={(e) => setCurrentQuestion(prev => ({ ...prev, expectedAnswer: e.target.value }))}
-                                            >
-                                                <option value="yes">Yes</option>
-                                                <option value="no">No</option>
-                                            </select>
-                                        ) : (
+                                        <label className="block text-sm font-medium text-gray-700 mb-1">Score (points)</label>
+                                        <input
+                                            type="number"
+                                            min={0}
+                                            className="w-full p-3 border border-gray-200 rounded-lg focus:ring-2 focus:ring-[var(--pumpkin-orange)]/20 focus:border-[var(--pumpkin-orange)] outline-none transition-all"
+                                            placeholder="0 = unscored"
+                                            value={currentQuestion.score ?? ''}
+                                            onChange={(e) => setCurrentQuestion(prev => ({ ...prev, score: e.target.value === '' ? undefined : Number(e.target.value) }))}
+                                        />
+                                        <p className="text-xs text-gray-500 mt-1">Points added to the candidate's screening score when the answer passes.</p>
+                                    </div>
+                                )}
+
+                                {currentQuestion.type === 'number' && (
+                                    <div>
+                                        <label className="block text-sm font-medium text-gray-700 mb-1">Minimum value to pass</label>
+                                        <input
+                                            type="number"
+                                            className="w-full p-3 border border-gray-200 rounded-lg focus:ring-2 focus:ring-[var(--pumpkin-orange)]/20 focus:border-[var(--pumpkin-orange)] outline-none transition-all"
+                                            placeholder="e.g. 5 (years)"
+                                            value={currentQuestion.expectedAnswer ?? ''}
+                                            onChange={(e) => setCurrentQuestion(prev => ({ ...prev, expectedAnswer: e.target.value }))}
+                                        />
+                                    </div>
+                                )}
+
+                                {currentQuestion.type === 'checkbox' && (
+                                    (currentQuestion.choices?.length === 2
+                                        ? currentQuestion.choices
+                                        : [{ label: 'Yes', points: 0 }, { label: 'No', points: 0 }]
+                                    ).map((choice, idx) => (
+                                        <div key={choice.label}>
+                                            <label className="block text-sm font-medium text-gray-700 mb-1">Points for {choice.label}</label>
                                             <input
                                                 type="number"
+                                                min={0}
                                                 className="w-full p-3 border border-gray-200 rounded-lg focus:ring-2 focus:ring-[var(--pumpkin-orange)]/20 focus:border-[var(--pumpkin-orange)] outline-none transition-all"
-                                                placeholder="e.g. 5 (years)"
-                                                value={currentQuestion.expectedAnswer ?? ''}
-                                                onChange={(e) => setCurrentQuestion(prev => ({ ...prev, expectedAnswer: e.target.value }))}
+                                                value={choice.points}
+                                                onChange={(e) => setCurrentQuestion(prev => {
+                                                    const base = prev.choices?.length === 2
+                                                        ? prev.choices
+                                                        : [{ label: 'Yes', points: 0 }, { label: 'No', points: 0 }];
+                                                    const newChoices = [...base];
+                                                    newChoices[idx] = { ...newChoices[idx], points: parseInt(e.target.value) || 0 };
+                                                    return { ...prev, choices: newChoices };
+                                                })}
                                             />
-                                        )}
+                                        </div>
+                                    ))
+                                )}
+
+                                {currentQuestion.type === 'dropdown' && (
+                                    <div className="col-span-2">
+                                        <label className="block text-sm font-medium text-gray-700 mb-2">Options & Points</label>
+                                        <div className="space-y-2">
+                                            {(currentQuestion.choices || []).map((choice, idx) => (
+                                                <div key={idx} className="flex gap-2 items-center">
+                                                    <input
+                                                        type="text"
+                                                        className="flex-1 p-3 border border-gray-200 rounded-lg focus:ring-2 focus:ring-[var(--pumpkin-orange)]/20 focus:border-[var(--pumpkin-orange)] outline-none transition-all"
+                                                        placeholder="Option label"
+                                                        value={choice.label}
+                                                        onChange={(e) => setCurrentQuestion(prev => {
+                                                            const newChoices = [...(prev.choices || [])];
+                                                            newChoices[idx] = { ...newChoices[idx], label: e.target.value };
+                                                            return { ...prev, choices: newChoices };
+                                                        })}
+                                                    />
+                                                    <input
+                                                        type="number"
+                                                        min={0}
+                                                        className="w-24 p-3 border border-gray-200 rounded-lg focus:ring-2 focus:ring-[var(--pumpkin-orange)]/20 focus:border-[var(--pumpkin-orange)] outline-none transition-all"
+                                                        placeholder="Pts"
+                                                        value={choice.points}
+                                                        onChange={(e) => setCurrentQuestion(prev => {
+                                                            const newChoices = [...(prev.choices || [])];
+                                                            newChoices[idx] = { ...newChoices[idx], points: parseInt(e.target.value) || 0 };
+                                                            return { ...prev, choices: newChoices };
+                                                        })}
+                                                    />
+                                                    <button
+                                                        type="button"
+                                                        onClick={() => setCurrentQuestion(prev => {
+                                                            const newChoices = [...(prev.choices || [])];
+                                                            newChoices.splice(idx, 1);
+                                                            return { ...prev, choices: newChoices };
+                                                        })}
+                                                        className="p-2 text-gray-400 hover:text-red-500"
+                                                    >
+                                                        <Trash2 className="size-4" />
+                                                    </button>
+                                                </div>
+                                            ))}
+                                            <Button
+                                                size="sm"
+                                                variant="outline"
+                                                type="button"
+                                                onClick={() => setCurrentQuestion(prev => ({
+                                                    ...prev,
+                                                    choices: [...(prev.choices || []), { label: 'New Option', points: 0 }],
+                                                }))}
+                                            >
+                                                <Plus className="size-3 mr-1" /> Add Option
+                                            </Button>
+                                        </div>
+                                        <p className="text-xs text-gray-500 mt-1">The candidate's score is the points of the option they pick.</p>
                                     </div>
                                 )}
 
@@ -1146,15 +1206,12 @@ export function CreateJob({ onBack, onSubmit, onSkip, editJobId, fromRequisition
                             </div>
 
                             <div className="flex justify-end gap-3">
-                                {editingQuestionId && (
-                                    <Button variant="outline" onClick={handleCancelEdit}>Cancel</Button>
-                                )}
                                 <Button
                                     onClick={handleAddQuestion}
                                     disabled={!currentQuestion.text.trim()}
                                     style={{ backgroundColor: !currentQuestion.text.trim() ? '#ccc' : 'var(--pumpkin-orange)' }}
                                 >
-                                    {editingQuestionId ? 'Update Question' : 'Add Question'}
+                                    Add Question
                                 </Button>
                             </div>
                         </div>
@@ -1184,37 +1241,23 @@ export function CreateJob({ onBack, onSubmit, onSkip, editJobId, fromRequisition
                             {/* Add Members Section */}
                             <div className="mb-8">
                                 <label className="block text-sm font-medium text-gray-700 mb-2">Add Members <span className="text-red-500">*</span></label>
-                                <div className="relative">
-                                    <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400 size-5" />
-                                    <input
-                                        type="text"
-                                        className="w-full p-3 pl-10 border border-gray-200 rounded-lg focus:ring-2 focus:ring-[var(--pumpkin-orange)]/20 focus:border-[var(--pumpkin-orange)] outline-none transition-all"
-                                        placeholder="Search by name or email..."
-                                        value={staffSearch}
-                                        onChange={(e) => setStaffSearch(e.target.value)}
-                                    />
-                                    {staffSearch && (
-                                        <div className="absolute top-full left-0 right-0 bg-white border border-gray-100 rounded-lg shadow-lg mt-1 z-20 max-h-60 overflow-y-auto">
-                                            {filteredStaff.length > 0 ? (
-                                                filteredStaff.map(member => (
-                                                    <button
-                                                        key={member.id}
-                                                        className="w-full text-left p-3 hover:bg-gray-50 flex items-center justify-between group transition-colors"
-                                                        onClick={() => handleAddTeamMember(member)}
-                                                    >
-                                                        <div>
-                                                            <div className="font-semibold text-gray-900">{member.name}</div>
-                                                            <div className="text-xs text-gray-500">{member.email} â€¢ {member.role}</div>
-                                                        </div>
-                                                        <Plus className="size-4 text-gray-400 group-hover:text-[var(--pumpkin-orange)]" />
-                                                    </button>
-                                                ))
-                                            ) : (
-                                                <div className="p-4 text-center text-gray-500 text-sm">No staff members found.</div>
-                                            )}
-                                        </div>
-                                    )}
-                                </div>
+                                <select
+                                    className="w-full p-3 border border-gray-200 rounded-lg focus:ring-2 focus:ring-[var(--pumpkin-orange)]/20 focus:border-[var(--pumpkin-orange)] outline-none transition-all"
+                                    value=""
+                                    onChange={(e) => {
+                                        const member = availableStaff.find(m => m.id === e.target.value);
+                                        if (member) handleAddTeamMember(member);
+                                    }}
+                                >
+                                    <option value="" disabled>
+                                        {availableStaff.length > 0 ? 'Select a team member…' : 'All staff members have been added'}
+                                    </option>
+                                    {availableStaff.map(member => (
+                                        <option key={member.id} value={member.id}>
+                                            {member.name} — {ROLE_LABELS[member.role] || member.role}{member.email ? ` (${member.email})` : ''}
+                                        </option>
+                                    ))}
+                                </select>
                             </div>
 
                             {/* Selected Members List */}
@@ -1377,9 +1420,7 @@ export function CreateJob({ onBack, onSubmit, onSkip, editJobId, fromRequisition
                                         <h2 className="text-2xl font-bold text-gray-900">{jobDetails.jobTitle}</h2>
                                         <div className="flex items-center gap-3 text-sm text-gray-600 mt-1">
                                             <span>{jobDetails.department}</span>
-                                            <span>â€¢</span>
                                             <span>{jobDetails.location} ({jobDetails.remoteType})</span>
-                                            <span>â€¢</span>
                                             <span className="font-mono">{jobDetails.requisitionId}</span>
                                         </div>
                                     </div>
@@ -1475,7 +1516,7 @@ export function CreateJob({ onBack, onSubmit, onSkip, editJobId, fromRequisition
                                             <p className="text-sm text-gray-500">See how this job looks to candidates on the career portal.</p>
                                         </div>
                                     </div>
-                                    <Button variant="outline">Preview</Button>
+                                    <Button variant="outline" onClick={() => setShowPreview(true)}>Preview</Button>
                                 </div>
                             </div>
                         </div>
@@ -1484,21 +1525,112 @@ export function CreateJob({ onBack, onSubmit, onSkip, editJobId, fromRequisition
                             <Button variant="outline" size="lg" className="px-12 w-48" onClick={handleBack}>
                                 Back to Edit
                             </Button>
-                            <Button variant="outline" size="lg" className="px-12 w-48 border-gray-300" onClick={onSkip}>
-                                Skip Approval
-                            </Button>
                             <Button
                                 size="lg"
                                 className="px-12 w-64 bg-[var(--pumpkin-orange)] hover:bg-[var(--pumpkin-orange)]/90 shadow-lg shadow-orange-200"
                                 disabled={saving}
                                 onClick={() => handleSave(false)}
                             >
-                                {saving ? 'Saving…' : (editJobId ? 'Save Changes' : 'Submit for Approval')} <CheckCircle className="ml-2 size-5" />
+                                {saving ? 'Saving…' : (editJobId && jobDetails.status === 'Draft' ? 'Publish Job' : (editJobId ? 'Save Changes' : 'Publish Job'))} <CheckCircle className="ml-2 size-5" />
                             </Button>
                         </div>
                     </div>
                 )}
             </div>
+
+            {/* Candidate-view preview modal */}
+            {showPreview && (
+                <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 backdrop-blur-sm p-6">
+                    <div className="bg-white rounded-xl shadow-xl w-full max-w-3xl max-h-[85vh] flex flex-col overflow-hidden">
+                        <div className="px-6 py-4 border-b border-gray-100 flex justify-between items-center bg-gray-50/50">
+                            <div>
+                                <h3 className="text-lg font-semibold text-gray-900">Job Post Preview</h3>
+                                <p className="text-xs text-gray-500">How this job looks to candidates on the career portal</p>
+                            </div>
+                            <button onClick={() => setShowPreview(false)} className="text-gray-400 hover:text-gray-600">
+                                <X className="size-5" />
+                            </button>
+                        </div>
+                        <div className="flex-1 overflow-y-auto bg-gray-50 p-6">
+                            <div className="bg-white rounded-lg border border-gray-200 p-8 mb-6">
+                                <h1 className="text-3xl font-semibold mb-2">{jobDetails.jobTitle || 'Untitled Job'}</h1>
+                                {jobDetails.requisitionId && (
+                                    <p className="text-sm text-gray-400 font-mono mb-4">{jobDetails.requisitionId}</p>
+                                )}
+                                <div className="flex flex-wrap items-center gap-6 text-gray-600 mb-6">
+                                    <span className="flex items-center gap-2">
+                                        <Briefcase className="size-5" />
+                                        {jobDetails.department || 'General'}
+                                    </span>
+                                    <span className="flex items-center gap-2">
+                                        <MapPin className="size-5" />
+                                        {jobDetails.location || '—'} {jobDetails.remoteType ? `(${jobDetails.remoteType})` : ''}
+                                    </span>
+                                    <span className="flex items-center gap-2">
+                                        <DollarSign className="size-5" />
+                                        {jobDetails.salaryMin || jobDetails.salaryMax
+                                            ? `${jobDetails.currency || ''} ${jobDetails.salaryMin || '?'} – ${jobDetails.salaryMax || '?'}`.trim()
+                                            : 'Competitive'}
+                                    </span>
+                                    <span className="flex items-center gap-2">
+                                        <Clock className="size-5" />
+                                        {jobDetails.jobType}
+                                    </span>
+                                    {jobSettings.closingDate && (
+                                        <span className="flex items-center gap-2 text-red-500">
+                                            <Calendar className="size-5" />
+                                            Closes: {jobSettings.closingDate}
+                                        </span>
+                                    )}
+                                </div>
+                                <Button size="lg" className="px-8 pointer-events-none" style={{ backgroundColor: 'var(--blue-accent)' }}>
+                                    Apply for This Position
+                                </Button>
+                            </div>
+
+                            <div className="bg-white rounded-lg border border-gray-200 p-8 space-y-8">
+                                <section>
+                                    <h2 className="text-xl font-semibold mb-4">About the Role</h2>
+                                    <p className="text-gray-700 leading-relaxed whitespace-pre-line">
+                                        {jobDetails.description || 'No description yet.'}
+                                    </p>
+                                </section>
+
+                                {(jobDetails.tags || '').split(',').map((t) => t.trim()).filter(Boolean).length > 0 && (
+                                    <>
+                                        <div className="border-t border-gray-200" />
+                                        <section>
+                                            <h2 className="text-xl font-semibold mb-4">Skills & Keywords</h2>
+                                            <div className="flex flex-wrap gap-2">
+                                                {(jobDetails.tags || '').split(',').map((t) => t.trim()).filter(Boolean).map((tag, index) => (
+                                                    <span key={index} className="px-3 py-1 bg-gray-100 rounded-full text-sm text-gray-700">
+                                                        {tag}
+                                                    </span>
+                                                ))}
+                                            </div>
+                                        </section>
+                                    </>
+                                )}
+
+                                {questions.length > 0 && (
+                                    <>
+                                        <div className="border-t border-gray-200" />
+                                        <section>
+                                            <h2 className="text-xl font-semibold mb-2">Pre-screening</h2>
+                                            <p className="text-gray-600 text-sm">
+                                                This application includes {questions.length} pre-screening question{questions.length > 1 ? 's' : ''}.
+                                            </p>
+                                        </section>
+                                    </>
+                                )}
+                            </div>
+                        </div>
+                        <div className="px-6 py-3 border-t border-gray-100 flex justify-end bg-white">
+                            <Button variant="outline" onClick={() => setShowPreview(false)}>Close Preview</Button>
+                        </div>
+                    </div>
+                </div>
+            )}
         </div >
     );
 }
