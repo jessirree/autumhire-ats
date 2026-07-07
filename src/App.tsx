@@ -146,13 +146,16 @@ function HMCandidateDetailWrapper() {
 
 function RecruiterPostJobWrapper() {
   const navigate = useNavigate();
-  const requisitionId = new URLSearchParams(window.location.search).get('req') || undefined;
+  const searchParams = new URLSearchParams(window.location.search);
+  const requisitionId = searchParams.get('req') || undefined;
+  const editJobId = searchParams.get('edit') || undefined;
   return (
     <CreateJob
+      editJobId={editJobId}
       fromRequisitionId={requisitionId}
-      onBack={() => navigate(requisitionId ? '/recruiter/requisitions' : '/recruiter/dashboard')}
-      onSubmit={() => navigate(requisitionId ? '/recruiter/requisitions' : '/recruiter/dashboard')}
-      onSkip={() => navigate('/recruiter/dashboard')}
+      onBack={() => navigate(editJobId ? '/recruiter/adverts' : (requisitionId ? '/recruiter/requisitions' : '/recruiter/adverts'))}
+      onSubmit={() => navigate('/recruiter/adverts')}
+      onSkip={() => navigate('/recruiter/adverts')}
     />
   );
 }
@@ -249,7 +252,7 @@ function AppRoutes() {
         <Route path="dashboard" element={<RecruiterDashboard />} />
         <Route path="requisitions" element={<JobRequisitionsPage onCreateRequisition={() => navigate('/recruiter/requisitions/new')} onPublish={(id) => navigate(`/recruiter/post-job?req=${id}`)} />} />
         <Route path="requisitions/new" element={<NewRequisitionPage onBack={() => navigate('/recruiter/requisitions')} onSuccess={() => navigate('/recruiter/requisitions')} />} />
-        <Route path="adverts" element={<JobAdvertsPage onCreateAdvert={() => navigate('/recruiter/post-job')} onViewApplications={() => navigate('/recruiter/applications')} />} />
+        <Route path="adverts" element={<JobAdvertsPage onCreateAdvert={() => navigate('/recruiter/post-job')} onEditAdvert={(jobId) => navigate(`/recruiter/post-job?edit=${jobId}`)} onViewApplications={() => navigate('/recruiter/applications')} />} />
         <Route path="applications" element={<ApplicationsPage onViewCandidate={(id) => navigate(`/recruiter/candidate-detail/${id}`)} />} />
         <Route path="screening" element={<ScreeningPage />} />
         <Route path="candidates" element={<CandidatesPage onViewCandidate={(id) => navigate(`/recruiter/candidate-detail/${id}`)} />} />

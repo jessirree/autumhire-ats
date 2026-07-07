@@ -238,10 +238,19 @@ export function NewRequisitionPage({ onBack, onSuccess }: NewRequisitionPageProp
                     checked={selectedQuestionIds.includes(q.id)}
                     onChange={() => toggleQuestion(q.id)}
                   />
-                  <span>
-                    {q.text}
-                    <span className="text-xs text-gray-400"> — {q.type}{q.score ? `, ${q.score} pts` : ''}</span>
-                  </span>
+                  <div>
+                    <div>
+                      {q.text}
+                      <span className="text-xs text-gray-400"> — {q.type}</span>
+                    </div>
+                    {q.choices?.length ? (
+                      <div className="text-xs text-gray-400 mt-0.5">
+                        {q.choices.map((c) => `${c.label} = ${c.points} pts`).join(' · ')}
+                      </div>
+                    ) : q.score ? (
+                      <div className="text-xs text-gray-400 mt-0.5">{q.score} pts</div>
+                    ) : null}
+                  </div>
                 </label>
               ))}
             </div>

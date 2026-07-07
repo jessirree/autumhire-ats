@@ -3,7 +3,7 @@ import { toast } from 'sonner';
 import { Button } from '../../components/ui/button';
 import { confirm, promptText } from '../../components/ui/confirm-dialog';
 import { StatusBadge } from '../../components/ats/StatusBadge';
-import { Search, Filter, Plus, Users, CalendarDays, ExternalLink, Briefcase, RefreshCw, XCircle, Share2, Rss, Linkedin, Copy, MessageCircle, Archive, ArchiveRestore } from 'lucide-react';
+import { Search, Filter, Plus, Users, CalendarDays, ExternalLink, Briefcase, RefreshCw, XCircle, Share2, Rss, Linkedin, Copy, MessageCircle, Archive, ArchiveRestore, Pencil } from 'lucide-react';
 import {
   regenerateJobsFeed,
   jobPublicUrl,
@@ -18,6 +18,7 @@ import { useAuth } from '../../context/AuthContext';
 interface JobAdvertsPageProps {
   onViewApplications: (jobId: string) => void;
   onCreateAdvert: () => void;
+  onEditAdvert?: (jobId: string) => void;
 }
 
 interface PipelineStats {
@@ -39,7 +40,7 @@ function statsForJob(jobId: string, applications: Application[]): PipelineStats 
   };
 }
 
-export function JobAdvertsPage({ onViewApplications, onCreateAdvert }: JobAdvertsPageProps) {
+export function JobAdvertsPage({ onViewApplications, onCreateAdvert, onEditAdvert }: JobAdvertsPageProps) {
   const { user } = useAuth();
   const [searchTerm, setSearchTerm] = useState('');
   const [statusFilter, setStatusFilter] = useState('all');
@@ -339,6 +340,15 @@ export function JobAdvertsPage({ onViewApplications, onCreateAdvert }: JobAdvert
                           <Users className="size-4" />
                           Applications
                         </Button>
+                        {job.status === 'Draft' && onEditAdvert && (
+                          <button
+                            onClick={() => onEditAdvert(job.id)}
+                            className="text-gray-400 hover:text-autumn-primary transition-colors p-1.5 rounded-lg hover:bg-orange-50"
+                            title="Edit draft advert"
+                          >
+                            <Pencil className="size-4" />
+                          </button>
+                        )}
                         {(job.status === 'Active' || job.status === 'Re-advertised') && (
                           <button
                             onClick={() => handleClose(job)}

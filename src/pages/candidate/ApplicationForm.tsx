@@ -168,7 +168,14 @@ export function ApplicationForm({ job, onBack, onSubmit }: ApplicationFormProps)
           <input type="number" required={q.mandatory} value={value} onChange={(e) => set(e.target.value)} className={common} />
         );
       case 'dropdown':
-        return (
+        return q.choices?.length ? (
+          <select required={q.mandatory} value={value} onChange={(e) => set(e.target.value)} className={common}>
+            <option value="">Select…</option>
+            {q.choices.map((c) => (
+              <option key={c.label} value={c.label}>{c.label}</option>
+            ))}
+          </select>
+        ) : (
           <input
             type="text"
             required={q.mandatory}
