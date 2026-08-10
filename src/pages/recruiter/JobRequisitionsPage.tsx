@@ -7,8 +7,6 @@ import {
   Requisition,
   RequisitionPriority,
   AdvertType,
-  GRADE_LEVELS,
-  GRADE_STEPS,
   PRIORITY_STYLES,
   STATUS_LABELS,
   getRequisitions,
@@ -39,7 +37,7 @@ export function JobRequisitionsPage({ onCreateRequisition, onPublish }: JobRequi
   const [editing, setEditing] = useState<Requisition | null>(null);
   const [historyFor, setHistoryFor] = useState<Requisition | null>(null);
   const [form, setForm] = useState({
-    gradeLevel: '', gradeStep: '', priority: 'medium' as RequisitionPriority,
+    grade: '', priority: 'medium' as RequisitionPriority,
     vacancies: 1, advertType: 'external' as AdvertType, notes: '', questionIds: [] as string[],
   });
   const [saving, setSaving] = useState(false);
@@ -60,8 +58,7 @@ export function JobRequisitionsPage({ onCreateRequisition, onPublish }: JobRequi
   const openEdit = (req: Requisition) => {
     setEditing(req);
     setForm({
-      gradeLevel: req.grade?.[0] ?? '',
-      gradeStep: req.grade?.[1] ?? '',
+      grade: req.grade ?? '',
       priority: req.priority,
       vacancies: req.vacancies,
       advertType: req.advertType,
@@ -72,11 +69,10 @@ export function JobRequisitionsPage({ onCreateRequisition, onPublish }: JobRequi
 
   const handleSave = async (sendOn: boolean) => {
     if (!editing || !user) return;
-    const grade = `${form.gradeLevel}${form.gradeStep}`;
     setSaving(true);
     try {
       await updateRequisitionDetails(editing, {
-        grade,
+        grade: form.grade,
         priority: form.priority,
         vacancies: form.vacancies,
         advertType: form.advertType,
@@ -184,18 +180,10 @@ export function JobRequisitionsPage({ onCreateRequisition, onPublish }: JobRequi
               </button>
             </div>
             <div className="p-5 space-y-4">
-              <div className="grid grid-cols-3 gap-3">
+              <div className="grid grid-cols-2 gap-3">
                 <div>
-                  <label className="block text-xs font-medium text-gray-700 mb-1">Grade level</label>
-                  <select value={form.gradeLevel} onChange={(e) => setForm({ ...form, gradeLevel: e.target.value })} className="w-full p-2 border border-gray-200 rounded-lg text-sm">
-                    {GRADE_LEVELS.map((l) => <option key={l} value={l}>{l}</option>)}
-                  </select>
-                </div>
-                <div>
-                  <label className="block text-xs font-medium text-gray-700 mb-1">Step</label>
-                  <select value={form.gradeStep} onChange={(e) => setForm({ ...form, gradeStep: e.target.value })} className="w-full p-2 border border-gray-200 rounded-lg text-sm">
-                    {GRADE_STEPS.map((s) => <option key={s} value={s}>{s}</option>)}
-                  </select>
+                  <label className="block text-xs font-medium text-gray-700 mb-1">Grade</label>
+                  <input type="text" maxLength={10} placeholder="e.g. 3b, 9, Z" value={form.grade} onChange={(e) => setForm({ ...form, grade: e.target.value.trim() })} className="w-full p-2 border border-gray-200 rounded-lg text-sm" />
                 </div>
                 <div>
                   <label className="block text-xs font-medium text-gray-700 mb-1">Priority</label>

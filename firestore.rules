@@ -122,10 +122,17 @@ service cloud.firestore {
       allow delete: if false;
     }
 
-    // Shared pre-screening question library (single document).
-    match /QuestionBank/{docId} {
+    // Shared pre-screening question library.
+    // Each question is its own document with a choices subcollection.
+    match /QuestionBank/{questionId} {
       allow read: if isStaff();
       allow write: if isAdmin();
+
+      // Choices for each question (Yes/No and Multiple Choice options with points).
+      match /choices/{choiceId} {
+        allow read: if isStaff();
+        allow write: if isAdmin();
+      }
     }
 
     // Email/interview/advert templates: staff use them, admins manage them.

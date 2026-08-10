@@ -42,10 +42,8 @@ export type RequisitionStatus =
 
 export type RequisitionPriority = 'low' | 'medium' | 'high' | 'urgent';
 
-/** Job grades are 1–6 with steps a–c (e.g. "4b"). */
-export const GRADE_LEVELS = ['1', '2', '3', '4', '5', '6'] as const;
-export const GRADE_STEPS = ['a', 'b', 'c'] as const;
-export const GRADE_REGEX = /^[1-6][abc]$/;
+/** Job grade is free text (e.g. "4b", "1", "9", "T", "Z") — any short alphanumeric code. */
+export const GRADE_REGEX = /^[A-Za-z0-9]{1,10}$/;
 
 export const PRIORITY_STYLES: Record<RequisitionPriority, { label: string; badge: string; row: string }> = {
   low:    { label: 'Low',    badge: 'bg-green-100 text-green-800 border-green-200',   row: 'border-l-4 border-l-green-400' },
@@ -88,7 +86,7 @@ export interface Requisition {
   positionId: string;
   positionTitle: string;
   department: string;
-  /** Structured grade: level 1–6 + step a–c, e.g. "4b". Mandatory. */
+  /** Free-text job grade code, e.g. "4b", "9", "Z". Mandatory. */
   grade: string;
   priority: RequisitionPriority;
   vacancies: number;
@@ -177,7 +175,7 @@ async function notifyRole(role: 'recruiter' | 'hiring-manager' | 'admin', title:
 
 function assertGrade(grade: string) {
   if (!GRADE_REGEX.test(grade)) {
-    throw new Error('Job grade must be a level 1–6 plus step a–c (e.g. "3b").');
+    throw new Error('Job grade must be 1–10 letters/digits (e.g. "3b", "9", "Z").');
   }
 }
 
