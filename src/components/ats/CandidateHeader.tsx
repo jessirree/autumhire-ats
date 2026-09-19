@@ -1,4 +1,4 @@
-import { Bell, User } from 'lucide-react';
+import { Bell, User, LogOut } from 'lucide-react';
 import { Button } from '../../components/ui/button';
 
 interface CandidateHeaderProps {
@@ -79,7 +79,7 @@ export function CandidateHeader({
                                 <Bell className="size-5" />
                                 <span className="absolute -top-1 -right-1 size-2 bg-red-500 rounded-full"></span>
                             </button>
-                            <div className="flex items-center gap-2 cursor-pointer" onClick={onLogout} title="Sign out">
+                            <div className="flex items-center gap-2">
                                 <div className="size-8 bg-[#2F5233] text-white rounded-full flex items-center justify-center font-medium shadow-sm">
                                     {userProfile?.name?.charAt(0) || <User className="size-4" />}
                                 </div>
@@ -88,6 +88,14 @@ export function CandidateHeader({
                                     <p className="text-[11px] text-gray-500">Candidate account</p>
                                 </div>
                             </div>
+                            <button
+                                onClick={onLogout}
+                                title="Sign out"
+                                className="flex items-center gap-1.5 bg-transparent border-none cursor-pointer text-sm font-medium text-gray-600 hover:text-[#D9534F] transition-colors"
+                            >
+                                <LogOut className="size-4" />
+                                <span className="hidden sm:inline">Sign Out</span>
+                            </button>
                         </div>
                     ) : (
                         <Button

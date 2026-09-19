@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react';
-import { ArrowLeft, CheckCircle2, FileText } from 'lucide-react';
+import { ArrowLeft, CheckCircle2, FileText, Upload, X } from 'lucide-react';
 import { Button } from '../../components/ui/button';
 import { useAuth } from '../../context/AuthContext';
 import {
@@ -256,12 +256,39 @@ export function NewRequisitionPage({ onBack, onSuccess }: NewRequisitionPageProp
         <div>
           <label className="block text-sm font-medium text-gray-700 mb-1">Job Description (optional)</label>
           {STORAGE_ENABLED ? (
-            <input
-              type="file"
-              accept=".pdf,.doc,.docx"
-              onChange={(e) => setJobDescriptionFile(e.target.files?.[0] ?? null)}
-              className="text-sm"
-            />
+            <div className={`border-2 border-dashed rounded-lg p-8 text-center transition-colors ${jobDescriptionFile ? 'border-green-500 bg-green-50' : 'border-gray-300 hover:border-blue-400'}`}>
+              {jobDescriptionFile ? (
+                <div className="text-green-700 relative">
+                  <button
+                    type="button"
+                    onClick={() => setJobDescriptionFile(null)}
+                    className="absolute -top-2 -right-2 size-6 flex items-center justify-center rounded-full bg-white border border-gray-200 text-gray-500 hover:text-red-600 hover:border-red-200"
+                    title="Remove file"
+                  >
+                    <X className="size-4" />
+                  </button>
+                  <CheckCircle2 className="size-8 mx-auto mb-3" />
+                  <p className="font-medium">{jobDescriptionFile.name}</p>
+                  <p className="text-sm text-green-600 mt-1">Job description ready to upload</p>
+                  <p className="text-xs text-gray-400 mt-2">Remove to choose a different file</p>
+                </div>
+              ) : (
+                <>
+                  <Upload className="size-8 text-gray-400 mx-auto mb-3" />
+                  <p className="font-medium mb-1">Upload Job Description</p>
+                  <p className="text-sm text-gray-500 mb-3">PDF, DOC, or DOCX (max 5MB)</p>
+                  <div className="relative inline-block">
+                    <Button type="button" variant="outline" size="sm" className="pointer-events-none">Choose File</Button>
+                    <input
+                      type="file"
+                      accept=".pdf,.doc,.docx"
+                      className="absolute inset-0 opacity-0 cursor-pointer"
+                      onChange={(e) => setJobDescriptionFile(e.target.files?.[0] ?? null)}
+                    />
+                  </div>
+                </>
+              )}
+            </div>
           ) : (
             <p className="text-xs text-amber-700 bg-amber-50 border border-amber-200 rounded-lg p-2 flex items-center gap-2">
               <FileText className="size-4 shrink-0" /> Attachments are unavailable until document storage is enabled.

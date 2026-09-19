@@ -1,21 +1,26 @@
 import { useState, useEffect } from 'react';
+import { useNavigate } from 'react-router-dom';
 import { toast } from 'sonner';
-import { ArrowLeft, Mail, Phone, MapPin, FileText, Download, Star, Save, UserCheck, Calendar, CheckCircle2, XCircle, MessageSquare, Send, Share2, ClipboardCopy } from 'lucide-react';
+import { ArrowLeft, Mail, Phone, MapPin, FileText, Download, Eye, Star, Save, UserCheck, Calendar, CheckCircle2, XCircle, MessageSquare, Send, Share2, ClipboardCopy, Briefcase, ExternalLink } from 'lucide-react';
 import { Button } from '../../components/ui/button';
+import { Dialog, DialogContent, DialogHeader, DialogTitle } from '../../components/ui/dialog';
 import { promptText } from '../../components/ui/confirm-dialog';
 import { shareCandidateProfileByEmail, copyFullCandidateSummary } from '../../lib/shareCandidateProfile';
 import { StatusBadge } from '../../components/ats/StatusBadge';
+import { DutyBanner } from '../../components/ats/DutyBanner';
 import { useAuth } from '../../context/AuthContext';
 import {
   Application,
   ApplicationStatus,
   PanelComment,
   getApplicationById,
+  getApplicationsByCandidate,
   updateApplicationStatus,
   setPrescreenScore,
   addPanelComment,
   getPanelComments,
 } from '../../services/applicationService';
+import { BioData, getBioData } from '../../services/bioDataService';
 import { Interview, getInterviewsForCandidate } from '../../services/interviewService';
 import {
   ReferenceCheck,
@@ -31,7 +36,9 @@ interface CandidateDetailProps {
 
 export function CandidateDetail({ candidateId, onBack }: CandidateDetailProps) {
   const { user } = useAuth();
+  const navigate = useNavigate();
   const [application, setApplication] = useState<Application | null>(null);
+  const [otherApplications, setOtherApplications] = useState<Application[]>([]);
   const [interviews, setInterviews] = useState<Interview[]>([]);
   const [comments, setComments] = useState<PanelComment[]>([]);
   const [loading, setLoading] = useState(true);
@@ -40,6 +47,8 @@ export function CandidateDetail({ candidateId, onBack }: CandidateDetailProps) {
   const [referenceChecks, setReferenceChecks] = useState<ReferenceCheck[]>([]);
   const [showRefForm, setShowRefForm] = useState(false);
   const [refForm, setRefForm] = useState({ name: '', email: '', organization: '', relationship: '' });
+  const [previewDoc, setPreviewDoc] = useState<{ name: string; url: string } | null>(null);
+  const [bioData, setBioData] = useState<BioData | null>(null);
 
   useEffect(() => {
     (async () => {
@@ -48,14 +57,17 @@ export function CandidateDetail({ candidateId, onBack }: CandidateDetailProps) {
         setApplication(app);
         if (app) {
           setNewScore(app.prescreenScore);
-          const [ivs, cms, refs] = await Promise.all([
+          const [ivs, cms, refs, allApps] = await Promise.all([
             getInterviewsForCandidate(app.candidateId),
             getPanelComments(app.id),
             getReferenceChecks(app.id),
+            getApplicationsByCandidate(app.candidateId),
           ]);
           setInterviews(ivs.filter((iv) => iv.applicationId === app.id));
           setComments(cms);
           setReferenceChecks(refs);
+          setOtherApplications(allApps.filter((a) => a.id !== app.id));
+          setBioData(await getBioData(app.id));
         }
       } catch (err) {
         console.error('Failed to load candidate', err);
@@ -136,12 +148,26 @@ export function CandidateDetail({ candidateId, onBack }: CandidateDetailProps) {
 
   return (
     <div className="p-8">
+      {user?.role === 'hiring-manager' && (
+        <DutyBanner>
+          Your duty here: review this candidate's profile, screening results, and interview history, then
+          move them through the pipeline or make an offer decision with supporting comments.
+        </DutyBanner>
+      )}
       <div className="flex items-center justify-between mb-6">
         <button onClick={onBack} className="flex items-center gap-2 text-gray-600 hover:text-gray-900">
           <ArrowLeft className="size-4" />
           Back to Applications
         </button>
         <div className="flex items-center gap-2">
+          <Button
+            variant="outline"
+            size="sm"
+            className="gap-2"
+            onClick={() => navigate(`/recruiter/post-job?edit=${application.jobId}`)}
+          >
+            <Briefcase className="size-4" /> View Job Specification
+          </Button>
           <Button variant="outline" size="sm" className="gap-2" onClick={handleShareByEmail}>
             <Share2 className="size-4" /> Share Profile
           </Button>
@@ -239,6 +265,18 @@ export function CandidateDetail({ candidateId, onBack }: CandidateDetailProps) {
                 <h3 className="text-xs uppercase font-bold text-gray-400 mb-1">Source</h3>
                 <p className="font-medium text-gray-900 capitalize">{application.source || '—'}</p>
               </div>
+              {bioData && (
+                <>
+                  <div className="bg-gray-50 p-4 rounded-xl border border-gray-100">
+                    <h3 className="text-xs uppercase font-bold text-gray-400 mb-1">National ID / Passport</h3>
+                    <p className="font-medium text-gray-900">{bioData.nationalId}</p>
+                  </div>
+                  <div className="bg-gray-50 p-4 rounded-xl border border-gray-100">
+                    <h3 className="text-xs uppercase font-bold text-gray-400 mb-1">Postal Address</h3>
+                    <p className="font-medium text-gray-900">{bioData.postalAddress}</p>
+                  </div>
+                </>
+              )}
             </div>
           </div>
 
@@ -256,20 +294,54 @@ export function CandidateDetail({ candidateId, onBack }: CandidateDetailProps) {
                     <p className="font-medium text-gray-900 text-sm">{docItem.name}</p>
                     <p className="text-xs text-gray-500">{docItem.type}</p>
                   </div>
-                  <a
-                    href={docItem.url}
-                    target="_blank"
-                    rel="noreferrer"
-                    download={`${application.candidateName.replace(/\s+/g, '_')}-${application.jobId}-${docItem.type.replace(/\s+/g, '_')}`}
-                  >
-                    <Button variant="outline" size="sm" className="gap-2">
-                      <Download className="size-4" /> Download
-                    </Button>
-                  </a>
+                  <div className="flex items-center gap-2">
+                    {docItem.name.toLowerCase().endsWith('.pdf') && (
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        className="gap-2"
+                        onClick={() => setPreviewDoc({ name: docItem.name, url: docItem.url })}
+                      >
+                        <Eye className="size-4" /> Preview
+                      </Button>
+                    )}
+                    <a
+                      href={docItem.url}
+                      target="_blank"
+                      rel="noreferrer"
+                      download={`${application.candidateName.replace(/\s+/g, '_')}-${application.jobId}-${docItem.type.replace(/\s+/g, '_')}`}
+                    >
+                      <Button variant="outline" size="sm" className="gap-2">
+                        <Download className="size-4" /> Download
+                      </Button>
+                    </a>
+                  </div>
                 </div>
               ))}
             </div>
           </div>
+
+          {/* Other applications by this candidate */}
+          {otherApplications.length > 0 && (
+            <div className="bg-white rounded-lg border border-gray-200 p-6">
+              <h2 className="text-lg font-bold text-gray-900 mb-4">Other Applications by This Candidate</h2>
+              <div className="space-y-3">
+                {otherApplications.map((a) => (
+                  <button
+                    key={a.id}
+                    onClick={() => navigate(`/recruiter/candidate-detail/${a.id}`)}
+                    className="w-full flex items-center justify-between bg-gray-50 border border-gray-100 rounded-lg p-4 text-left hover:border-gray-300 transition-colors"
+                  >
+                    <div>
+                      <p className="font-medium text-gray-900 text-sm">{a.jobTitle}</p>
+                      <p className="text-xs text-gray-500">{a.department}</p>
+                    </div>
+                    <StatusBadge status={a.status} size="sm" />
+                  </button>
+                ))}
+              </div>
+            </div>
+          )}
 
           {/* Status history */}
           <div className="bg-white rounded-lg border border-gray-200 p-6">
@@ -475,6 +547,30 @@ export function CandidateDetail({ candidateId, onBack }: CandidateDetailProps) {
           </div>
         </div>
       </div>
+
+      <Dialog open={!!previewDoc} onOpenChange={(open) => !open && setPreviewDoc(null)}>
+        <DialogContent className="sm:max-w-4xl h-[85vh] flex flex-col">
+          <DialogHeader>
+            <div className="flex items-center justify-between gap-3 pr-8">
+              <DialogTitle>{previewDoc?.name}</DialogTitle>
+              {previewDoc && (
+                <a
+                  href={previewDoc.url}
+                  target="_blank"
+                  rel="noreferrer"
+                  className="text-xs font-medium text-blue-600 hover:underline flex items-center gap-1 shrink-0"
+                  title="Open in a new tab — needed to select/copy text out of the PDF"
+                >
+                  <ExternalLink className="size-3.5" /> Open in New Tab
+                </a>
+              )}
+            </div>
+          </DialogHeader>
+          {previewDoc && (
+            <iframe src={previewDoc.url} title={previewDoc.name} className="flex-1 w-full rounded-lg border border-gray-200" />
+          )}
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }

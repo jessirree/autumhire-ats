@@ -5,6 +5,7 @@ import { CheckCircle, XCircle, Clock } from 'lucide-react';
 import { Button } from '../../components/ui/button';
 import { promptText } from '../../components/ui/confirm-dialog';
 import { StatusBadge } from '../../components/ats/StatusBadge';
+import { DutyBanner } from '../../components/ats/DutyBanner';
 import { useAuth } from '../../context/AuthContext';
 import {
   Requisition,
@@ -103,6 +104,11 @@ export function HiringManagerDashboard() {
           You have <span className="font-semibold text-autumn-orange">{pendingApprovals} item{pendingApprovals === 1 ? '' : 's'}</span> pending your approval and <span className="font-semibold text-autumn-orange">{candidatesWaiting} candidate{candidatesWaiting === 1 ? '' : 's'}</span> in the pipeline{pipeline.length > 0 ? ` including the ${displayJob} role` : ''}.
         </p>
       </div>
+
+      <DutyBanner>
+        Your duties here: review and confirm requisitions raised for your team, approve job grades,
+        approve or reject offers, and monitor candidates moving through your pipeline.
+      </DutyBanner>
 
       {/* Stats Cards */}
       <div className="grid grid-cols-1 md:grid-cols-3 gap-6 mb-8">

@@ -6,11 +6,13 @@ import {
     MessageSquare,
     Eye,
     Search,
-    Filter
+    Filter,
+    Info
 } from 'lucide-react';
 import { Button } from '../../components/ui/button';
 import { promptText } from '../../components/ui/confirm-dialog';
 import { StatusBadge } from '../../components/ats/StatusBadge';
+import { DutyBanner } from '../../components/ats/DutyBanner';
 import { useAuth } from '../../context/AuthContext';
 import {
     Application,
@@ -18,6 +20,7 @@ import {
     updateApplicationStatus,
     addPanelComment,
 } from '../../services/applicationService';
+import { getJobs } from '../../services/jobService';
 
 interface Candidate {
     id: string;
@@ -41,11 +44,13 @@ export function ShortlistingPage({ onViewCandidate }: ShortlistingPageProps) {
     const [searchTerm, setSearchTerm] = useState('');
     const [noteText, setNoteText] = useState('');
     const [activeNoteId, setActiveNoteId] = useState<string | null>(null);
+    const [criteriaByJobId, setCriteriaByJobId] = useState<Record<string, string>>({});
+    const [openCriteriaId, setOpenCriteriaId] = useState<string | null>(null);
 
     const load = () => {
         setLoading(true);
-        getAllApplications()
-            .then((apps) =>
+        Promise.all([getAllApplications(), getJobs(true)])
+            .then(([apps, jobs]) => {
                 setCandidates(
                     apps
                         // Hiring managers review the longlist + already shortlisted candidates.
@@ -59,8 +64,13 @@ export function ShortlistingPage({ onViewCandidate }: ShortlistingPageProps) {
                             appliedDate: a.appliedAt?.toDate ? a.appliedAt.toDate().toLocaleDateString() : '—',
                             application: a,
                         }))
-                )
-            )
+                );
+                const map: Record<string, string> = {};
+                for (const job of jobs) {
+                    if (job.shortlistingCriteria?.trim()) map[job.id] = job.shortlistingCriteria;
+                }
+                setCriteriaByJobId(map);
+            })
             .catch((err) => console.error('Failed to load candidates', err))
             .finally(() => setLoading(false));
     };
@@ -108,6 +118,10 @@ export function ShortlistingPage({ onViewCandidate }: ShortlistingPageProps) {
 
     return (
         <div className="p-8 h-full flex flex-col">
+            <DutyBanner>
+                Your duty here: review the recruiter's longlist, apply the job's shortlisting criteria (see the
+                info icon next to each role), and shortlist or reject candidates with a documented rationale.
+            </DutyBanner>
             <div className="flex justify-between items-center mb-6">
                 <div>
                     <h1 className="text-2xl font-bold text-gray-900">Candidate Shortlisting</h1>
@@ -168,7 +182,28 @@ export function ShortlistingPage({ onViewCandidate }: ShortlistingPageProps) {
                                             </div>
                                         </div>
                                     </td>
-                                    <td className="px-6 py-4 text-gray-600 font-medium">{candidate.role}</td>
+                                    <td className="px-6 py-4 text-gray-600 font-medium">
+                                        <div className="flex items-center gap-1.5">
+                                            {candidate.role}
+                                            {criteriaByJobId[candidate.application.jobId] && (
+                                                <button
+                                                    type="button"
+                                                    title="View shortlisting criteria for this role"
+                                                    className="text-gray-400 hover:text-autumn-orange"
+                                                    onClick={() =>
+                                                        setOpenCriteriaId(openCriteriaId === candidate.id ? null : candidate.id)
+                                                    }
+                                                >
+                                                    <Info className="size-3.5" />
+                                                </button>
+                                            )}
+                                        </div>
+                                        {openCriteriaId === candidate.id && criteriaByJobId[candidate.application.jobId] && (
+                                            <div className="mt-2 max-w-xs text-xs text-gray-600 bg-blue-50 border border-blue-100 rounded-lg p-2 whitespace-pre-line">
+                                                {criteriaByJobId[candidate.application.jobId]}
+                                            </div>
+                                        )}
+                                    </td>
                                     <td className="px-6 py-4">
                                         <span className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium
                       ${candidate.score >= 90 ? 'bg-green-100 text-green-800' :

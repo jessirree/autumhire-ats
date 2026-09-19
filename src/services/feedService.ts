@@ -1,6 +1,7 @@
 import { ref, uploadString, getDownloadURL } from 'firebase/storage';
 import { storage } from '../lib/firebase';
 import { STORAGE_ENABLED } from '../lib/featureFlags';
+import { stripHtml } from '../lib/sanitizeHtml';
 import { Job, getPublicJobs } from './jobService';
 
 /** Escape text for XML. */
@@ -21,7 +22,7 @@ function jobItem(job: Job, siteUrl: string): string {
       <guid isPermaLink="false">${esc(job.referenceNumber)}</guid>
       <pubDate>${pubDate}</pubDate>
       <category>${esc(job.department || 'General')}</category>
-      <description>${esc(`${job.location} • ${job.jobType}${job.closingDate ? ` • Closes ${job.closingDate}` : ''} — ${(job.description || '').slice(0, 300)}`)}</description>
+      <description>${esc(`${job.location} • ${job.jobType}${job.closingDate ? ` • Closes ${job.closingDate}` : ''} — ${stripHtml(job.description || '').slice(0, 300)}`)}</description>
     </item>`;
 }
 

@@ -9,6 +9,7 @@ import { CandidateHeader } from '../../components/ats/CandidateHeader';
 import { NotificationBell } from '../../components/ats/NotificationBell';
 import { useAuth } from '../../context/AuthContext';
 import { Application, getApplicationsByCandidate } from '../../services/applicationService';
+import { BioData, getBioData, submitBioData } from '../../services/bioDataService';
 import { Offer, getOffersForCandidate, respondToOffer } from '../../services/offerService';
 import {
   CandidateProfile,
@@ -42,10 +43,23 @@ export function CandidateDashboard({
   const [activeTab, setActiveTab] = useState<'applications' | 'profile'>('applications');
   const [myApplications, setMyApplications] = useState<Application[]>([]);
   const [myOffers, setMyOffers] = useState<Offer[]>([]);
+  const [bioDataByAppId, setBioDataByAppId] = useState<Record<string, BioData | null>>({});
+  const [bioDataForm, setBioDataForm] = useState<Record<string, { nationalId: string; postalAddress: string }>>({});
+  const [editingBioDataId, setEditingBioDataId] = useState<string | null>(null);
+  const [savingBioDataId, setSavingBioDataId] = useState<string | null>(null);
+
+  const NEEDS_BIODATA_STATUSES = ['shortlisted', 'interview', 'offer', 'hired'];
 
   const loadApplications = () => {
     if (user) {
-      getApplicationsByCandidate(user.id).then(setMyApplications).catch(() => {});
+      getApplicationsByCandidate(user.id).then(async (apps) => {
+        setMyApplications(apps);
+        const relevant = apps.filter((a) => NEEDS_BIODATA_STATUSES.includes(a.status));
+        const entries = await Promise.all(
+          relevant.map(async (a) => [a.id, await getBioData(a.id)] as const)
+        );
+        setBioDataByAppId(Object.fromEntries(entries));
+      }).catch(() => {});
       getOffersForCandidate(user.id).then(setMyOffers).catch(() => {});
     }
   };
@@ -71,6 +85,29 @@ export function CandidateDashboard({
   };
 
   const pendingOffers = myOffers.filter((o) => o.status === 'sent');
+
+  const handleSubmitBioData = async (applicationId: string) => {
+    if (!user) return;
+    const form = bioDataForm[applicationId];
+    if (!form?.nationalId?.trim() || !form?.postalAddress?.trim()) {
+      toast.error('Please fill in both fields.');
+      return;
+    }
+    setSavingBioDataId(applicationId);
+    try {
+      await submitBioData(applicationId, user.id, form);
+      setBioDataByAppId((prev) => ({
+        ...prev,
+        [applicationId]: { applicationId, candidateId: user.id, ...form },
+      }));
+      setEditingBioDataId(null);
+      toast.success('Bio-data submitted.');
+    } catch (err: any) {
+      toast.error(err?.message || 'Failed to submit bio-data.');
+    } finally {
+      setSavingBioDataId(null);
+    }
+  };
 
   const nameParts = (user?.name || '').split(' ');
   const [profile, setProfile] = useState({
@@ -130,10 +167,16 @@ export function CandidateDashboard({
   };
 
   const handleCvUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
-    if (!user || !e.target.files?.[0]) return;
+    const file = e.target.files?.[0];
+    if (!user || !file) return;
+    if (!file.name.toLowerCase().endsWith('.pdf') || (file.type && file.type !== 'application/pdf')) {
+      toast.error('Only PDF files are accepted for your CV.');
+      e.target.value = '';
+      return;
+    }
     setUploadingCv(true);
     try {
-      const up = await uploadProfileCv(user.id, e.target.files[0]);
+      const up = await uploadProfileCv(user.id, file);
       setSavedCv({ url: up.url, name: up.name });
     } catch (err: any) {
       toast.error(err?.message || 'Failed to upload CV.');
@@ -315,6 +358,65 @@ export function CandidateDashboard({
                       ) : (
                         <StatusTimeline steps={timelineSteps(app.status)} />
                       )}
+
+                      {NEEDS_BIODATA_STATUSES.includes(app.status) && (
+                        <div className="mt-6 pt-6 border-t border-border">
+                          {bioDataByAppId[app.id] ? (
+                            <p className="text-sm text-green-700 flex items-center gap-1.5">
+                              <FileText className="size-4" /> Bio-data submitted.
+                            </p>
+                          ) : editingBioDataId === app.id ? (
+                            <div className="space-y-3 bg-orange-50/50 border border-orange-100 rounded-lg p-4">
+                              <p className="text-sm font-medium text-autumn-charcoal">Complete your bio-data</p>
+                              <div className="grid grid-cols-2 gap-3">
+                                <input
+                                  type="text"
+                                  placeholder="National ID / Passport No. *"
+                                  value={bioDataForm[app.id]?.nationalId || ''}
+                                  onChange={(e) =>
+                                    setBioDataForm((prev) => ({
+                                      ...prev,
+                                      [app.id]: { ...prev[app.id], nationalId: e.target.value, postalAddress: prev[app.id]?.postalAddress || '' },
+                                    }))
+                                  }
+                                  className="w-full p-2 border border-border rounded-lg text-sm"
+                                />
+                                <input
+                                  type="text"
+                                  placeholder="Postal/Physical Address *"
+                                  value={bioDataForm[app.id]?.postalAddress || ''}
+                                  onChange={(e) =>
+                                    setBioDataForm((prev) => ({
+                                      ...prev,
+                                      [app.id]: { ...prev[app.id], postalAddress: e.target.value, nationalId: prev[app.id]?.nationalId || '' },
+                                    }))
+                                  }
+                                  className="w-full p-2 border border-border rounded-lg text-sm"
+                                />
+                              </div>
+                              <div className="flex gap-2">
+                                <Button
+                                  size="sm"
+                                  disabled={savingBioDataId === app.id}
+                                  onClick={() => handleSubmitBioData(app.id)}
+                                >
+                                  {savingBioDataId === app.id ? 'Submitting…' : 'Submit'}
+                                </Button>
+                                <Button size="sm" variant="outline" onClick={() => setEditingBioDataId(null)}>
+                                  Cancel
+                                </Button>
+                              </div>
+                            </div>
+                          ) : (
+                            <div className="flex items-center justify-between bg-orange-50/50 border border-orange-100 rounded-lg p-4">
+                              <p className="text-sm text-autumn-charcoal">You've been shortlisted — please complete your bio-data.</p>
+                              <Button size="sm" onClick={() => setEditingBioDataId(app.id)}>
+                                Complete Bio-Data
+                              </Button>
+                            </div>
+                          )}
+                        </div>
+                      )}
                     </div>
                   ))}
                 </div>
@@ -434,7 +536,7 @@ export function CandidateDashboard({
                         </Button>
                         <input
                           type="file"
-                          accept=".pdf,.doc,.docx"
+                          accept=".pdf"
                           className="absolute inset-0 opacity-0 cursor-pointer"
                           onChange={handleCvUpload}
                         />

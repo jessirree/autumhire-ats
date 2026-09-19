@@ -7,6 +7,7 @@ import { confirm } from '../../components/ui/confirm-dialog';
 import { printInterviewReport } from '../../lib/printInterviewReport';
 import { db } from '../../lib/firebase';
 import { useAuth } from '../../context/AuthContext';
+import { DutyBanner } from '../../components/ats/DutyBanner';
 import { Application, getAllApplications } from '../../services/applicationService';
 import {
   Interview,
@@ -149,6 +150,12 @@ export function InterviewsPage() {
 
   return (
     <div className="p-8 max-w-7xl mx-auto space-y-6">
+      {user?.role === 'hiring-manager' && (
+        <DutyBanner>
+          Your duty here: join scheduled interviews as a panel member, record your own score and comments,
+          and submit a recommendation once the interview is complete.
+        </DutyBanner>
+      )}
       <div className="flex justify-between items-center bg-white p-6 rounded-2xl border border-gray-100 shadow-sm">
         <div>
           <h1 className="text-2xl font-bold text-autumn-charcoal mb-2">Interviews</h1>

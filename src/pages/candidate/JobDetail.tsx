@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react';
 import { ArrowLeft, MapPin, Briefcase, Clock, DollarSign, Calendar, AlertCircle } from 'lucide-react';
 import { Button } from '../../components/ui/button';
 import { Job, getJobById, isJobOpen } from '../../services/jobService';
+import { sanitizeHtml } from '../../lib/sanitizeHtml';
 
 interface JobDetailProps {
   jobId: string;
@@ -102,7 +103,10 @@ export function JobDetail({ jobId, onBack, onApply }: JobDetailProps) {
         <div className="bg-white rounded-lg border border-gray-200 p-8 space-y-8">
           <section>
             <h2 className="text-xl font-semibold mb-4">About the Role</h2>
-            <p className="text-gray-700 leading-relaxed whitespace-pre-line">{job.description}</p>
+            <div
+              className="prose prose-sm max-w-none text-gray-700 leading-relaxed"
+              dangerouslySetInnerHTML={{ __html: sanitizeHtml(job.description) }}
+            />
           </section>
 
           {tags.length > 0 && (

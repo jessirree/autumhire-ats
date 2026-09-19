@@ -69,6 +69,8 @@ export interface Job {
   isFeatured: boolean;
   requireResume: boolean;
   requireCoverLetter: boolean;
+  /** Guidance for hiring managers/panel on what to look for when shortlisting. */
+  shortlistingCriteria?: string;
   /** Archived adverts are hidden from active staff views but never deleted. */
   archived?: boolean;
   closingDate?: string; // yyyy-mm-dd
