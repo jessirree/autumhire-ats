@@ -1,10 +1,12 @@
 import { useEffect, useState } from 'react';
 import { toast } from 'sonner';
 import { useNavigate } from 'react-router-dom';
-import { CheckCircle, XCircle, Plus, FastForward, Undo2 } from 'lucide-react';
+import { CheckCircle, XCircle, Plus, FastForward, Undo2, Eye, Download, ExternalLink } from 'lucide-react';
 import { Button } from '../../components/ui/button';
 import { promptText } from '../../components/ui/confirm-dialog';
+import { Dialog, DialogContent, DialogHeader, DialogTitle } from '../../components/ui/dialog';
 import { useAuth } from '../../context/AuthContext';
+import { DutyBanner } from '../../components/ats/DutyBanner';
 import {
   Requisition,
   PRIORITY_STYLES,
@@ -26,6 +28,7 @@ export function RequisitionApprovals() {
   const navigate = useNavigate();
   const [requisitions, setRequisitions] = useState<Requisition[]>([]);
   const [loading, setLoading] = useState(true);
+  const [previewDoc, setPreviewDoc] = useState<{ name: string; url: string } | null>(null);
   const isAdmin = user?.role === 'admin';
 
   const load = () => {
@@ -87,6 +90,12 @@ export function RequisitionApprovals() {
 
   return (
     <div className="p-8 max-w-5xl mx-auto space-y-6">
+      {!isAdmin && (
+        <DutyBanner>
+          Your duty here: confirm requisitions the recruiter has refined for you, including the job grade,
+          or return them with comments if changes are needed before admin approval.
+        </DutyBanner>
+      )}
       <div className="flex justify-between items-center bg-white p-6 rounded-2xl border border-gray-100 shadow-sm">
         <div>
           <h1 className="text-2xl font-bold text-autumn-charcoal mb-2">
@@ -135,6 +144,26 @@ export function RequisitionApprovals() {
               {(req.questions ?? []).length > 0 && <> • {req.questions.length} screening question{req.questions.length > 1 ? 's' : ''}</>}
             </p>
             <p className="text-xs text-gray-400 mb-4">Raised by {req.createdByName}{req.notes ? ` — “${req.notes}”` : ''}</p>
+
+            {req.jobDescriptionUrl && (
+              <div className="flex items-center gap-2 mb-4">
+                {req.jobDescriptionFileName?.toLowerCase().endsWith('.pdf') && (
+                  <Button
+                    size="sm"
+                    variant="outline"
+                    className="gap-1.5"
+                    onClick={() => setPreviewDoc({ name: req.jobDescriptionFileName || 'Job Description', url: req.jobDescriptionUrl! })}
+                  >
+                    <Eye className="size-3.5" /> Preview Job Description
+                  </Button>
+                )}
+                <a href={req.jobDescriptionUrl} target="_blank" rel="noreferrer" download={req.jobDescriptionFileName}>
+                  <Button size="sm" variant="outline" className="gap-1.5">
+                    <Download className="size-3.5" /> Download Job Description
+                  </Button>
+                </a>
+              </div>
+            )}
 
             {(req.questions ?? []).length > 0 && (
               <div className="mb-4 space-y-1.5">
@@ -190,6 +219,30 @@ export function RequisitionApprovals() {
           </div>
         );
       })}
+
+      <Dialog open={!!previewDoc} onOpenChange={(open) => !open && setPreviewDoc(null)}>
+        <DialogContent className="sm:max-w-4xl h-[85vh] flex flex-col">
+          <DialogHeader>
+            <div className="flex items-center justify-between gap-3 pr-8">
+              <DialogTitle>{previewDoc?.name}</DialogTitle>
+              {previewDoc && (
+                <a
+                  href={previewDoc.url}
+                  target="_blank"
+                  rel="noreferrer"
+                  className="text-xs font-medium text-blue-600 hover:underline flex items-center gap-1 shrink-0"
+                  title="Open in a new tab — needed to select/copy text out of the PDF"
+                >
+                  <ExternalLink className="size-3.5" /> Open in New Tab
+                </a>
+              )}
+            </div>
+          </DialogHeader>
+          {previewDoc && (
+            <iframe src={previewDoc.url} title={previewDoc.name} className="flex-1 w-full rounded-lg border border-gray-200" />
+          )}
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }

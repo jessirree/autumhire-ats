@@ -3,6 +3,7 @@ import { toast } from 'sonner';
 import { CheckCircle, XCircle, DollarSign, Calendar, User, FileText, AlertCircle } from 'lucide-react';
 import { Button } from '../../components/ui/button';
 import { useAuth } from '../../context/AuthContext';
+import { DutyBanner } from '../../components/ats/DutyBanner';
 import { Offer, getOffersPendingApproval, decideOfferApproval } from '../../services/offerService';
 
 export function OfferApprovalPage() {
@@ -39,6 +40,10 @@ export function OfferApprovalPage() {
 
     return (
         <div className="p-8 h-full flex flex-col overflow-y-auto">
+            <DutyBanner>
+                Your duty here: review each pending offer's terms and either approve it for sending to the
+                candidate, or decline with a note explaining what needs to change.
+            </DutyBanner>
             <div className="flex justify-between items-center mb-8">
                 <div>
                     <h1 className="text-2xl font-bold text-gray-900">Offer Approvals</h1>

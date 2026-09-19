@@ -7,8 +7,11 @@ service firebase.storage {
       return request.auth != null;
     }
 
+    // Role comes from a custom auth claim (kept in sync with the Firestore
+    // Users doc by the syncUserRoleClaim Cloud Function) rather than a
+    // cross-service firestore.get() lookup, which proved unreliable here.
     function userRole() {
-      return firestore.get(/databases/(default)/documents/Users/$(request.auth.uid)).data.role;
+      return request.auth.token.role;
     }
 
     function isStaff() {
@@ -26,21 +29,23 @@ service firebase.storage {
       allow write: if isStaff();
     }
 
-    // Reusable profile CVs: owner writes, owner + staff read.
+    // Reusable profile CVs: owner writes, owner + staff read. PDF only.
     match /profiles/{userId}/{fileName} {
       allow read: if isStaff() || (isSignedIn() && request.auth.uid == userId);
       allow write: if isSignedIn()
         && request.auth.uid == userId
-        && request.resource.size < 10 * 1024 * 1024;
+        && request.resource.size < 10 * 1024 * 1024
+        && request.resource.contentType == 'application/pdf';
     }
 
     // Application documents: candidates may only write into their own
-    // folder (max 10 MB per file); the owner and staff can read.
+    // folder (max 10 MB per file, PDF only); the owner and staff can read.
     match /applications/{jobId}/{candidateId}/{fileName} {
       allow read: if isStaff() || (isSignedIn() && request.auth.uid == candidateId);
       allow write: if isSignedIn()
         && request.auth.uid == candidateId
-        && request.resource.size < 10 * 1024 * 1024;
+        && request.resource.size < 10 * 1024 * 1024
+        && request.resource.contentType == 'application/pdf';
     }
 
     match /{allPaths=**} {

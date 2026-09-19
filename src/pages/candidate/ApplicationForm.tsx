@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { ArrowLeft, Upload, CheckCircle2, AlertCircle } from 'lucide-react';
+import { ArrowLeft, Upload, CheckCircle2, AlertCircle, X } from 'lucide-react';
 import { Button } from '../../components/ui/button';
 import { useAuth } from '../../context/AuthContext';
 import { Job, ScreeningQuestion } from '../../services/jobService';
@@ -26,6 +26,7 @@ export function ApplicationForm({ job, onBack, onSubmit }: ApplicationFormProps)
     city: '',
     country: '',
     workedHereBefore: false,
+    isInternal: false,
     source: 'career-site',
     consent: false,
   });
@@ -63,10 +64,21 @@ export function ApplicationForm({ job, onBack, onSubmit }: ApplicationFormProps)
   }, [user, job.id]);
 
   const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>, type: 'resume' | 'coverLetter') => {
-    if (e.target.files && e.target.files[0]) {
-      if (type === 'resume') setResumeFile(e.target.files[0]);
-      else setCoverLetterFile(e.target.files[0]);
+    const file = e.target.files?.[0];
+    if (!file) return;
+    if (!file.name.toLowerCase().endsWith('.pdf') || (file.type && file.type !== 'application/pdf')) {
+      setError('Only PDF files are accepted for CV/resume and cover letter uploads.');
+      e.target.value = '';
+      return;
     }
+    setError(null);
+    if (type === 'resume') setResumeFile(file);
+    else setCoverLetterFile(file);
+  };
+
+  const handleRemoveFile = (type: 'resume' | 'coverLetter') => {
+    if (type === 'resume') setResumeFile(null);
+    else setCoverLetterFile(null);
   };
 
   if (!isAuthenticated || !user) {
@@ -130,6 +142,7 @@ export function ApplicationForm({ job, onBack, onSubmit }: ApplicationFormProps)
         city: formData.city,
         country: formData.country,
         workedHereBefore: formData.workedHereBefore,
+        isInternal: formData.isInternal,
         source: formData.source,
         cvFile: resumeFile,
         existingCv:
@@ -307,6 +320,18 @@ export function ApplicationForm({ job, onBack, onSubmit }: ApplicationFormProps)
                   I have worked for Autumhire before
                 </label>
               </div>
+              <div className="col-span-2 flex items-center gap-3">
+                <input
+                  type="checkbox"
+                  id="isInternal"
+                  checked={formData.isInternal}
+                  onChange={(e) => setFormData({ ...formData, isInternal: e.target.checked })}
+                  className="size-4"
+                />
+                <label htmlFor="isInternal" className="text-sm text-gray-700">
+                  I am a current Autumhire employee
+                </label>
+              </div>
               <div className="col-span-2">
                 <label className="text-sm text-gray-700 mb-2 block">How did you hear about this job?</label>
                 <select
@@ -355,21 +380,30 @@ export function ApplicationForm({ job, onBack, onSubmit }: ApplicationFormProps)
               )}
               <div className={`border-2 border-dashed rounded-lg p-8 text-center transition-colors ${resumeFile ? 'border-green-500 bg-green-50' : 'border-gray-300 hover:border-blue-400'}`}>
                 {resumeFile ? (
-                  <div className="text-green-700">
+                  <div className="text-green-700 relative">
+                    <button
+                      type="button"
+                      onClick={() => handleRemoveFile('resume')}
+                      className="absolute -top-2 -right-2 size-6 flex items-center justify-center rounded-full bg-white border border-gray-200 text-gray-500 hover:text-red-600 hover:border-red-200"
+                      title="Remove file"
+                    >
+                      <X className="size-4" />
+                    </button>
                     <CheckCircle2 className="size-8 mx-auto mb-3" />
                     <p className="font-medium">{resumeFile.name}</p>
                     <p className="text-sm text-green-600 mt-1">Resume ready to upload</p>
+                    <p className="text-xs text-gray-400 mt-2">Remove to choose a different file</p>
                   </div>
                 ) : (
                   <>
                     <Upload className="size-8 text-gray-400 mx-auto mb-3" />
                     <p className="font-medium mb-1">Upload Resume/CV {job.requireResume !== false && <span className="text-red-500">*</span>}</p>
-                    <p className="text-sm text-gray-500 mb-3">PDF, DOC, or DOCX (max 5MB)</p>
+                    <p className="text-sm text-gray-500 mb-3">PDF only (max 5MB)</p>
                     <div className="relative inline-block">
                       <Button type="button" variant="outline" size="sm" className="pointer-events-none">Choose File</Button>
                       <input
                         type="file"
-                        accept=".pdf,.doc,.docx"
+                        accept=".pdf"
                         required={STORAGE_ENABLED && job.requireResume !== false && !(useSavedCv && !!profile.cvUrl)}
                         className="absolute inset-0 opacity-0 cursor-pointer"
                         onChange={(e) => handleFileChange(e, 'resume')}
@@ -380,21 +414,30 @@ export function ApplicationForm({ job, onBack, onSubmit }: ApplicationFormProps)
               </div>
               <div className={`border-2 border-dashed rounded-lg p-8 text-center transition-colors ${coverLetterFile ? 'border-green-500 bg-green-50' : 'border-gray-300 hover:border-blue-400'}`}>
                 {coverLetterFile ? (
-                  <div className="text-green-700">
+                  <div className="text-green-700 relative">
+                    <button
+                      type="button"
+                      onClick={() => handleRemoveFile('coverLetter')}
+                      className="absolute -top-2 -right-2 size-6 flex items-center justify-center rounded-full bg-white border border-gray-200 text-gray-500 hover:text-red-600 hover:border-red-200"
+                      title="Remove file"
+                    >
+                      <X className="size-4" />
+                    </button>
                     <CheckCircle2 className="size-8 mx-auto mb-3" />
                     <p className="font-medium">{coverLetterFile.name}</p>
                     <p className="text-sm text-green-600 mt-1">Cover letter ready to upload</p>
+                    <p className="text-xs text-gray-400 mt-2">Remove to choose a different file</p>
                   </div>
                 ) : (
                   <>
                     <Upload className="size-8 text-gray-400 mx-auto mb-3" />
                     <p className="font-medium mb-1">Upload Cover Letter {job.requireCoverLetter && <span className="text-red-500">*</span>}</p>
-                    <p className="text-sm text-gray-500 mb-3">PDF, DOC, or DOCX (max 5MB)</p>
+                    <p className="text-sm text-gray-500 mb-3">PDF only (max 5MB)</p>
                     <div className="relative inline-block">
                       <Button type="button" variant="outline" size="sm" className="pointer-events-none">Choose File</Button>
                       <input
                         type="file"
-                        accept=".pdf,.doc,.docx"
+                        accept=".pdf"
                         required={STORAGE_ENABLED && !!job.requireCoverLetter}
                         className="absolute inset-0 opacity-0 cursor-pointer"
                         onChange={(e) => handleFileChange(e, 'coverLetter')}

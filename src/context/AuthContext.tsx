@@ -56,6 +56,10 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   useEffect(() => {
     const unsubscribe = onAuthStateChanged(auth, async (firebaseUser) => {
       if (firebaseUser) {
+        // Force-refresh the ID token so a role change (which updates the
+        // "role" custom claim via the syncUserRoleClaim Cloud Function) is
+        // picked up without requiring the user to sign out and back in.
+        await firebaseUser.getIdToken(true).catch(() => {});
         const profile = await fetchUserProfile(firebaseUser);
         setUser(profile);
       } else {

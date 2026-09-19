@@ -21,9 +21,19 @@ import {
   ExternalLink,
   ChevronUp,
   ChevronDown,
+  Eye,
+  Download,
 } from "lucide-react";
 import { collection, getDocs } from "firebase/firestore";
 import { Button } from "../../components/ui/button";
+import {
+  Dialog,
+  DialogContent,
+  DialogHeader,
+  DialogTitle,
+} from "../../components/ui/dialog";
+import { RichTextEditor, isRichTextEmpty } from "../../components/ui/rich-text-editor";
+import { sanitizeHtml } from "../../lib/sanitizeHtml";
 import { db } from "../../lib/firebase";
 import { useAuth } from "../../context/AuthContext";
 import {
@@ -79,6 +89,7 @@ interface JobSettings {
   hiringWorkflow: string;
   closingDate: string;
   recruitmentCost: string;
+  shortlistingCriteria: string;
 }
 
 interface Question {
@@ -133,6 +144,7 @@ const initialJobSettings: JobSettings = {
   hiringWorkflow: "Standard",
   closingDate: "",
   recruitmentCost: "",
+  shortlistingCriteria: "",
 };
 
 // Map a Firestore Job document into the local form state shape.
@@ -174,6 +186,7 @@ function jobToFormState(job: Job): {
       closingDate: job.closingDate || "",
       recruitmentCost:
         job.recruitmentCost !== undefined ? String(job.recruitmentCost) : "",
+      shortlistingCriteria: job.shortlistingCriteria || "",
     },
     questions: (job.questions || []).map((q) => ({
       id: q.id,
@@ -214,6 +227,10 @@ export function CreateJob({
   const [workflows, setWorkflows] = useState<Workflow[]>([]);
   const [questionBank, setQuestionBank] = useState<BankQuestion[]>([]);
   const [saving, setSaving] = useState(false);
+  const [requisitionJobDescription, setRequisitionJobDescription] = useState<
+    { name: string; url: string } | null
+  >(null);
+  const [jdPreviewOpen, setJdPreviewOpen] = useState(false);
 
   // Question Step State
   const [questionnaireHeading, setQuestionnaireHeading] = useState(
@@ -296,6 +313,12 @@ export function CreateJob({
         status: "Active",
       }));
       setQuestions((requisition.questions ?? []).map(bankToJobQuestion));
+      if (requisition.jobDescriptionUrl) {
+        setRequisitionJobDescription({
+          name: requisition.jobDescriptionFileName || "Job Description",
+          url: requisition.jobDescriptionUrl,
+        });
+      }
     })();
   }, [fromRequisitionId, editJobId]);
 
@@ -339,6 +362,7 @@ export function CreateJob({
     isFeatured: jobSettings.isFeatured,
     requireResume: jobSettings.requireResume,
     requireCoverLetter: jobSettings.requireCoverLetter,
+    shortlistingCriteria: jobSettings.shortlistingCriteria.trim(),
     closingDate: jobSettings.closingDate,
     // Strip undefined fields — Firestore rejects undefined values.
     questions: questions.map((q) => ({
@@ -383,7 +407,7 @@ export function CreateJob({
       toast.error("Please enter a Job Title.");
       return;
     }
-    if (!jobDetails.description.trim()) {
+    if (isRichTextEmpty(jobDetails.description)) {
       toast.error("Please enter a Job Description.");
       return;
     }
@@ -490,7 +514,7 @@ export function CreateJob({
         toast.error("Please enter a Job Title.");
         return;
       }
-      if (!jobDetails.description.trim()) {
+      if (isRichTextEmpty(jobDetails.description)) {
         toast.error("Please enter a Job Description.");
         return;
       }
@@ -1010,11 +1034,32 @@ export function CreateJob({
                 <label className="block text-sm font-medium text-gray-700 mb-1">
                   Job Description <span className="text-red-500">*</span>
                 </label>
-                <textarea
-                  className="w-full p-3 border border-gray-200 rounded-lg min-h-[150px] focus:ring-2 focus:ring-[var(--pumpkin-orange)]/20 focus:border-[var(--pumpkin-orange)] outline-none transition-all"
-                  placeholder="Enter detailed job description here..."
+                {requisitionJobDescription && (
+                  <div className="flex items-center justify-between gap-3 p-3 mb-2 bg-blue-50 border border-blue-100 rounded-lg">
+                    <div className="flex items-center gap-2 text-sm text-blue-900 min-w-0">
+                      <FileText className="size-4 shrink-0" />
+                      <span className="truncate">
+                        Attached from requisition: <span className="font-medium">{requisitionJobDescription.name}</span>
+                      </span>
+                    </div>
+                    <div className="flex items-center gap-2 shrink-0">
+                      {requisitionJobDescription.name.toLowerCase().endsWith(".pdf") && (
+                        <Button type="button" variant="outline" size="sm" className="gap-1.5" onClick={() => setJdPreviewOpen(true)}>
+                          <Eye className="size-3.5" /> Preview
+                        </Button>
+                      )}
+                      <a href={requisitionJobDescription.url} target="_blank" rel="noreferrer" download={requisitionJobDescription.name}>
+                        <Button type="button" variant="outline" size="sm" className="gap-1.5">
+                          <Download className="size-3.5" /> Download
+                        </Button>
+                      </a>
+                    </div>
+                  </div>
+                )}
+                <RichTextEditor
                   value={jobDetails.description}
-                  onChange={(e) => handleChange("description", e.target.value)}
+                  onChange={(html) => handleChange("description", html)}
+                  placeholder="Enter detailed job description here..."
                 />
               </div>
 
@@ -1186,6 +1231,24 @@ export function CreateJob({
                     />
                     <div className="w-11 h-6 bg-gray-200 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-[var(--pumpkin-orange)]"></div>
                   </label>
+                </div>
+
+                <div className="p-4 bg-white rounded-lg border border-gray-200 shadow-sm">
+                  <div className="font-medium text-gray-900 mb-1">
+                    Shortlisting Criteria
+                  </div>
+                  <div className="text-sm text-gray-500 mb-3">
+                    Guidance shown to the hiring manager and panel when they shortlist candidates for this role (e.g. must-have skills, experience thresholds).
+                  </div>
+                  <textarea
+                    rows={4}
+                    value={jobSettings.shortlistingCriteria}
+                    onChange={(e) =>
+                      handleSettingsChange("shortlistingCriteria", e.target.value)
+                    }
+                    className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 text-sm"
+                    placeholder="e.g. Minimum 5 years' experience in project management, PMP certification preferred, strong stakeholder communication skills..."
+                  />
                 </div>
               </div>
             </div>
@@ -2205,9 +2268,14 @@ export function CreateJob({
               <div className="bg-white rounded-lg border border-gray-200 p-8 space-y-8">
                 <section>
                   <h2 className="text-xl font-semibold mb-4">About the Role</h2>
-                  <p className="text-gray-700 leading-relaxed whitespace-pre-line">
-                    {jobDetails.description || "No description yet."}
-                  </p>
+                  {isRichTextEmpty(jobDetails.description) ? (
+                    <p className="text-gray-700 leading-relaxed">No description yet.</p>
+                  ) : (
+                    <div
+                      className="prose prose-sm max-w-none text-gray-700"
+                      dangerouslySetInnerHTML={{ __html: sanitizeHtml(jobDetails.description) }}
+                    />
+                  )}
                 </section>
 
                 {(jobDetails.tags || "")
@@ -2262,6 +2330,34 @@ export function CreateJob({
           </div>
         </div>
       )}
+
+      <Dialog open={jdPreviewOpen} onOpenChange={setJdPreviewOpen}>
+        <DialogContent className="sm:max-w-4xl h-[85vh] flex flex-col">
+          <DialogHeader>
+            <div className="flex items-center justify-between gap-3 pr-8">
+              <DialogTitle>{requisitionJobDescription?.name}</DialogTitle>
+              {requisitionJobDescription && (
+                <a
+                  href={requisitionJobDescription.url}
+                  target="_blank"
+                  rel="noreferrer"
+                  className="text-xs font-medium text-blue-600 hover:underline flex items-center gap-1 shrink-0"
+                  title="Open in a new tab — needed to select/copy text out of the PDF"
+                >
+                  <ExternalLink className="size-3.5" /> Open in New Tab
+                </a>
+              )}
+            </div>
+          </DialogHeader>
+          {requisitionJobDescription && (
+            <iframe
+              src={requisitionJobDescription.url}
+              title={requisitionJobDescription.name}
+              className="flex-1 w-full rounded-lg border border-gray-200"
+            />
+          )}
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }

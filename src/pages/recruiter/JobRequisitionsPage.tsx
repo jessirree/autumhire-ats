@@ -1,7 +1,8 @@
 import { useEffect, useState } from 'react';
 import { toast } from 'sonner';
-import { Plus, Send, Rocket, Pencil, X, History } from 'lucide-react';
+import { Plus, Send, Rocket, Pencil, X, History, Eye, Download, ExternalLink } from 'lucide-react';
 import { Button } from '../../components/ui/button';
+import { Dialog, DialogContent, DialogHeader, DialogTitle } from '../../components/ui/dialog';
 import { useAuth } from '../../context/AuthContext';
 import {
   Requisition,
@@ -36,6 +37,7 @@ export function JobRequisitionsPage({ onCreateRequisition, onPublish }: JobRequi
   const [questionBank, setQuestionBank] = useState<BankQuestion[]>([]);
   const [editing, setEditing] = useState<Requisition | null>(null);
   const [historyFor, setHistoryFor] = useState<Requisition | null>(null);
+  const [previewDoc, setPreviewDoc] = useState<{ name: string; url: string } | null>(null);
   const [form, setForm] = useState({
     grade: '', priority: 'medium' as RequisitionPriority,
     vacancies: 1, advertType: 'external' as AdvertType, notes: '', questionIds: [] as string[],
@@ -142,6 +144,25 @@ export function JobRequisitionsPage({ onCreateRequisition, onPublish }: JobRequi
                   {req.notes && <p className="text-xs text-gray-400 italic mt-1">“{req.notes}”</p>}
                 </div>
                 <div className="flex items-center gap-2">
+                  {req.jobDescriptionUrl && (
+                    <>
+                      {req.jobDescriptionFileName?.toLowerCase().endsWith('.pdf') && (
+                        <Button
+                          size="sm"
+                          variant="outline"
+                          className="gap-1.5"
+                          onClick={() => setPreviewDoc({ name: req.jobDescriptionFileName || 'Job Description', url: req.jobDescriptionUrl! })}
+                        >
+                          <Eye className="size-3.5" /> Preview JD
+                        </Button>
+                      )}
+                      <a href={req.jobDescriptionUrl} target="_blank" rel="noreferrer" download={req.jobDescriptionFileName}>
+                        <Button size="sm" variant="outline" className="gap-1.5">
+                          <Download className="size-3.5" /> Download JD
+                        </Button>
+                      </a>
+                    </>
+                  )}
                   <button
                     onClick={() => setHistoryFor(req)}
                     className="p-1.5 text-gray-400 hover:text-gray-700 hover:bg-gray-50 rounded-lg"
@@ -266,6 +287,30 @@ export function JobRequisitionsPage({ onCreateRequisition, onPublish }: JobRequi
           </div>
         </div>
       )}
+
+      <Dialog open={!!previewDoc} onOpenChange={(open) => !open && setPreviewDoc(null)}>
+        <DialogContent className="sm:max-w-4xl h-[85vh] flex flex-col">
+          <DialogHeader>
+            <div className="flex items-center justify-between gap-3 pr-8">
+              <DialogTitle>{previewDoc?.name}</DialogTitle>
+              {previewDoc && (
+                <a
+                  href={previewDoc.url}
+                  target="_blank"
+                  rel="noreferrer"
+                  className="text-xs font-medium text-blue-600 hover:underline flex items-center gap-1 shrink-0"
+                  title="Open in a new tab — needed to select/copy text out of the PDF"
+                >
+                  <ExternalLink className="size-3.5" /> Open in New Tab
+                </a>
+              )}
+            </div>
+          </DialogHeader>
+          {previewDoc && (
+            <iframe src={previewDoc.url} title={previewDoc.name} className="flex-1 w-full rounded-lg border border-gray-200" />
+          )}
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }

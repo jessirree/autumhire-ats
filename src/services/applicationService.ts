@@ -182,7 +182,7 @@ async function uploadApplicationFile(
   file: File
 ): Promise<{ url: string; name: string }> {
   const storageRef = ref(storage, `applications/${jobId}/${candidateId}/${kind}-${file.name}`);
-  await uploadBytes(storageRef, file);
+  await uploadBytes(storageRef, file, { contentType: 'application/pdf' });
   return { url: await getDownloadURL(storageRef), name: file.name };
 }
 
@@ -396,7 +396,8 @@ export async function updateApplicationStatus(
     updatedAt: serverTimestamp(),
   });
   await logAudit(by, 'status-change', 'Application', application.id, `→ ${status}`);
-  if (notifyCandidate) {
+  // Shortlisted candidates are always notified — they need to complete bio-data next.
+  if (notifyCandidate || status === 'shortlisted') {
     await notify({
       userId: application.candidateId,
       email: application.email,
@@ -404,6 +405,8 @@ export async function updateApplicationStatus(
       body:
         status === 'regretted' || status === 'rejected'
           ? `Thank you for your interest in the ${application.jobTitle} position. After careful consideration we regret that we will not be progressing your application. We encourage you to apply for future roles.`
+          : status === 'shortlisted'
+          ? `You've been shortlisted for ${application.jobTitle}. Please log in and complete your bio-data so we can proceed with your application.`
           : `Your application status has changed to: ${STATUS_LABELS[status]}.`,
       type: status === 'regretted' || status === 'rejected' ? 'regret' : 'status-update',
       relatedId: application.id,
@@ -435,6 +438,18 @@ export async function bulkUpdateStatus(
   }
   await batch.commit();
   await logAudit(by, 'status-change', 'Application', applications.map((a) => a.id).join(','), `bulk → ${status}`);
+  if (status === 'shortlisted') {
+    for (const app of applications) {
+      await notify({
+        userId: app.candidateId,
+        email: app.email,
+        title: `Update on your application for ${app.jobTitle}`,
+        body: `You've been shortlisted for ${app.jobTitle}. Please log in and complete your bio-data so we can proceed with your application.`,
+        type: 'status-update',
+        relatedId: app.id,
+      });
+    }
+  }
 }
 
 /** Recruiter manual adjustment of a screening score. */

@@ -85,6 +85,17 @@ service cloud.firestore {
       }
     }
 
+    // Extended bio-data for shortlisted candidates: candidates may submit/update
+    // only their own record (doc id == applicationId); staff read for review.
+    match /BioData/{applicationId} {
+      allow read: if isStaff()
+        || (isSignedIn() && resource.data.candidateId == request.auth.uid);
+      allow create, update: if isSignedIn()
+        && request.resource.data.candidateId == request.auth.uid
+        && request.resource.data.applicationId == applicationId;
+      allow delete: if false;
+    }
+
     match /Interviews/{interviewId} {
       allow read: if isStaff()
         || (isSignedIn() && resource.data.candidateId == request.auth.uid);

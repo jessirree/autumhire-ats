@@ -42,7 +42,7 @@ export async function uploadProfileCv(
     throw new Error('Document storage is not enabled yet — CV uploads will be available soon.');
   }
   const storageRef = ref(storage, `profiles/${userId}/cv-${file.name}`);
-  await uploadBytes(storageRef, file);
+  await uploadBytes(storageRef, file, { contentType: 'application/pdf' });
   const url = await getDownloadURL(storageRef);
   await updateCandidateProfile(userId, { cvUrl: url, cvFileName: file.name });
   return { url, name: file.name };

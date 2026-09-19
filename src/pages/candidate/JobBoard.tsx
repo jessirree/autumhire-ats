@@ -8,6 +8,7 @@ import { StatusBadge } from '../../components/ats/StatusBadge';
 import { CandidateHeader } from '../../components/ats/CandidateHeader';
 import { ApplicationForm } from './ApplicationForm';
 import { Job as FirestoreJob, getPublicJobs } from '../../services/jobService';
+import { sanitizeHtml, stripHtml } from '../../lib/sanitizeHtml';
 
 // Display shape used by the board, derived from the Firestore Job.
 interface Job {
@@ -126,7 +127,7 @@ export function JobBoard({
         searchTerm === '' ||
         job.title.toLowerCase().includes(searchTerm.toLowerCase()) ||
         job.department.toLowerCase().includes(searchTerm.toLowerCase()) ||
-        job.description.toLowerCase().includes(searchTerm.toLowerCase());
+        stripHtml(job.description).toLowerCase().includes(searchTerm.toLowerCase());
 
       const matchLocation = locationFilter === '' || job.location.includes(locationFilter);
       const matchType = typeFilter === '' || job.type === typeFilter;
@@ -413,9 +414,10 @@ export function JobBoard({
                 <div className="p-8 space-y-8">
                   <section>
                     <h3 className="text-lg font-bold text-gray-900 mb-4">Job Description</h3>
-                    <p className="text-gray-600 leading-relaxed whitespace-pre-line">
-                      {activeJob.description}
-                    </p>
+                    <div
+                      className="prose prose-sm max-w-none text-gray-600 leading-relaxed"
+                      dangerouslySetInnerHTML={{ __html: sanitizeHtml(activeJob.description) }}
+                    />
                   </section>
 
                   <section>
