@@ -15,6 +15,7 @@ import {
 } from '../../services/applicationService';
 import { Job, getJobById } from '../../services/jobService';
 import { downloadCsv } from '../../lib/exportCsv';
+import { DownloadCvsButton } from '../../components/ats/DownloadCvsButton';
 
 interface ApplicationsPageProps {
   onViewCandidate: (id: string) => void;
@@ -169,6 +170,22 @@ export function ApplicationsPage({ onViewCandidate }: ApplicationsPageProps) {
             <Download className="size-4" />
             Export to CSV
           </Button>
+          <DownloadCvsButton
+            className="rounded-xl"
+            job={
+              filterJob
+                ? { id: filterJob.id, referenceNumber: filterJob.referenceNumber, title: filterJob.title }
+                : { id: jobFilterId ?? '', referenceNumber: '', title: '' }
+            }
+            applications={applications}
+            disabledReason={
+              !jobFilterId
+                ? 'Filter to a specific job first — downloading CVs across every job is not supported.'
+                : !filterJob
+                  ? 'This job could not be found.'
+                  : undefined
+            }
+          />
         </div>
       </div>
 
