@@ -4,6 +4,7 @@ import { Search, Filter, Download, Briefcase, Mail, Phone, MapPin, ChevronUp, Ch
 import { Button } from '../../components/ui/button';
 import { StatusBadge } from '../../components/ats/StatusBadge';
 import { Application, getAllApplications } from '../../services/applicationService';
+import { downloadCsv } from '../../lib/exportCsv';
 
 interface CandidateProfile {
   id: string; // latest application id (used for View Profile navigation)
@@ -86,16 +87,7 @@ function exportCandidatesCSV(candidates: CandidateProfile[]) {
     c.activeApplications.map((a) => `${a.jobTitle} (${a.stage})`).join('; '),
     c.lastContact,
   ]);
-  const csv = [headers, ...rows]
-    .map((r) => r.map((x) => `"${String(x).replace(/"/g, '""')}"`).join(','))
-    .join('\n');
-  const blob = new Blob([csv], { type: 'text/csv' });
-  const url = URL.createObjectURL(blob);
-  const a = document.createElement('a');
-  a.href = url;
-  a.download = `candidates-${new Date().toISOString().slice(0, 10)}.csv`;
-  a.click();
-  URL.revokeObjectURL(url);
+  downloadCsv(`candidates-${new Date().toISOString().slice(0, 10)}.csv`, headers, rows);
 }
 
 interface CandidatesPageProps {

@@ -14,6 +14,7 @@ import {
   setApplicationsArchived,
 } from '../../services/applicationService';
 import { Job, getJobById } from '../../services/jobService';
+import { downloadCsv } from '../../lib/exportCsv';
 
 interface ApplicationsPageProps {
   onViewCandidate: (id: string) => void;
@@ -24,18 +25,9 @@ function exportToCSV(applications: Application[]) {
   const rows = applications.map((a) => [
     a.candidateName, a.email, a.phone ?? '', a.jobTitle, a.department,
     a.appliedAt?.toDate ? a.appliedAt.toDate().toISOString().slice(0, 10) : '',
-    String(a.prescreenScore), a.status, a.gender ?? '', a.nationality ?? '', a.city ?? '', a.source ?? '',
+    a.prescreenScore, a.status, a.gender ?? '', a.nationality ?? '', a.city ?? '', a.source ?? '',
   ]);
-  const csv = [headers, ...rows]
-    .map((r) => r.map((c) => `"${String(c).replace(/"/g, '""')}"`).join(','))
-    .join('\n');
-  const blob = new Blob([csv], { type: 'text/csv' });
-  const url = URL.createObjectURL(blob);
-  const a = document.createElement('a');
-  a.href = url;
-  a.download = `applications-${new Date().toISOString().slice(0, 10)}.csv`;
-  a.click();
-  URL.revokeObjectURL(url);
+  downloadCsv(`applications-${new Date().toISOString().slice(0, 10)}.csv`, headers, rows);
 }
 
 const BULK_ACTIONS: { label: string; status: ApplicationStatus }[] = [

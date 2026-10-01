@@ -17,6 +17,7 @@ import {
 import { Application, getAllApplications } from '../../services/applicationService';
 import { Interview, getInterviews } from '../../services/interviewService';
 import { Job, getJobs } from '../../services/jobService';
+import { downloadCsv } from '../../lib/exportCsv';
 
 const CHART_COLORS = ['#3b82f6', '#8b5cf6', '#10b981', '#f59e0b', '#ef4444', '#6b7280'];
 
@@ -168,8 +169,8 @@ export function ReportsPage() {
 
   const exportReport = () => {
     const headers = ['Department', 'Applications', 'Interviews', 'Hires'];
-    const rows = departmentData.map((d) => [d.department, d.applications, d.interviews, d.hires]);
-    const summary = [
+    const rows: (string | number)[][] = departmentData.map((d) => [d.department, d.applications, d.interviews, d.hires]);
+    const summary: (string | number)[][] = [
       [],
       ['Total hires', hired.length],
       ['Avg time to hire', avgTimeToHire],
@@ -177,14 +178,7 @@ export function ReportsPage() {
       ['Internal hire ratio', internalHireRatio],
       ['Scheduled interviews', scheduledInterviews],
     ];
-    const csv = [headers, ...rows, ...summary].map((r) => r.join(',')).join('\n');
-    const blob = new Blob([csv], { type: 'text/csv' });
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement('a');
-    a.href = url;
-    a.download = `recruitment-report-${new Date().toISOString().slice(0, 10)}.csv`;
-    a.click();
-    URL.revokeObjectURL(url);
+    downloadCsv(`recruitment-report-${new Date().toISOString().slice(0, 10)}.csv`, headers, [...rows, ...summary]);
   };
 
   return (
