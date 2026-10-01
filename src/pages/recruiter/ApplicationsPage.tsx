@@ -1,6 +1,7 @@
 ﻿import { useState, useEffect } from 'react';
+import { useSearchParams } from 'react-router-dom';
 import { toast } from 'sonner';
-import { Search, Filter, Download, Archive, ArchiveRestore } from 'lucide-react';
+import { Search, Filter, Download, Archive, ArchiveRestore, X } from 'lucide-react';
 import { Button } from '../../components/ui/button';
 import { StatusBadge } from '../../components/ats/StatusBadge';
 import { useAuth } from '../../context/AuthContext';
@@ -8,9 +9,11 @@ import {
   Application,
   ApplicationStatus,
   getAllApplications,
+  getApplicationsForJob,
   bulkUpdateStatus,
   setApplicationsArchived,
 } from '../../services/applicationService';
+import { Job, getJobById } from '../../services/jobService';
 
 interface ApplicationsPageProps {
   onViewCandidate: (id: string) => void;
@@ -44,6 +47,9 @@ const BULK_ACTIONS: { label: string; status: ApplicationStatus }[] = [
 
 export function ApplicationsPage({ onViewCandidate }: ApplicationsPageProps) {
   const { user } = useAuth();
+  const [searchParams, setSearchParams] = useSearchParams();
+  const jobFilterId = searchParams.get('job');
+  const [filterJob, setFilterJob] = useState<Job | null>(null);
   const [applications, setApplications] = useState<Application[]>([]);
   const [loading, setLoading] = useState(true);
   const [searchTerm, setSearchTerm] = useState('');
@@ -54,10 +60,30 @@ export function ApplicationsPage({ onViewCandidate }: ApplicationsPageProps) {
   const [showArchived, setShowArchived] = useState(false);
   const [archiving, setArchiving] = useState(false);
 
+  const clearJobFilter = () => {
+    setSearchParams((prev) => {
+      const next = new URLSearchParams(prev);
+      next.delete('job');
+      return next;
+    });
+  };
+
   const load = () => {
     setLoading(true);
-    getAllApplications(showArchived)
-      .then((apps) => setApplications(showArchived ? apps.filter((a) => a.archived) : apps))
+    Promise.all([
+      jobFilterId ? getApplicationsForJob(jobFilterId) : getAllApplications(showArchived),
+      jobFilterId ? getJobById(jobFilterId) : Promise.resolve(null),
+    ])
+      .then(([apps, job]) => {
+        setApplications(
+          jobFilterId
+            ? apps.filter((a) => (showArchived ? a.archived : !a.archived))
+            : showArchived
+              ? apps.filter((a) => a.archived)
+              : apps
+        );
+        setFilterJob(job);
+      })
       .catch((err) => console.error('Failed to load applications', err))
       .finally(() => setLoading(false));
   };
@@ -66,7 +92,7 @@ export function ApplicationsPage({ onViewCandidate }: ApplicationsPageProps) {
     setSelectedApplications([]);
     load();
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [showArchived]);
+  }, [showArchived, jobFilterId]);
 
   // Drop selections when the visible set changes so a bulk action can never
   // act on rows the user can no longer see.
@@ -153,6 +179,22 @@ export function ApplicationsPage({ onViewCandidate }: ApplicationsPageProps) {
           </Button>
         </div>
       </div>
+
+      {jobFilterId && (
+        <div className="flex items-center justify-between bg-blue-50 border border-blue-100 rounded-xl px-5 py-3">
+          <p className="text-sm text-blue-900">
+            Filtered to{' '}
+            <span className="font-semibold">
+              {filterJob ? `${filterJob.title} (${filterJob.referenceNumber})` : 'a job that could not be found'}
+            </span>
+            .
+          </p>
+          <Button variant="outline" size="sm" className="gap-1.5" onClick={clearJobFilter}>
+            <X className="size-3.5" />
+            Clear filter
+          </Button>
+        </div>
+      )}
 
       {/* Filters and Actions */}
       <div className="bg-white rounded-2xl border border-gray-100 shadow-sm overflow-hidden">

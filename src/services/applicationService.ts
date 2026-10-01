@@ -356,10 +356,10 @@ export async function setApplicationsArchived(
 }
 
 export async function getApplicationsForJob(jobId: string): Promise<Application[]> {
-  const snap = await getDocs(query(collection(db, COL), where('jobId', '==', jobId)));
-  return snap.docs
-    .map((d) => toApplication(d.id, d.data()))
-    .sort((a, b) => b.prescreenScore - a.prescreenScore);
+  const snap = await getDocs(
+    query(collection(db, COL), where('jobId', '==', jobId), orderBy('appliedAt', 'desc'))
+  );
+  return snap.docs.map((d) => toApplication(d.id, d.data()));
 }
 
 export async function getApplicationById(id: string): Promise<Application | null> {
