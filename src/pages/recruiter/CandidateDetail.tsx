@@ -13,12 +13,15 @@ import {
   Application,
   ApplicationStatus,
   PanelComment,
+  PanelRating,
+  RATING_LABELS,
   getApplicationById,
   getApplicationsByCandidate,
   updateApplicationStatus,
   setPrescreenScore,
   addPanelComment,
   getPanelComments,
+  getPanelRatings,
 } from '../../services/applicationService';
 import { BioData, getBioData } from '../../services/bioDataService';
 import { Interview, getInterviewsForCandidate } from '../../services/interviewService';
@@ -41,6 +44,7 @@ export function CandidateDetail({ candidateId, onBack }: CandidateDetailProps) {
   const [otherApplications, setOtherApplications] = useState<Application[]>([]);
   const [interviews, setInterviews] = useState<Interview[]>([]);
   const [comments, setComments] = useState<PanelComment[]>([]);
+  const [panelRatings, setPanelRatings] = useState<PanelRating[]>([]);
   const [loading, setLoading] = useState(true);
   const [newScore, setNewScore] = useState<number>(0);
   const [notes, setNotes] = useState('');
@@ -57,14 +61,16 @@ export function CandidateDetail({ candidateId, onBack }: CandidateDetailProps) {
         setApplication(app);
         if (app) {
           setNewScore(app.prescreenScore);
-          const [ivs, cms, refs, allApps] = await Promise.all([
+          const [ivs, cms, refs, allApps, ratings] = await Promise.all([
             getInterviewsForCandidate(app.candidateId),
             getPanelComments(app.id),
             getReferenceChecks(app.id),
             getApplicationsByCandidate(app.candidateId),
+            getPanelRatings(app.id),
           ]);
           setInterviews(ivs.filter((iv) => iv.applicationId === app.id));
           setComments(cms);
+          setPanelRatings(ratings);
           setReferenceChecks(refs);
           setOtherApplications(allApps.filter((a) => a.id !== app.id));
           setBioData(await getBioData(app.id));
@@ -393,6 +399,34 @@ export function CandidateDetail({ candidateId, onBack }: CandidateDetailProps) {
                 </div>
               ))}
             </div>
+          </div>
+
+          {/* Panel ratings from shortlisting — read-only here, recruiters see the full breakdown unconditionally. */}
+          <div className="bg-white rounded-lg border border-gray-200 p-6">
+            <h2 className="text-lg font-bold text-gray-900 mb-4 flex items-center gap-2">
+              <Star className="size-5 text-gray-400" />
+              Panel Ratings
+            </h2>
+            {panelRatings.length === 0 ? (
+              <p className="text-sm text-gray-500">No panel ratings yet.</p>
+            ) : (
+              <>
+                <div className="flex items-baseline gap-2 mb-4">
+                  <span className="text-2xl font-semibold text-gray-900">
+                    {(panelRatings.reduce((s, r) => s + r.score, 0) / panelRatings.length).toFixed(1)}
+                  </span>
+                  <span className="text-sm text-gray-500">from {panelRatings.length} panelist{panelRatings.length === 1 ? '' : 's'}</span>
+                </div>
+                <div className="space-y-2">
+                  {panelRatings.map((r) => (
+                    <div key={r.panelistId} className="flex items-center justify-between text-sm bg-gray-50 border border-gray-100 rounded-lg px-3 py-2">
+                      <span className="font-medium text-gray-800">{r.panelistName}</span>
+                      <span className="text-gray-600">{r.score} · {RATING_LABELS[r.score]}</span>
+                    </div>
+                  ))}
+                </div>
+              </>
+            )}
           </div>
 
           <div className="bg-white rounded-lg border border-gray-200 p-6">
