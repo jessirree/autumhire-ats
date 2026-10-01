@@ -120,6 +120,7 @@ export function CandidateDashboard({
     city: '',
     country: '',
   });
+  const [dateOfBirth, setDateOfBirth] = useState('');
   const [savedCv, setSavedCv] = useState<{ url?: string; name?: string }>({});
   const [savingProfile, setSavingProfile] = useState(false);
   const [uploadingCv, setUploadingCv] = useState(false);
@@ -141,6 +142,7 @@ export function CandidateDashboard({
           city: p.city || '',
           country: p.country || '',
         }));
+        setDateOfBirth(p.dateOfBirth || '');
         setSavedCv({ url: p.cvUrl, name: p.cvFileName });
       })
       .catch(() => {});
@@ -153,6 +155,7 @@ export function CandidateDashboard({
       await updateCandidateProfile(user.id, {
         name: `${profile.firstName} ${profile.lastName}`.trim(),
         phone: profile.phone,
+        dateOfBirth,
         gender: profile.gender,
         nationality: profile.nationality,
         city: profile.city,
@@ -455,13 +458,22 @@ export function CandidateDashboard({
                             disabled
                           />
                         </div>
-                        <div className="grid grid-cols-2 gap-4">
+                        <div className="grid grid-cols-3 gap-4">
                           <div>
                             <label className="text-sm text-gray-500 block mb-1">Phone</label>
                             <input
                               type="tel"
                               value={profile.phone}
                               onChange={(e) => setProfile({ ...profile, phone: e.target.value })}
+                              className="w-full p-2 border border-border rounded-lg"
+                            />
+                          </div>
+                          <div>
+                            <label className="text-sm text-gray-500 block mb-1">Date of Birth</label>
+                            <input
+                              type="date"
+                              value={dateOfBirth}
+                              onChange={(e) => setDateOfBirth(e.target.value)}
                               className="w-full p-2 border border-border rounded-lg"
                             />
                           </div>
@@ -543,9 +555,9 @@ export function CandidateDashboard({
                       </div>
                     </div>
                   </div>
-                  <div className="flex justify-end pt-6 border-t border-border">
+                  <div className="flex justify-end pt-6 border-t border-border sticky bottom-0 bg-card">
                     <Button
-                      className="bg-autumn-orange hover:bg-autumn-pumpkin text-white px-8"
+                      className="bg-autumn-primary hover:bg-autumn-dark text-white px-8"
                       disabled={savingProfile}
                       onClick={handleSaveProfile}
                     >
