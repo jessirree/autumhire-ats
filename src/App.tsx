@@ -428,6 +428,7 @@ function AppRoutes() {
         />
         <Route path="interviews" element={<RecruiterInterviewsPage />} />
         <Route path="offers" element={<OffersPage />} />
+        <Route path="reports" element={<ReportsPage />} />
         <Route
           path="candidate-detail/:id"
           element={<RecruiterCandidateDetailWrapper />}

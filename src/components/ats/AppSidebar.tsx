@@ -33,6 +33,7 @@ const NAV_ITEMS: Record<string, NavItem[]> = {
     { id: 'candidates',   label: 'Candidates',      icon: <Users className="size-4" /> },
     { id: 'interviews',   label: 'Interviews',      icon: <Calendar className="size-4" /> },
     { id: 'offers',       label: 'Offers',          icon: <Award className="size-4" /> },
+    { id: 'reports',      label: 'Reports',         icon: <BarChart2 className="size-4" /> },
   ],
   'hiring-manager': [
     { id: 'dashboard',    label: 'Dashboard',       icon: <LayoutDashboard className="size-4" /> },
