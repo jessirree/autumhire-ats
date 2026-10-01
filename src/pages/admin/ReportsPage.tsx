@@ -1,5 +1,6 @@
 ﻿import { useEffect, useMemo, useState } from 'react';
-import { Download, Calendar } from 'lucide-react';
+import { toast } from 'sonner';
+import { Download, Calendar, FileSpreadsheet, Loader2 } from 'lucide-react';
 import { Button } from '../../components/ui/button';
 import {
   PieChart,
@@ -18,6 +19,9 @@ import { Application, getAllApplications } from '../../services/applicationServi
 import { Interview, getInterviews } from '../../services/interviewService';
 import { Job, getJobs } from '../../services/jobService';
 import { downloadCsv } from '../../lib/exportCsv';
+import { exportApplicationsXlsx } from '../../lib/exportApplicationsXlsx';
+import { logAudit } from '../../services/auditService';
+import { useAuth } from '../../context/AuthContext';
 
 const CHART_COLORS = ['#3b82f6', '#8b5cf6', '#10b981', '#f59e0b', '#ef4444', '#6b7280'];
 
@@ -37,11 +41,14 @@ function ageFromDob(dob?: string): number | null {
 }
 
 export function ReportsPage() {
+  const { user } = useAuth();
   const [dateRange, setDateRange] = useState('last-6-months');
   const [departmentFilter, setDepartmentFilter] = useState('all');
   const [allApplications, setAllApplications] = useState<Application[]>([]);
   const [interviews, setInterviews] = useState<Interview[]>([]);
   const [jobs, setJobs] = useState<Job[]>([]);
+  const [exportJobId, setExportJobId] = useState('');
+  const [exportingXlsx, setExportingXlsx] = useState(false);
 
   useEffect(() => {
     Promise.all([getAllApplications(), getInterviews(), getJobs()])
@@ -52,6 +59,45 @@ export function ReportsPage() {
       })
       .catch((err) => console.error('Failed to load report data', err));
   }, []);
+
+  // Jobs are already ordered most-recent-first by getJobs(); keep only the
+  // ones with at least one application, since a job with none has nothing
+  // to export.
+  const jobsWithApplications = useMemo(() => {
+    const idsWithApps = new Set(allApplications.map((a) => a.jobId));
+    return jobs.filter((j) => idsWithApps.has(j.id));
+  }, [jobs, allApplications]);
+
+  useEffect(() => {
+    if (!exportJobId && jobsWithApplications.length > 0) {
+      setExportJobId(jobsWithApplications[0].id);
+    }
+  }, [exportJobId, jobsWithApplications]);
+
+  const handleExportXlsx = async () => {
+    if (!user) return;
+    const job = jobs.find((j) => j.id === exportJobId);
+    if (!job) {
+      toast.error('Select a job to export.');
+      return;
+    }
+    const jobApplications = allApplications.filter((a) => a.jobId === job.id);
+    setExportingXlsx(true);
+    try {
+      await exportApplicationsXlsx(job, jobApplications);
+      await logAudit(
+        user,
+        'update',
+        'Job',
+        job.id,
+        `Exported ${jobApplications.length} application(s) to Excel for "${job.title}"`
+      );
+    } catch (err: any) {
+      toast.error(err?.message || 'Failed to export to Excel.');
+    } finally {
+      setExportingXlsx(false);
+    }
+  };
 
   // Apply date-range + department filters.
   const applications = useMemo(() => {
@@ -192,6 +238,32 @@ export function ReportsPage() {
           <Download className="size-4 mr-2" />
           Export Report
         </Button>
+      </div>
+
+      {/* Per-job Excel export: candidates + their screening answers */}
+      <div className="bg-white rounded-lg border border-gray-200 p-6">
+        <div className="flex items-center gap-4 flex-wrap">
+          <div>
+            <h3 className="font-semibold">Candidate &amp; Answers Export</h3>
+            <p className="text-sm text-gray-500">One row per candidate, one column per screening question, for a single job.</p>
+          </div>
+          <div className="flex items-center gap-3 ml-auto">
+            <select
+              value={exportJobId}
+              onChange={(e) => setExportJobId(e.target.value)}
+              className="px-4 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 min-w-[240px]"
+            >
+              {jobsWithApplications.length === 0 && <option value="">No jobs with applications yet</option>}
+              {jobsWithApplications.map((j) => (
+                <option key={j.id} value={j.id}>{j.title} ({j.referenceNumber})</option>
+              ))}
+            </select>
+            <Button variant="outline" disabled={!exportJobId || exportingXlsx} onClick={handleExportXlsx}>
+              {exportingXlsx ? <Loader2 className="size-4 mr-2 animate-spin" /> : <FileSpreadsheet className="size-4 mr-2" />}
+              Export to Excel
+            </Button>
+          </div>
+        </div>
       </div>
 
       {/* Filters */}
