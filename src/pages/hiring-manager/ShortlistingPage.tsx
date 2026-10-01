@@ -434,9 +434,9 @@ export function ShortlistingPage({ onViewCandidate }: ShortlistingPageProps) {
                                     </td>
                                     <td className="px-6 py-4">
                                         <span className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium
-                      ${candidate.score >= 90 ? 'bg-green-100 text-green-800' :
-                                                candidate.score >= 70 ? 'bg-yellow-100 text-yellow-800' :
-                                                    'bg-red-100 text-red-800'}`}>
+                      ${candidate.score >= 90 ? 'bg-autumn-green/10 text-autumn-green' :
+                                                candidate.score >= 70 ? 'bg-autumn-yellow/10 text-autumn-yellow' :
+                                                    'bg-autumn-red/10 text-autumn-red'}`}>
                                             {candidate.score}
                                         </span>
                                     </td>
