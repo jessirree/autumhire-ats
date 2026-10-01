@@ -19,6 +19,14 @@
       ]
     },
     {
+      "collectionGroup": "Applications",
+      "queryScope": "COLLECTION",
+      "fields": [
+        { "fieldPath": "jobId", "order": "ASCENDING" },
+        { "fieldPath": "panelRatingAvg", "order": "DESCENDING" }
+      ]
+    },
+    {
       "collectionGroup": "Notifications",
       "queryScope": "COLLECTION",
       "fields": [
