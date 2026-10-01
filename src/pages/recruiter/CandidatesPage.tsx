@@ -19,10 +19,10 @@ interface CandidateProfile {
   lastContact: string;
   prescreenScore: number;
   appliedAtMs: number | null;
+  panelRatingAvg: number | null;
 }
 
-// Wave C adds a 'rating' key here once the panel rating (request 13) exists.
-type SortKey = 'candidateName' | 'prescreenScore' | 'appliedAt';
+type SortKey = 'candidateName' | 'prescreenScore' | 'appliedAt' | 'rating';
 type SortDir = 'asc' | 'desc';
 
 function sortCandidates(list: CandidateProfile[], key: SortKey, dir: SortDir): CandidateProfile[] {
@@ -34,6 +34,12 @@ function sortCandidates(list: CandidateProfile[], key: SortKey, dir: SortDir): C
       if (a.prescreenScore == null) return 1;
       if (b.prescreenScore == null) return -1;
       return mul * (a.prescreenScore - b.prescreenScore);
+    }
+    if (key === 'rating') {
+      if (a.panelRatingAvg == null && b.panelRatingAvg == null) return 0;
+      if (a.panelRatingAvg == null) return 1;
+      if (b.panelRatingAvg == null) return -1;
+      return mul * (a.panelRatingAvg - b.panelRatingAvg);
     }
     if (a.appliedAtMs == null && b.appliedAtMs == null) return 0;
     if (a.appliedAtMs == null) return 1;
@@ -68,6 +74,7 @@ function buildProfiles(applications: Application[]): CandidateProfile[] {
       lastContact: latest.appliedAt?.toDate ? latest.appliedAt.toDate().toLocaleDateString() : '',
       prescreenScore: latest.prescreenScore,
       appliedAtMs: latest.appliedAt?.toMillis?.() ?? null,
+      panelRatingAvg: latest.panelRatingAvg ?? null,
     };
   });
 }
@@ -224,6 +231,7 @@ export function CandidatesPage({ onViewCandidate }: CandidatesPageProps) {
             >
               <option value="candidateName">Name</option>
               <option value="prescreenScore">Pre-screening score</option>
+              <option value="rating">Panel rating</option>
               <option value="appliedAt">Date applied</option>
             </select>
             <Button
