@@ -7,7 +7,9 @@ import {
     Eye,
     Search,
     Filter,
-    Info
+    Info,
+    ChevronUp,
+    ChevronDown,
 } from 'lucide-react';
 import { Button } from '../../components/ui/button';
 import { promptText } from '../../components/ui/confirm-dialog';
@@ -29,8 +31,35 @@ interface Candidate {
     score: number;
     status: string;
     appliedDate: string;
+    appliedAtMs: number | null;
     note?: string;
     application: Application;
+}
+
+// Wave C adds a 'rating' key here once the panel rating (request 13) exists.
+type SortKey = 'candidateName' | 'prescreenScore' | 'appliedAt';
+type SortDir = 'asc' | 'desc';
+
+function sortCandidateRows(list: Candidate[], key: SortKey, dir: SortDir): Candidate[] {
+    const mul = dir === 'asc' ? 1 : -1;
+    return [...list].sort((a, b) => {
+        if (key === 'candidateName') return mul * a.name.localeCompare(b.name);
+        if (key === 'prescreenScore') {
+            if (a.score == null && b.score == null) return 0;
+            if (a.score == null) return 1;
+            if (b.score == null) return -1;
+            return mul * (a.score - b.score);
+        }
+        if (a.appliedAtMs == null && b.appliedAtMs == null) return 0;
+        if (a.appliedAtMs == null) return 1;
+        if (b.appliedAtMs == null) return -1;
+        return mul * (a.appliedAtMs - b.appliedAtMs);
+    });
+}
+
+function SortIndicator({ active, dir }: { active: boolean; dir: SortDir }) {
+    if (!active) return null;
+    return dir === 'asc' ? <ChevronUp className="size-3.5 inline ml-1" /> : <ChevronDown className="size-3.5 inline ml-1" />;
 }
 
 interface ShortlistingPageProps {
@@ -46,6 +75,17 @@ export function ShortlistingPage({ onViewCandidate }: ShortlistingPageProps) {
     const [activeNoteId, setActiveNoteId] = useState<string | null>(null);
     const [criteriaByJobId, setCriteriaByJobId] = useState<Record<string, string>>({});
     const [openCriteriaId, setOpenCriteriaId] = useState<string | null>(null);
+    const [sortKey, setSortKey] = useState<SortKey>('appliedAt');
+    const [sortDir, setSortDir] = useState<SortDir>('desc');
+
+    const toggleSort = (key: SortKey) => {
+        if (sortKey === key) {
+            setSortDir((d) => (d === 'asc' ? 'desc' : 'asc'));
+        } else {
+            setSortKey(key);
+            setSortDir(key === 'candidateName' ? 'asc' : 'desc');
+        }
+    };
 
     const load = () => {
         setLoading(true);
@@ -62,6 +102,7 @@ export function ShortlistingPage({ onViewCandidate }: ShortlistingPageProps) {
                             score: a.prescreenScore,
                             status: a.status,
                             appliedDate: a.appliedAt?.toDate ? a.appliedAt.toDate().toLocaleDateString() : '—',
+                            appliedAtMs: a.appliedAt?.toMillis?.() ?? null,
                             application: a,
                         }))
                 );
@@ -108,10 +149,14 @@ export function ShortlistingPage({ onViewCandidate }: ShortlistingPageProps) {
         }
     };
 
-    const visibleCandidates = candidates.filter(
-        (c) =>
-            c.name.toLowerCase().includes(searchTerm.toLowerCase()) ||
-            c.role.toLowerCase().includes(searchTerm.toLowerCase())
+    const visibleCandidates = sortCandidateRows(
+        candidates.filter(
+            (c) =>
+                c.name.toLowerCase().includes(searchTerm.toLowerCase()) ||
+                c.role.toLowerCase().includes(searchTerm.toLowerCase())
+        ),
+        sortKey,
+        sortDir
     );
 
 
@@ -148,9 +193,21 @@ export function ShortlistingPage({ onViewCandidate }: ShortlistingPageProps) {
                     <table className="w-full">
                         <thead className="bg-gray-50 border-b border-gray-200">
                             <tr>
-                                <th className="px-6 py-4 text-left text-xs font-semibold text-gray-500 uppercase tracking-wider">Candidate</th>
+                                <th
+                                    className="px-6 py-4 text-left text-xs font-semibold text-gray-500 uppercase tracking-wider cursor-pointer select-none hover:text-gray-700"
+                                    onClick={() => toggleSort('candidateName')}
+                                >
+                                    Candidate
+                                    <SortIndicator active={sortKey === 'candidateName'} dir={sortDir} />
+                                </th>
                                 <th className="px-6 py-4 text-left text-xs font-semibold text-gray-500 uppercase tracking-wider">Role</th>
-                                <th className="px-6 py-4 text-left text-xs font-semibold text-gray-500 uppercase tracking-wider">Score</th>
+                                <th
+                                    className="px-6 py-4 text-left text-xs font-semibold text-gray-500 uppercase tracking-wider cursor-pointer select-none hover:text-gray-700"
+                                    onClick={() => toggleSort('prescreenScore')}
+                                >
+                                    Score
+                                    <SortIndicator active={sortKey === 'prescreenScore'} dir={sortDir} />
+                                </th>
                                 <th className="px-6 py-4 text-left text-xs font-semibold text-gray-500 uppercase tracking-wider">Location</th>
                                 <th className="px-6 py-4 text-left text-xs font-semibold text-gray-500 uppercase tracking-wider">Status</th>
                                 <th className="px-6 py-4 text-left text-xs font-semibold text-gray-500 uppercase tracking-wider">Notes</th>
@@ -178,7 +235,15 @@ export function ShortlistingPage({ onViewCandidate }: ShortlistingPageProps) {
                                                 >
                                                     {candidate.name}
                                                 </button>
-                                                <div className="text-xs text-gray-500">Applied {candidate.appliedDate}</div>
+                                                <button
+                                                    type="button"
+                                                    className="text-xs text-gray-500 hover:text-gray-700"
+                                                    title="Sort by date applied"
+                                                    onClick={() => toggleSort('appliedAt')}
+                                                >
+                                                    Applied {candidate.appliedDate}
+                                                    <SortIndicator active={sortKey === 'appliedAt'} dir={sortDir} />
+                                                </button>
                                             </div>
                                         </div>
                                     </td>
