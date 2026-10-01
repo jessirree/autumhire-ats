@@ -13,14 +13,22 @@ import {
 } from 'lucide-react';
 import { Button } from '../../components/ui/button';
 import { promptText } from '../../components/ui/confirm-dialog';
+import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '../../components/ui/tooltip';
 import { StatusBadge } from '../../components/ats/StatusBadge';
 import { DutyBanner } from '../../components/ats/DutyBanner';
 import { useAuth } from '../../context/AuthContext';
 import {
     Application,
+    PanelRating,
+    PanelRatingScore,
+    RATING_LABELS,
     getAllApplications,
     updateApplicationStatus,
     addPanelComment,
+    setPanelRating,
+    clearPanelRating,
+    getPanelRatings,
+    getPanelRatingsForApplications,
 } from '../../services/applicationService';
 import { getJobs } from '../../services/jobService';
 
@@ -32,12 +40,12 @@ interface Candidate {
     status: string;
     appliedDate: string;
     appliedAtMs: number | null;
+    panelRatingAvg: number | null;
     note?: string;
     application: Application;
 }
 
-// Wave C adds a 'rating' key here once the panel rating (request 13) exists.
-type SortKey = 'candidateName' | 'prescreenScore' | 'appliedAt';
+type SortKey = 'candidateName' | 'prescreenScore' | 'appliedAt' | 'rating';
 type SortDir = 'asc' | 'desc';
 
 function sortCandidateRows(list: Candidate[], key: SortKey, dir: SortDir): Candidate[] {
@@ -50,6 +58,12 @@ function sortCandidateRows(list: Candidate[], key: SortKey, dir: SortDir): Candi
             if (b.score == null) return -1;
             return mul * (a.score - b.score);
         }
+        if (key === 'rating') {
+            if (a.panelRatingAvg == null && b.panelRatingAvg == null) return 0;
+            if (a.panelRatingAvg == null) return 1;
+            if (b.panelRatingAvg == null) return -1;
+            return mul * (a.panelRatingAvg - b.panelRatingAvg);
+        }
         if (a.appliedAtMs == null && b.appliedAtMs == null) return 0;
         if (a.appliedAtMs == null) return 1;
         if (b.appliedAtMs == null) return -1;
@@ -60,6 +74,92 @@ function sortCandidateRows(list: Candidate[], key: SortKey, dir: SortDir): Candi
 function SortIndicator({ active, dir }: { active: boolean; dir: SortDir }) {
     if (!active) return null;
     return dir === 'asc' ? <ChevronUp className="size-3.5 inline ml-1" /> : <ChevronDown className="size-3.5 inline ml-1" />;
+}
+
+function ratingColorClass(avg: number): string {
+    if (avg < 1.7) return 'text-autumn-red';
+    if (avg <= 2.3) return 'text-autumn-yellow';
+    return 'text-autumn-green';
+}
+
+interface PanelRatingCellProps {
+    ratings: PanelRating[];
+    myId: string | undefined;
+    onRate: (score: PanelRatingScore) => void;
+    onClear: () => void;
+    onComment: () => void;
+}
+
+// Panel isolation (brief section 5): before this panelist has rated, show
+// only a neutral count — no average, no names, no scores. After they rate,
+// show the average, the count, and the per-panelist breakdown with names.
+function PanelRatingCell({ ratings, myId, onRate, onClear, onComment }: PanelRatingCellProps) {
+    const [editing, setEditing] = useState(false);
+    const mine = ratings.find((r) => r.panelistId === myId);
+    const showButtons = !mine || editing;
+
+    if (showButtons) {
+        return (
+            <div className="flex items-center gap-1.5">
+                {([1, 2, 3] as PanelRatingScore[]).map((score) => (
+                    <Tooltip key={score}>
+                        <TooltipTrigger asChild>
+                            <button
+                                type="button"
+                                onClick={() => { onRate(score); setEditing(false); }}
+                                className={`size-7 rounded-full border text-xs font-bold flex items-center justify-center transition-colors ${
+                                    mine?.score === score
+                                        ? 'bg-autumn-primary text-white border-autumn-primary'
+                                        : 'border-gray-200 text-gray-600 hover:border-autumn-primary hover:text-autumn-primary'
+                                }`}
+                            >
+                                {score}
+                            </button>
+                        </TooltipTrigger>
+                        <TooltipContent>{RATING_LABELS[score]}</TooltipContent>
+                    </Tooltip>
+                ))}
+                <button
+                    type="button"
+                    title="Add an optional comment"
+                    className="text-gray-400 hover:text-autumn-orange"
+                    onClick={onComment}
+                >
+                    <MessageSquare className="size-3.5" />
+                </button>
+                {mine ? (
+                    <button
+                        type="button"
+                        className="text-xs text-gray-400 hover:text-red-500 ml-1"
+                        onClick={() => { onClear(); setEditing(false); }}
+                    >
+                        Clear
+                    </button>
+                ) : (
+                    <span className="text-xs text-gray-400 ml-1">
+                        {ratings.length === 0 ? 'No ratings yet' : `${ratings.length} rated`}
+                    </span>
+                )}
+            </div>
+        );
+    }
+
+    const avg = ratings.reduce((sum, r) => sum + r.score, 0) / ratings.length;
+    return (
+        <div className="group relative inline-block">
+            <button type="button" onClick={() => setEditing(true)} className="text-left">
+                <span className={`text-base font-bold ${ratingColorClass(avg)}`}>{avg.toFixed(1)}</span>
+                <span className="block text-xs text-muted-foreground">
+                    from {ratings.length} · you rated {mine!.score}
+                </span>
+            </button>
+            <div className="hidden group-hover:block absolute z-10 left-0 top-full mt-1 bg-white border border-gray-200 rounded-lg shadow-md p-2 text-xs text-gray-600 whitespace-nowrap space-y-0.5">
+                {ratings.map((r) => (
+                    <div key={r.panelistId}>{r.panelistName}: {RATING_LABELS[r.score]}</div>
+                ))}
+            </div>
+        </div>
+    );
 }
 
 interface ShortlistingPageProps {
@@ -77,6 +177,7 @@ export function ShortlistingPage({ onViewCandidate }: ShortlistingPageProps) {
     const [openCriteriaId, setOpenCriteriaId] = useState<string | null>(null);
     const [sortKey, setSortKey] = useState<SortKey>('appliedAt');
     const [sortDir, setSortDir] = useState<SortDir>('desc');
+    const [ratingsByAppId, setRatingsByAppId] = useState<Record<string, PanelRating[]>>({});
 
     const toggleSort = (key: SortKey) => {
         if (sortKey === key) {
@@ -90,33 +191,87 @@ export function ShortlistingPage({ onViewCandidate }: ShortlistingPageProps) {
     const load = () => {
         setLoading(true);
         Promise.all([getAllApplications(), getJobs(true)])
-            .then(([apps, jobs]) => {
+            .then(async ([apps, jobs]) => {
+                // Hiring managers review the longlist + already shortlisted candidates.
+                const relevant = apps.filter((a) => ['longlisted', 'shortlisted', 'rejected'].includes(a.status));
                 setCandidates(
-                    apps
-                        // Hiring managers review the longlist + already shortlisted candidates.
-                        .filter((a) => ['longlisted', 'shortlisted', 'rejected'].includes(a.status))
-                        .map((a) => ({
-                            id: a.id,
-                            name: a.candidateName,
-                            role: a.jobTitle,
-                            score: a.prescreenScore,
-                            status: a.status,
-                            appliedDate: a.appliedAt?.toDate ? a.appliedAt.toDate().toLocaleDateString() : '—',
-                            appliedAtMs: a.appliedAt?.toMillis?.() ?? null,
-                            application: a,
-                        }))
+                    relevant.map((a) => ({
+                        id: a.id,
+                        name: a.candidateName,
+                        role: a.jobTitle,
+                        score: a.prescreenScore,
+                        status: a.status,
+                        appliedDate: a.appliedAt?.toDate ? a.appliedAt.toDate().toLocaleDateString() : '—',
+                        appliedAtMs: a.appliedAt?.toMillis?.() ?? null,
+                        panelRatingAvg: a.panelRatingAvg ?? null,
+                        application: a,
+                    }))
                 );
                 const map: Record<string, string> = {};
                 for (const job of jobs) {
                     if (job.shortlistingCriteria?.trim()) map[job.id] = job.shortlistingCriteria;
                 }
                 setCriteriaByJobId(map);
+                // Loaded once for the whole visible list rather than per row.
+                setRatingsByAppId(await getPanelRatingsForApplications(relevant.map((a) => a.id)));
             })
             .catch((err) => console.error('Failed to load candidates', err))
             .finally(() => setLoading(false));
     };
 
     useEffect(load, []);
+
+    const refreshRatings = async (applicationId: string) => {
+        setRatingsByAppId((prev) => ({ ...prev, [applicationId]: [] }));
+        const ratings = await getPanelRatings(applicationId);
+        setRatingsByAppId((prev) => ({ ...prev, [applicationId]: ratings }));
+    };
+
+    const handleRate = async (applicationId: string, score: PanelRatingScore) => {
+        if (!user) return;
+        try {
+            const { avg } = await setPanelRating(applicationId, user, score);
+            await refreshRatings(applicationId);
+            setCandidates((prev) =>
+                prev.map((c) => (c.id === applicationId ? { ...c, panelRatingAvg: avg } : c))
+            );
+        } catch (err: any) {
+            toast.error(err?.message || 'Failed to save your rating.');
+        }
+    };
+
+    const handleClearRating = async (applicationId: string) => {
+        if (!user) return;
+        try {
+            const { avg } = await clearPanelRating(applicationId, user);
+            await refreshRatings(applicationId);
+            setCandidates((prev) =>
+                prev.map((c) => (c.id === applicationId ? { ...c, panelRatingAvg: avg } : c))
+            );
+        } catch (err: any) {
+            toast.error(err?.message || 'Failed to clear your rating.');
+        }
+    };
+
+    const handleRatingComment = async (applicationId: string) => {
+        if (!user) return;
+        const mine = ratingsByAppId[applicationId]?.find((r) => r.panelistId === user.id);
+        if (!mine) {
+            toast.error('Choose a rating (1, 2 or 3) first, then add a comment.');
+            return;
+        }
+        const comment = await promptText({
+            title: 'Optional comment on your rating (visible to the panel):',
+            defaultValue: mine.comment || '',
+        });
+        if (comment === null) return; // cancelled
+        try {
+            await setPanelRating(applicationId, user, mine.score, comment || undefined);
+            await refreshRatings(applicationId);
+        } catch (err: any) {
+            toast.error(err?.message || 'Failed to save your comment.');
+        }
+    };
 
     const handleStatusChange = async (candidate: Candidate, newStatus: 'shortlisted' | 'rejected') => {
         if (!user) return;
@@ -162,6 +317,7 @@ export function ShortlistingPage({ onViewCandidate }: ShortlistingPageProps) {
 
 
     return (
+        <TooltipProvider delayDuration={200}>
         <div className="p-8 h-full flex flex-col">
             <DutyBanner>
                 Your duty here: review the recruiter's longlist, apply the job's shortlisting criteria (see the
@@ -208,6 +364,13 @@ export function ShortlistingPage({ onViewCandidate }: ShortlistingPageProps) {
                                     Score
                                     <SortIndicator active={sortKey === 'prescreenScore'} dir={sortDir} />
                                 </th>
+                                <th
+                                    className="px-6 py-4 text-left text-xs font-semibold text-gray-500 uppercase tracking-wider cursor-pointer select-none hover:text-gray-700"
+                                    onClick={() => toggleSort('rating')}
+                                >
+                                    Panel Rating
+                                    <SortIndicator active={sortKey === 'rating'} dir={sortDir} />
+                                </th>
                                 <th className="px-6 py-4 text-left text-xs font-semibold text-gray-500 uppercase tracking-wider">Location</th>
                                 <th className="px-6 py-4 text-left text-xs font-semibold text-gray-500 uppercase tracking-wider">Status</th>
                                 <th className="px-6 py-4 text-left text-xs font-semibold text-gray-500 uppercase tracking-wider">Notes</th>
@@ -216,10 +379,10 @@ export function ShortlistingPage({ onViewCandidate }: ShortlistingPageProps) {
                         </thead>
                         <tbody className="divide-y divide-gray-200">
                             {loading && (
-                                <tr><td colSpan={7} className="px-6 py-12 text-center text-gray-500">Loading candidates…</td></tr>
+                                <tr><td colSpan={8} className="px-6 py-12 text-center text-gray-500">Loading candidates…</td></tr>
                             )}
                             {!loading && visibleCandidates.length === 0 && (
-                                <tr><td colSpan={7} className="px-6 py-12 text-center text-gray-500">No longlisted candidates yet. Candidates appear here once the recruiter long-lists them.</td></tr>
+                                <tr><td colSpan={8} className="px-6 py-12 text-center text-gray-500">No longlisted candidates yet. Candidates appear here once the recruiter long-lists them.</td></tr>
                             )}
                             {!loading && visibleCandidates.map((candidate) => (
                                 <tr key={candidate.id} className="hover:bg-gray-50 transition-colors">
@@ -276,6 +439,15 @@ export function ShortlistingPage({ onViewCandidate }: ShortlistingPageProps) {
                                                     'bg-red-100 text-red-800'}`}>
                                             {candidate.score}
                                         </span>
+                                    </td>
+                                    <td className="px-6 py-4">
+                                        <PanelRatingCell
+                                            ratings={ratingsByAppId[candidate.id] ?? []}
+                                            myId={user?.id}
+                                            onRate={(score) => handleRate(candidate.id, score)}
+                                            onClear={() => handleClearRating(candidate.id)}
+                                            onComment={() => handleRatingComment(candidate.id)}
+                                        />
                                     </td>
                                     <td className="px-6 py-4 text-gray-600">{[candidate.application.city, candidate.application.country].filter(Boolean).join(', ') || '—'}</td>
                                     <td className="px-6 py-4">
@@ -352,6 +524,7 @@ export function ShortlistingPage({ onViewCandidate }: ShortlistingPageProps) {
             {/* Resume Preview Modal */}
 
         </div>
+        </TooltipProvider>
     );
 }
 
