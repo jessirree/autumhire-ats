@@ -83,6 +83,19 @@ service cloud.firestore {
         allow read, create: if isStaff();
         allow update, delete: if false;
       }
+
+      // Panel ratings (1 unsuitable, 2 fair, 3 suitable). The document id is the
+      // panelist's uid, so a panelist can only ever write their own rating.
+      match /ratings/{panelistId} {
+        allow read: if isStaff();
+        allow create, update: if isStaff()
+          && request.auth.uid == panelistId
+          && request.resource.data.panelistId == panelistId
+          && request.resource.data.score is int
+          && request.resource.data.score >= 1
+          && request.resource.data.score <= 3;
+        allow delete: if isStaff() && request.auth.uid == panelistId;
+      }
     }
 
     // Extended bio-data for shortlisted candidates: candidates may submit/update

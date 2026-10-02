@@ -401,7 +401,9 @@ function AppRoutes() {
               onEditAdvert={(jobId) =>
                 navigate(`/recruiter/post-job?edit=${jobId}`)
               }
-              onViewApplications={() => navigate("/recruiter/applications")}
+              onViewApplications={(jobId) =>
+                navigate(`/recruiter/applications?job=${jobId}`)
+              }
             />
           }
         />
@@ -428,6 +430,7 @@ function AppRoutes() {
         />
         <Route path="interviews" element={<RecruiterInterviewsPage />} />
         <Route path="offers" element={<OffersPage />} />
+        <Route path="reports" element={<ReportsPage />} />
         <Route
           path="candidate-detail/:id"
           element={<RecruiterCandidateDetailWrapper />}

@@ -41,6 +41,7 @@ import {
   getAllApplications,
 } from "../../services/applicationService";
 import { useAuth } from "../../context/AuthContext";
+import { DownloadCvsButton } from "../../components/ats/DownloadCvsButton";
 
 interface JobAdvertsPageProps {
   onViewApplications: (jobId: string) => void;
@@ -508,6 +509,12 @@ export function JobAdvertsPage({
                             <Users className="size-4" />
                             Applications
                           </Button>
+                          <DownloadCvsButton
+                            className="h-8"
+                            label="CVs"
+                            job={{ id: job.id, referenceNumber: job.referenceNumber, title: job.title }}
+                            applications={applications.filter((a) => a.jobId === job.id)}
+                          />
                           {job.status === "Draft" && onEditAdvert && (
                             <button
                               onClick={() => onEditAdvert(job.id)}

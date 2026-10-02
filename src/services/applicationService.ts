@@ -9,6 +9,7 @@ import {
   orderBy,
   updateDoc,
   writeBatch,
+  runTransaction,
   serverTimestamp,
   Timestamp,
 } from 'firebase/firestore';
@@ -95,6 +96,9 @@ export interface Application {
   consentGiven: boolean;
   /** Archived candidate files are hidden from active views but never deleted. */
   archived?: boolean;
+  /** Denormalised from the `ratings` subcollection — see setPanelRating. */
+  panelRatingAvg?: number | null;
+  panelRatingCount?: number;
   appliedAt?: Timestamp | null;
   updatedAt?: Timestamp | null;
 }
@@ -118,6 +122,7 @@ function toApplication(id: string, data: any): Application {
     isInternal: false,
     workedHereBefore: false,
     consentGiven: false,
+    panelRatingCount: 0,
     ...data,
     id,
   } as Application;
@@ -351,10 +356,10 @@ export async function setApplicationsArchived(
 }
 
 export async function getApplicationsForJob(jobId: string): Promise<Application[]> {
-  const snap = await getDocs(query(collection(db, COL), where('jobId', '==', jobId)));
-  return snap.docs
-    .map((d) => toApplication(d.id, d.data()))
-    .sort((a, b) => b.prescreenScore - a.prescreenScore);
+  const snap = await getDocs(
+    query(collection(db, COL), where('jobId', '==', jobId), orderBy('appliedAt', 'desc'))
+  );
+  return snap.docs.map((d) => toApplication(d.id, d.data()));
 }
 
 export async function getApplicationById(id: string): Promise<Application | null> {
@@ -487,6 +492,140 @@ export async function getPanelComments(applicationId: string): Promise<PanelComm
     query(collection(db, COL, applicationId, 'comments'), orderBy('createdAt', 'asc'))
   );
   return snap.docs.map((d) => ({ id: d.id, ...d.data() } as PanelComment));
+}
+
+// ── Panel ratings (shortlisting, 1 unsuitable / 2 fair / 3 suitable) ─
+
+export type PanelRatingScore = 1 | 2 | 3;
+
+export interface PanelRating {
+  panelistId: string; // == the ratings subcollection document id
+  panelistName: string;
+  score: PanelRatingScore;
+  comment?: string;
+  stage: string; // 'shortlisting' for now, matches PanelComment's convention
+  ratedAt: Timestamp;
+  updatedAt?: Timestamp;
+}
+
+export const RATING_LABELS: Record<PanelRatingScore, string> = {
+  1: 'Unsuitable',
+  2: 'Fair',
+  3: 'Suitable',
+};
+
+function ratingsCol(applicationId: string) {
+  return collection(db, COL, applicationId, 'ratings');
+}
+
+function roundToOneDecimal(n: number): number {
+  return Math.round(n * 10) / 10;
+}
+
+/** Records or replaces one panelist's rating and refreshes the parent aggregate. */
+export async function setPanelRating(
+  applicationId: string,
+  by: { id: string; name: string },
+  score: PanelRatingScore,
+  comment?: string,
+  stage = 'shortlisting'
+): Promise<{ avg: number; count: number }> {
+  // A transaction can only re-read specific documents, not run a query, so
+  // the set of OTHER panelists is found first with a plain query. Each of
+  // those documents is then re-read inside the transaction, which makes
+  // Firestore retry the whole transaction if any of them changes
+  // concurrently — keeping the aggregate correct for every rating we knew
+  // about when we started.
+  const existing = await getDocs(ratingsCol(applicationId));
+  const otherIds = existing.docs.map((d) => d.id).filter((id) => id !== by.id);
+  const appRef = doc(db, COL, applicationId);
+  const ratingRef = doc(db, COL, applicationId, 'ratings', by.id);
+
+  const result = await runTransaction(db, async (tx) => {
+    const ownSnap = await tx.get(ratingRef);
+    const otherScores: number[] = [];
+    for (const id of otherIds) {
+      const snap = await tx.get(doc(db, COL, applicationId, 'ratings', id));
+      if (snap.exists()) otherScores.push(snap.data().score as number);
+    }
+    const scores = [...otherScores, score];
+    const avg = roundToOneDecimal(scores.reduce((s, v) => s + v, 0) / scores.length);
+    const count = scores.length;
+
+    tx.set(ratingRef, {
+      panelistId: by.id,
+      panelistName: by.name,
+      score,
+      ...(comment ? { comment } : {}),
+      stage,
+      ratedAt: ownSnap.exists() ? ownSnap.data().ratedAt : serverTimestamp(),
+      updatedAt: serverTimestamp(),
+    });
+    tx.update(appRef, { panelRatingAvg: avg, panelRatingCount: count, updatedAt: serverTimestamp() });
+    return { avg, count };
+  });
+
+  await logAudit(by, 'update', 'Application', applicationId, `Panel rating ${score} (${RATING_LABELS[score]})`);
+  return result;
+}
+
+/** All ratings for one application. */
+export async function getPanelRatings(applicationId: string): Promise<PanelRating[]> {
+  const snap = await getDocs(query(ratingsCol(applicationId), orderBy('ratedAt', 'asc')));
+  return snap.docs.map((d) => d.data() as PanelRating);
+}
+
+/** Just this panelist's own rating, for the "have I rated yet" check. */
+export async function getMyPanelRating(
+  applicationId: string,
+  panelistId: string
+): Promise<PanelRating | null> {
+  const snap = await getDoc(doc(db, COL, applicationId, 'ratings', panelistId));
+  return snap.exists() ? (snap.data() as PanelRating) : null;
+}
+
+/** Removes a panelist's own rating and refreshes the aggregate. */
+export async function clearPanelRating(
+  applicationId: string,
+  by: { id: string; name: string }
+): Promise<{ avg: number | null; count: number }> {
+  const existing = await getDocs(ratingsCol(applicationId));
+  const otherIds = existing.docs.map((d) => d.id).filter((id) => id !== by.id);
+  const appRef = doc(db, COL, applicationId);
+  const ratingRef = doc(db, COL, applicationId, 'ratings', by.id);
+
+  const result = await runTransaction(db, async (tx) => {
+    const otherScores: number[] = [];
+    for (const id of otherIds) {
+      const snap = await tx.get(doc(db, COL, applicationId, 'ratings', id));
+      if (snap.exists()) otherScores.push(snap.data().score as number);
+    }
+    const count = otherScores.length;
+    const avg = count ? roundToOneDecimal(otherScores.reduce((s, v) => s + v, 0) / count) : null;
+
+    tx.delete(ratingRef);
+    tx.update(appRef, { panelRatingAvg: avg, panelRatingCount: count, updatedAt: serverTimestamp() });
+    return { avg, count };
+  });
+
+  await logAudit(by, 'update', 'Application', applicationId, 'Panel rating cleared');
+  return result;
+}
+
+/**
+ * Ratings for many applications in one pass, keyed by applicationId. Each
+ * application's ratings live in their own subcollection with no stored
+ * parent-id field, so there is no single collection-group query that can
+ * join them back to a chosen list of application ids — this fans out one
+ * query per application instead, run in parallel.
+ */
+export async function getPanelRatingsForApplications(
+  applicationIds: string[]
+): Promise<Record<string, PanelRating[]>> {
+  const entries = await Promise.all(
+    applicationIds.map(async (id) => [id, await getPanelRatings(id)] as const)
+  );
+  return Object.fromEntries(entries);
 }
 
 // ── Regrets ─────────────────────────────────────────────────────────
