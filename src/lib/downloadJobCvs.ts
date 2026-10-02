@@ -101,8 +101,10 @@ export async function downloadJobCvs(
     const a = document.createElement('a');
     a.href = url;
     a.download = `${job.referenceNumber}-CVs-${new Date().toISOString().slice(0, 10)}.zip`;
+    document.body.appendChild(a);
     a.click();
-    URL.revokeObjectURL(url);
+    document.body.removeChild(a);
+    setTimeout(() => URL.revokeObjectURL(url), 1000);
   }
 
   return { zipped, skipped };
