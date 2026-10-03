@@ -72,10 +72,6 @@ interface JobDetails {
   salaryMin: string;
   salaryMax: string;
   currency: string;
-  referralProgram: boolean;
-  referralEmployees: boolean;
-  referralRewardCurrency: string;
-  referralEndDate: string;
   description: string;
   tags: string;
 }
@@ -126,10 +122,6 @@ const initialJobDetails: JobDetails = {
   salaryMin: "",
   salaryMax: "",
   currency: "USD",
-  referralProgram: false,
-  referralEmployees: false,
-  referralRewardCurrency: "USD",
-  referralEndDate: "",
   description: "",
   tags: "",
 };
@@ -167,10 +159,6 @@ function jobToFormState(job: Job): {
       salaryMin: job.salaryMin || "",
       salaryMax: job.salaryMax || "",
       currency: job.currency || "USD",
-      referralProgram: false,
-      referralEmployees: false,
-      referralRewardCurrency: "USD",
-      referralEndDate: "",
       description: job.description || "",
       tags: job.tags || "",
     },
@@ -1066,80 +1054,6 @@ export function CreateJob({
                   onChange={(html) => handleChange("description", html)}
                   placeholder="Enter detailed job description here..."
                 />
-              </div>
-
-              {/* Referral Program Section */}
-              <div className="p-5 bg-gray-50 rounded-xl border border-gray-200 transition-colors hover:bg-gray-100/50">
-                <div className="flex items-center gap-3 mb-4">
-                  <input
-                    type="checkbox"
-                    id="referralProgram"
-                    className="w-4 h-4 text-[var(--pumpkin-orange)] rounded border-gray-300 focus:ring-[var(--pumpkin-orange)]"
-                    checked={jobDetails.referralProgram}
-                    onChange={(e) =>
-                      handleChange("referralProgram", e.target.checked)
-                    }
-                  />
-                  <label
-                    htmlFor="referralProgram"
-                    className="font-bold text-gray-900 cursor-pointer select-none"
-                  >
-                    Add to Employee Referral Program
-                  </label>
-                </div>
-
-                {jobDetails.referralProgram && (
-                  <div className="grid grid-cols-1 md:grid-cols-3 gap-6 animate-in fade-in slide-in-from-top-2">
-                    <div className="md:col-span-3">
-                      <div className="flex items-center gap-3 mb-2">
-                        <input
-                          type="checkbox"
-                          id="referralEmployees"
-                          className="w-4 h-4 text-[var(--pumpkin-orange)] rounded border-gray-300 focus:ring-[var(--pumpkin-orange)]"
-                          checked={jobDetails.referralEmployees}
-                          onChange={(e) =>
-                            handleChange("referralEmployees", e.target.checked)
-                          }
-                        />
-                        <label
-                          htmlFor="referralEmployees"
-                          className="text-sm text-gray-700 cursor-pointer select-none"
-                        >
-                          Allow all employees to refer candidates
-                        </label>
-                      </div>
-                    </div>
-                    <div>
-                      <label className="block text-sm font-medium text-gray-700 mb-1">
-                        Reward Currency
-                      </label>
-                      <select
-                        className="w-full p-3 border border-gray-200 rounded-lg bg-white focus:ring-2 focus:ring-[var(--pumpkin-orange)]/20 focus:border-[var(--pumpkin-orange)] outline-none transition-all"
-                        value={jobDetails.referralRewardCurrency}
-                        onChange={(e) =>
-                          handleChange("referralRewardCurrency", e.target.value)
-                        }
-                      >
-                        <option>USD ($)</option>
-                        <option>Points</option>
-                        <option>Gift Card</option>
-                      </select>
-                    </div>
-                    <div>
-                      <label className="block text-sm font-medium text-gray-700 mb-1">
-                        Program End Date
-                      </label>
-                      <input
-                        type="date"
-                        className="w-full p-3 border border-gray-200 rounded-lg bg-white focus:ring-2 focus:ring-[var(--pumpkin-orange)]/20 focus:border-[var(--pumpkin-orange)] outline-none transition-all"
-                        value={jobDetails.referralEndDate}
-                        onChange={(e) =>
-                          handleChange("referralEndDate", e.target.value)
-                        }
-                      />
-                    </div>
-                  </div>
-                )}
               </div>
             </div>
 
