@@ -386,11 +386,10 @@ export function CreateJob({
     })),
     hiringTeam,
     coordinatorId: hiringCoordinatorId,
-    requisitionId:
-      jobDetails.requisitionId &&
-      jobDetails.requisitionId !== "Auto-generated on save"
-        ? jobDetails.requisitionId
-        : undefined,
+    ...(jobDetails.requisitionId &&
+    jobDetails.requisitionId !== "Auto-generated on save"
+      ? { requisitionId: jobDetails.requisitionId }
+      : {}),
     hiringWorkflow: jobSettings.hiringWorkflow,
     ...(jobSettings.recruitmentCost.trim() &&
     !Number.isNaN(Number(jobSettings.recruitmentCost))
