@@ -24,6 +24,7 @@ import {
   Eye,
   Download,
 } from "lucide-react";
+import { useSearchParams } from "react-router-dom";
 import { collection, getDocs } from "firebase/firestore";
 import { Button } from "../../components/ui/button";
 import {
@@ -216,7 +217,22 @@ export function CreateJob({
   fromRequisitionId?: string;
 }) {
   const { user } = useAuth();
-  const [currentStep, setCurrentStep] = useState(1);
+  const [searchParams, setSearchParams] = useSearchParams();
+  const [currentStep, setCurrentStepState] = useState(() => {
+    const fromUrl = Number(searchParams.get("step"));
+    return fromUrl >= 1 && fromUrl <= 5 ? fromUrl : 1;
+  });
+
+  // Keeps the wizard step in the URL (?step=N) so a reload or browser
+  // back/forward lands on the same step instead of losing progress.
+  const goToStep = (step: number) => {
+    setCurrentStepState(step);
+    setSearchParams((prev) => {
+      const next = new URLSearchParams(prev);
+      next.set("step", String(step));
+      return next;
+    });
+  };
   const [jobDetails, setJobDetails] = useState<JobDetails>(initialJobDetails);
   const [jobSettings, setJobSettings] =
     useState<JobSettings>(initialJobSettings);
@@ -522,11 +538,11 @@ export function CreateJob({
         return;
       }
     }
-    if (currentStep < 5) setCurrentStep(currentStep + 1);
+    if (currentStep < 5) goToStep(currentStep + 1);
   };
 
   const handleBack = () => {
-    if (currentStep > 1) setCurrentStep(currentStep - 1);
+    if (currentStep > 1) goToStep(currentStep - 1);
     else onBack();
   };
 
@@ -599,7 +615,7 @@ export function CreateJob({
       <div className="bg-white border-b border-gray-200 px-8 py-4 flex items-center justify-between sticky top-0 z-10 transition-all duration-300">
         <div className="flex items-center gap-4">
           <button
-            onClick={onBack}
+            onClick={handleBack}
             className="p-2 hover:bg-gray-100 rounded-full text-gray-500 transition-colors"
           >
             <ArrowLeft className="size-5" />
