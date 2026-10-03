@@ -1827,16 +1827,42 @@ export function CreateJob({
                     }
                   >
                     <option value="Standard">Standard Workflow</option>
-                    {workflows.map((w) => (
-                      <option key={w.id} value={w.name}>
-                        {w.name} ({w.stages.map((s) => s.name).join(" → ")})
-                      </option>
-                    ))}
+                    {workflows
+                      .filter((w) =>
+                        fromRequisitionId
+                          ? w.type === "with-requisition"
+                          : w.type === "without-requisition"
+                      )
+                      .map((w) => (
+                        <option key={w.id} value={w.name}>
+                          {w.name}
+                        </option>
+                      ))}
                   </select>
                   <p className="text-xs text-gray-500 mt-1">
                     Workflows are managed by admins under Workflow
-                    Configuration.
+                    Configuration. Not required — optional.
                   </p>
+                  {(() => {
+                    const selectedWorkflow = workflows.find(
+                      (w) => w.name === jobSettings.hiringWorkflow
+                    );
+                    if (!selectedWorkflow) return null;
+                    return (
+                      <div className="mt-2 flex flex-wrap items-center gap-1.5 text-xs text-gray-500">
+                        {selectedWorkflow.stages.map((s, i) => (
+                          <span key={s.id} className="flex items-center gap-1.5">
+                            <span className="px-2 py-0.5 rounded-full border border-gray-200 bg-gray-50">
+                              {s.name}
+                            </span>
+                            {i < selectedWorkflow.stages.length - 1 && (
+                              <span className="text-gray-300">→</span>
+                            )}
+                          </span>
+                        ))}
+                      </div>
+                    );
+                  })()}
                 </div>
 
                 <div>
