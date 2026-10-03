@@ -170,5 +170,15 @@ service cloud.firestore {
       allow read: if isStaff();
       allow create, update, delete: if isAdmin();
     }
+
+    // Audit trail. Append-only by design: an entry is created by the user who
+    // performed the action, read by admins, and never changed or deleted. That
+    // immutability is what makes it a trail rather than just a log.
+    match /AuditLog/{entryId} {
+      allow read: if isAdmin();
+      allow create: if isSignedIn()
+        && request.resource.data.actorId == request.auth.uid;
+      allow update, delete: if false;
+    }
   }
 }
