@@ -16,7 +16,6 @@ import {
   X,
   FileText,
   CheckSquare,
-  Linkedin,
   ExternalLink,
   ChevronUp,
   ChevronDown,
@@ -83,7 +82,6 @@ interface JobDetails {
 
 interface JobSettings {
   isFeatured: boolean;
-  allowLinkedInApply: boolean;
   requireCoverLetter: boolean;
   requireResume: boolean;
   hiringWorkflow: string;
@@ -138,7 +136,6 @@ const initialJobDetails: JobDetails = {
 
 const initialJobSettings: JobSettings = {
   isFeatured: false,
-  allowLinkedInApply: true,
   requireCoverLetter: true,
   requireResume: true,
   hiringWorkflow: "Standard",
@@ -179,7 +176,6 @@ function jobToFormState(job: Job): {
     },
     settings: {
       isFeatured: job.isFeatured,
-      allowLinkedInApply: true,
       requireCoverLetter: job.requireCoverLetter,
       requireResume: job.requireResume,
       hiringWorkflow: job.hiringWorkflow || "Standard",
@@ -1986,29 +1982,6 @@ export function CreateJob({
                         checked={jobSettings.isFeatured}
                         onChange={(e) =>
                           handleSettingsChange("isFeatured", e.target.checked)
-                        }
-                      />
-                    </div>
-
-                    <div className="flex items-center justify-between p-4 bg-gray-50 rounded-lg">
-                      <div>
-                        <div className="font-medium text-gray-900 flex items-center gap-2">
-                          <Linkedin className="size-4 text-blue-600" /> LinkedIn
-                          Apply
-                        </div>
-                        <div className="text-xs text-gray-500">
-                          Allow candidates to apply via LinkedIn
-                        </div>
-                      </div>
-                      <input
-                        type="checkbox"
-                        className="w-4 h-4 text-[var(--pumpkin-orange)] rounded border-gray-300 focus:ring-[var(--pumpkin-orange)]"
-                        checked={jobSettings.allowLinkedInApply}
-                        onChange={(e) =>
-                          handleSettingsChange(
-                            "allowLinkedInApply",
-                            e.target.checked,
-                          )
                         }
                       />
                     </div>
