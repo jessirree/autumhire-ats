@@ -38,29 +38,47 @@ export function ApplicationForm({ job, onBack, onSubmit }: ApplicationFormProps)
   const [alreadyApplied, setAlreadyApplied] = useState(false);
   const [profile, setProfile] = useState<CandidateProfile>({});
   const [useSavedCv, setUseSavedCv] = useState(false);
+  // Every prefilled field below is also a native `required` input, so a
+  // failed prefill can never be submitted blank — the browser's own
+  // validation is the safety net. This just makes the failure visible
+  // instead of silently leaving fields the candidate thinks are saved
+  // empty, so they know to fill them in themselves rather than guessing
+  // why a field they expected to be prefilled is not.
+  const [profileLoadState, setProfileLoadState] = useState<'loading' | 'ready' | 'error'>('loading');
 
   const questions: ScreeningQuestion[] = job.questions ?? [];
+
+  const loadProfilePrefill = () => {
+    if (!user) return;
+    setProfileLoadState('loading');
+    getCandidateProfile(user.id)
+      .then((p) => {
+        setProfile(p);
+        if (p.cvUrl) setUseSavedCv(true);
+        setFormData((prev) => ({
+          ...prev,
+          phone: prev.phone || p.phone || '',
+          dateOfBirth: prev.dateOfBirth || p.dateOfBirth || '',
+          gender: prev.gender || p.gender || '',
+          nationality: prev.nationality || p.nationality || '',
+          city: prev.city || p.city || '',
+          country: prev.country || p.country || '',
+        }));
+        setProfileLoadState('ready');
+      })
+      .catch((err) => {
+        console.warn('Failed to load candidate profile for prefill', err);
+        setProfileLoadState('error');
+      });
+  };
 
   // Duplicate-application check + profile prefill.
   useEffect(() => {
     if (user) {
       hasAppliedToJob(user.id, job.id).then(setAlreadyApplied).catch(() => {});
-      getCandidateProfile(user.id)
-        .then((p) => {
-          setProfile(p);
-          if (p.cvUrl) setUseSavedCv(true);
-          setFormData((prev) => ({
-            ...prev,
-            phone: prev.phone || p.phone || '',
-            dateOfBirth: prev.dateOfBirth || p.dateOfBirth || '',
-            gender: prev.gender || p.gender || '',
-            nationality: prev.nationality || p.nationality || '',
-            city: prev.city || p.city || '',
-            country: prev.country || p.country || '',
-          }));
-        })
-        .catch(() => {});
+      loadProfilePrefill();
     }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [user, job.id]);
 
   const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>, type: 'resume' | 'coverLetter') => {
@@ -242,6 +260,17 @@ export function ApplicationForm({ job, onBack, onSubmit }: ApplicationFormProps)
           {/* Bio data */}
           <section>
             <h2 className="text-xl font-semibold mb-6">Personal Information</h2>
+            {profileLoadState === 'error' && (
+              <div className="mb-6 flex items-center justify-between gap-4 bg-amber-50 border border-amber-200 rounded-lg px-4 py-3">
+                <p className="text-sm text-amber-800">
+                  We couldn't load your saved details to prefill this section — please fill it in
+                  yourself below.
+                </p>
+                <Button type="button" variant="outline" size="sm" onClick={loadProfilePrefill}>
+                  Retry
+                </Button>
+              </div>
+            )}
             <div className="grid grid-cols-2 gap-6">
               <div>
                 <label className="text-sm text-gray-700 mb-2 block">Phone <span className="text-red-500">*</span></label>
