@@ -6,7 +6,6 @@ import {
     MessageSquare,
     Eye,
     Search,
-    Filter,
     Info,
     ChevronUp,
     ChevronDown,
@@ -184,6 +183,7 @@ export function ShortlistingPage({ onViewCandidate }: ShortlistingPageProps) {
     const [openCriteriaId, setOpenCriteriaId] = useState<string | null>(null);
     const [sortKey, setSortKey] = useState<SortKey>('appliedAt');
     const [sortDir, setSortDir] = useState<SortDir>('desc');
+    const [statusFilter, setStatusFilter] = useState('');
     const [ratingsByAppId, setRatingsByAppId] = useState<Record<string, PanelRating[]>>({});
 
     const toggleSort = (key: SortKey) => {
@@ -318,8 +318,9 @@ export function ShortlistingPage({ onViewCandidate }: ShortlistingPageProps) {
     const visibleCandidates = sortCandidateRows(
         candidates.filter(
             (c) =>
-                c.name.toLowerCase().includes(searchTerm.toLowerCase()) ||
-                c.role.toLowerCase().includes(searchTerm.toLowerCase())
+                (c.name.toLowerCase().includes(searchTerm.toLowerCase()) ||
+                    c.role.toLowerCase().includes(searchTerm.toLowerCase())) &&
+                (!statusFilter || c.status === statusFilter)
         ),
         sortKey,
         sortDir
@@ -349,9 +350,16 @@ export function ShortlistingPage({ onViewCandidate }: ShortlistingPageProps) {
                             className="pl-10 pr-4 py-2 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-autumn-orange/50"
                         />
                     </div>
-                    <Button variant="outline" className="flex items-center gap-2">
-                        <Filter className="size-4" /> Filter
-                    </Button>
+                    <select
+                        value={statusFilter}
+                        onChange={(e) => setStatusFilter(e.target.value)}
+                        className="px-4 py-2 border border-gray-200 rounded-lg text-sm bg-white font-medium text-gray-700 focus:outline-none focus:ring-2 focus:ring-autumn-orange/50"
+                    >
+                        <option value="">All Stages</option>
+                        <option value="longlisted">Longlisted</option>
+                        <option value="shortlisted">Shortlisted</option>
+                        <option value="rejected">Rejected</option>
+                    </select>
                 </div>
             </div>
 
