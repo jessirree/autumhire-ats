@@ -9,10 +9,12 @@ import {
   GRADE_REGEX,
   PRIORITY_STYLES,
   getPositions,
+  getHiringManagers,
   createRequisition,
 } from '../../services/requisitionService';
 import { BankQuestion, getQuestionBank } from '../../services/questionBankService';
 import { STORAGE_ENABLED } from '../../lib/featureFlags';
+import { RichTextEditor } from '../../components/ui/rich-text-editor';
 
 interface NewRequisitionPageProps {
   onBack: () => void;
@@ -21,8 +23,10 @@ interface NewRequisitionPageProps {
 
 export function NewRequisitionPage({ onBack, onSuccess }: NewRequisitionPageProps) {
   const { user } = useAuth();
+  const isRecruiter = user?.role === 'recruiter';
   const [positions, setPositions] = useState<Position[]>([]);
   const [questionBank, setQuestionBank] = useState<BankQuestion[]>([]);
+  const [hiringManagers, setHiringManagers] = useState<{ id: string; name: string }[]>([]);
 
   const [positionId, setPositionId] = useState('');
   const [grade, setGrade] = useState('');
@@ -31,7 +35,9 @@ export function NewRequisitionPage({ onBack, onSuccess }: NewRequisitionPageProp
   const [advertType, setAdvertType] = useState<AdvertType>('external');
   const [selectedQuestionIds, setSelectedQuestionIds] = useState<string[]>([]);
   const [notes, setNotes] = useState('');
+  const [jobDescription, setJobDescription] = useState('');
   const [jobDescriptionFile, setJobDescriptionFile] = useState<File | null>(null);
+  const [hiringManagerId, setHiringManagerId] = useState('');
 
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState('');
@@ -40,6 +46,9 @@ export function NewRequisitionPage({ onBack, onSuccess }: NewRequisitionPageProp
   useEffect(() => {
     getPositions().then(setPositions).catch(() => {});
     getQuestionBank().then(setQuestionBank).catch(() => {});
+    if (isRecruiter) {
+      getHiringManagers().then(setHiringManagers).catch(() => {});
+    }
   }, []);
 
   const selectedPosition = positions.find((p) => p.id === positionId);
@@ -52,7 +61,13 @@ export function NewRequisitionPage({ onBack, onSuccess }: NewRequisitionPageProp
     }
   }, [positionId]);
 
-  const canSubmit = !!selectedPosition && GRADE_REGEX.test(grade) && vacancies >= 1 && !submitting;
+  const selectedHiringManager = hiringManagers.find((hm) => hm.id === hiringManagerId);
+  const canSubmit =
+    !!selectedPosition &&
+    GRADE_REGEX.test(grade) &&
+    vacancies >= 1 &&
+    (!isRecruiter || !!selectedHiringManager) &&
+    !submitting;
 
   const toggleQuestion = (id: string) => {
     setSelectedQuestionIds((prev) =>
@@ -75,8 +90,11 @@ export function NewRequisitionPage({ onBack, onSuccess }: NewRequisitionPageProp
         advertType,
         questions: questionBank.filter((q) => selectedQuestionIds.includes(q.id)),
         notes: notes.trim() || undefined,
+        jobDescription: jobDescription.trim() || undefined,
         jobDescriptionFile,
         createdBy: user,
+        createdByRole: isRecruiter ? 'recruiter' : 'hiring-manager',
+        hiringManager: isRecruiter ? selectedHiringManager : undefined,
       });
       setReferenceNumber(requisition.referenceNumber);
     } catch (e: any) {
@@ -96,7 +114,9 @@ export function NewRequisitionPage({ onBack, onSuccess }: NewRequisitionPageProp
             Reference <span className="font-mono font-bold">{referenceNumber}</span>
           </p>
           <p className="text-sm text-gray-500 mb-6">
-            The recruiting team has been notified and will refine the requisition, then send it back for confirmation.
+            {isRecruiter
+              ? `${selectedHiringManager?.name ?? 'The hiring manager'} has been notified and can confirm it directly — raising it as a recruiter skips the recruiter-refinement step.`
+              : 'The recruiting team has been notified and will refine the requisition, then send it back for your confirmation.'}
           </p>
           <Button onClick={onSuccess}>Done</Button>
         </div>
@@ -114,8 +134,9 @@ export function NewRequisitionPage({ onBack, onSuccess }: NewRequisitionPageProp
       <div className="bg-white p-6 rounded-2xl border border-gray-100 shadow-sm">
         <h1 className="text-2xl font-bold text-autumn-charcoal mb-2">New Job Requisition</h1>
         <p className="text-gray-500">
-          Raise a requisition against a pre-loaded position. It goes to the recruiting team first,
-          returns for hiring-manager confirmation, then admin approval before publishing.
+          {isRecruiter
+            ? 'Raise a requisition on behalf of a hiring manager. Since you are the recruiter, it skips the recruiter-refinement step and goes straight to that hiring manager for confirmation, then admin approval before publishing.'
+            : 'Raise a requisition against a pre-loaded position. It goes to the recruiting team first, returns for your confirmation, then admin approval before publishing.'}
         </p>
       </div>
 
@@ -143,6 +164,34 @@ export function NewRequisitionPage({ onBack, onSuccess }: NewRequisitionPageProp
             </select>
           )}
         </div>
+
+        {isRecruiter && (
+          <div>
+            <label className="block text-sm font-medium text-gray-700 mb-1">
+              Hiring Manager <span className="text-red-500">*</span>
+            </label>
+            {hiringManagers.length === 0 ? (
+              <p className="text-sm text-amber-700 bg-amber-50 border border-amber-200 rounded-lg p-3">
+                No hiring managers found. Ask an admin to create one under User Management first.
+              </p>
+            ) : (
+              <select
+                className="w-full px-3 py-2 border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-autumn-primary/20 focus:border-autumn-primary"
+                value={hiringManagerId}
+                onChange={(e) => setHiringManagerId(e.target.value)}
+              >
+                <option value="">Select a hiring manager…</option>
+                {hiringManagers.map((hm) => (
+                  <option key={hm.id} value={hm.id}>{hm.name}</option>
+                ))}
+              </select>
+            )}
+            <p className="text-xs text-gray-500 mt-1">
+              You're raising this on their behalf, so it skips the recruiter-refinement step and goes
+              straight to them for confirmation.
+            </p>
+          </div>
+        )}
 
         <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
           <div>
@@ -254,7 +303,19 @@ export function NewRequisitionPage({ onBack, onSuccess }: NewRequisitionPageProp
         </div>
 
         <div>
-          <label className="block text-sm font-medium text-gray-700 mb-1">Job Description (optional)</label>
+          <label className="block text-sm font-medium text-gray-700 mb-1">Job Description text (optional)</label>
+          <p className="text-xs text-gray-500 mb-2">
+            Write it here, attach a file below, or both — whatever's available carries through to the job advert.
+          </p>
+          <RichTextEditor
+            value={jobDescription}
+            onChange={setJobDescription}
+            placeholder="Role summary, responsibilities, requirements…"
+          />
+        </div>
+
+        <div>
+          <label className="block text-sm font-medium text-gray-700 mb-1">Job Description file (optional)</label>
           {STORAGE_ENABLED ? (
             <div className={`border-2 border-dashed rounded-lg p-8 text-center transition-colors ${jobDescriptionFile ? 'border-green-500 bg-green-50' : 'border-gray-300 hover:border-blue-400'}`}>
               {jobDescriptionFile ? (

@@ -310,6 +310,10 @@ export function CreateJob({
         showOnCareerSite: requisition.advertType === "external",
         requisitionId: requisition.referenceNumber,
         status: "Active",
+        // Rich-text description from the requisition, if the recruiter wrote
+        // one. Carried in addition to the PDF attachment below, not instead
+        // of it — the PDF can't be prefilled into a rich-text field.
+        ...(requisition.jobDescription ? { description: requisition.jobDescription } : {}),
       }));
       setQuestions((requisition.questions ?? []).map(bankToJobQuestion));
       if (requisition.jobDescriptionUrl) {
