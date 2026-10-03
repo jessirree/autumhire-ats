@@ -42,15 +42,36 @@ export function NotificationBell() {
   const unread = notifications.filter((n) => !n.read);
 
   const handleMarkRead = async (n: AppNotification) => {
-    if (!n.read) {
-      await markNotificationRead(n.id).catch(() => {});
+    if (n.read) return;
+    // Only reflect read:true locally once the write actually succeeds — an
+    // unconditional optimistic update here would show "read" while
+    // Firestore still has it unread on a failed write.
+    try {
+      await markNotificationRead(n.id);
       setNotifications((prev) => prev.map((x) => (x.id === n.id ? { ...x, read: true } : x)));
+    } catch (err) {
+      console.warn('Failed to mark notification as read', err);
     }
   };
 
   const handleMarkAllRead = async () => {
-    await Promise.all(unread.map((n) => markNotificationRead(n.id).catch(() => {})));
-    setNotifications((prev) => prev.map((n) => ({ ...n, read: true })));
+    const results = await Promise.allSettled(
+      unread.map((n) => markNotificationRead(n.id).then(() => n.id))
+    );
+    const succeededIds = new Set(
+      results
+        .filter((r): r is PromiseFulfilledResult<string> => r.status === 'fulfilled')
+        .map((r) => r.value)
+    );
+    if (succeededIds.size > 0) {
+      setNotifications((prev) =>
+        prev.map((n) => (succeededIds.has(n.id) ? { ...n, read: true } : n))
+      );
+    }
+    const failedCount = results.length - succeededIds.size;
+    if (failedCount > 0) {
+      console.warn(`Failed to mark ${failedCount} notification(s) as read`);
+    }
   };
 
   return (

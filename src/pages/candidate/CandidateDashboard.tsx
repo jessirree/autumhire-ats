@@ -124,10 +124,16 @@ export function CandidateDashboard({
   const [savedCv, setSavedCv] = useState<{ url?: string; name?: string }>({});
   const [savingProfile, setSavingProfile] = useState(false);
   const [uploadingCv, setUploadingCv] = useState(false);
+  // A form that cannot distinguish "empty profile" from "failed to load"
+  // must not be savable — a failed load used to leave the form blank, and
+  // saving it then overwrote the candidate's real stored profile with
+  // empty strings. 'loading'/'error' both block the form and the Save
+  // button; only 'ready' means the fields reflect what is actually stored.
+  const [profileLoadState, setProfileLoadState] = useState<'loading' | 'ready' | 'error'>('loading');
 
-  // Load the persisted profile from Firestore.
-  useEffect(() => {
+  const loadProfile = () => {
     if (!user) return;
+    setProfileLoadState('loading');
     getCandidateProfile(user.id)
       .then((p: CandidateProfile) => {
         const parts = (p.name || user.name || '').split(' ');
@@ -144,12 +150,19 @@ export function CandidateDashboard({
         }));
         setDateOfBirth(p.dateOfBirth || '');
         setSavedCv({ url: p.cvUrl, name: p.cvFileName });
+        setProfileLoadState('ready');
       })
-      .catch(() => {});
-  }, [user]);
+      .catch((err) => {
+        console.warn('Failed to load candidate profile', err);
+        setProfileLoadState('error');
+      });
+  };
+
+  // Load the persisted profile from Firestore.
+  useEffect(loadProfile, [user]);
 
   const handleSaveProfile = async () => {
-    if (!user) return;
+    if (!user || profileLoadState !== 'ready') return;
     setSavingProfile(true);
     try {
       await updateCandidateProfile(user.id, {
@@ -422,6 +435,16 @@ export function CandidateDashboard({
                       )}
                     </div>
                   ))}
+                </div>
+              ) : profileLoadState === 'loading' ? (
+                <div className="py-16 text-center text-gray-500">Loading your profile…</div>
+              ) : profileLoadState === 'error' ? (
+                <div className="py-16 text-center">
+                  <p className="text-red-600 font-medium mb-3">
+                    We couldn't load your profile. Saving is disabled until it loads, so your
+                    existing details aren't overwritten with blanks.
+                  </p>
+                  <Button variant="outline" onClick={loadProfile}>Retry</Button>
                 </div>
               ) : (
                 <div className="space-y-8">

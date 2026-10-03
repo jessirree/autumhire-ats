@@ -50,7 +50,10 @@ export async function logAudit(
       detail: detail ?? '',
       at: serverTimestamp(),
     });
-  } catch {
-    // swallow — audit logging is best-effort on the client
+  } catch (err) {
+    // Must never throw — an audit failure must not block the user's action.
+    // Must not be silent either: a bare `catch {}` here is exactly what hid
+    // the missing AuditLog security rule for the life of the project.
+    console.warn('Failed to write audit log entry', err);
   }
 }

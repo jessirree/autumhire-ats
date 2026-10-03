@@ -9,7 +9,6 @@ import {
   Clock,
   Copy,
   DollarSign,
-  HelpCircle,
   MapPin,
   Plus,
   Trash2,
@@ -17,13 +16,13 @@ import {
   X,
   FileText,
   CheckSquare,
-  Linkedin,
   ExternalLink,
   ChevronUp,
   ChevronDown,
   Eye,
   Download,
 } from "lucide-react";
+import { useSearchParams } from "react-router-dom";
 import { collection, getDocs } from "firebase/firestore";
 import { Button } from "../../components/ui/button";
 import {
@@ -73,17 +72,12 @@ interface JobDetails {
   salaryMin: string;
   salaryMax: string;
   currency: string;
-  referralProgram: boolean;
-  referralEmployees: boolean;
-  referralRewardCurrency: string;
-  referralEndDate: string;
   description: string;
   tags: string;
 }
 
 interface JobSettings {
   isFeatured: boolean;
-  allowLinkedInApply: boolean;
   requireCoverLetter: boolean;
   requireResume: boolean;
   hiringWorkflow: string;
@@ -128,17 +122,12 @@ const initialJobDetails: JobDetails = {
   salaryMin: "",
   salaryMax: "",
   currency: "USD",
-  referralProgram: false,
-  referralEmployees: false,
-  referralRewardCurrency: "USD",
-  referralEndDate: "",
   description: "",
   tags: "",
 };
 
 const initialJobSettings: JobSettings = {
   isFeatured: false,
-  allowLinkedInApply: true,
   requireCoverLetter: true,
   requireResume: true,
   hiringWorkflow: "Standard",
@@ -170,16 +159,11 @@ function jobToFormState(job: Job): {
       salaryMin: job.salaryMin || "",
       salaryMax: job.salaryMax || "",
       currency: job.currency || "USD",
-      referralProgram: false,
-      referralEmployees: false,
-      referralRewardCurrency: "USD",
-      referralEndDate: "",
       description: job.description || "",
       tags: job.tags || "",
     },
     settings: {
       isFeatured: job.isFeatured,
-      allowLinkedInApply: true,
       requireCoverLetter: job.requireCoverLetter,
       requireResume: job.requireResume,
       hiringWorkflow: job.hiringWorkflow || "Standard",
@@ -216,7 +200,22 @@ export function CreateJob({
   fromRequisitionId?: string;
 }) {
   const { user } = useAuth();
-  const [currentStep, setCurrentStep] = useState(1);
+  const [searchParams, setSearchParams] = useSearchParams();
+  const [currentStep, setCurrentStepState] = useState(() => {
+    const fromUrl = Number(searchParams.get("step"));
+    return fromUrl >= 1 && fromUrl <= 5 ? fromUrl : 1;
+  });
+
+  // Keeps the wizard step in the URL (?step=N) so a reload or browser
+  // back/forward lands on the same step instead of losing progress.
+  const goToStep = (step: number) => {
+    setCurrentStepState(step);
+    setSearchParams((prev) => {
+      const next = new URLSearchParams(prev);
+      next.set("step", String(step));
+      return next;
+    });
+  };
   const [jobDetails, setJobDetails] = useState<JobDetails>(initialJobDetails);
   const [jobSettings, setJobSettings] =
     useState<JobSettings>(initialJobSettings);
@@ -386,11 +385,10 @@ export function CreateJob({
     })),
     hiringTeam,
     coordinatorId: hiringCoordinatorId,
-    requisitionId:
-      jobDetails.requisitionId &&
-      jobDetails.requisitionId !== "Auto-generated on save"
-        ? jobDetails.requisitionId
-        : undefined,
+    ...(jobDetails.requisitionId &&
+    jobDetails.requisitionId !== "Auto-generated on save"
+      ? { requisitionId: jobDetails.requisitionId }
+      : {}),
     hiringWorkflow: jobSettings.hiringWorkflow,
     ...(jobSettings.recruitmentCost.trim() &&
     !Number.isNaN(Number(jobSettings.recruitmentCost))
@@ -523,11 +521,11 @@ export function CreateJob({
         return;
       }
     }
-    if (currentStep < 5) setCurrentStep(currentStep + 1);
+    if (currentStep < 5) goToStep(currentStep + 1);
   };
 
   const handleBack = () => {
-    if (currentStep > 1) setCurrentStep(currentStep - 1);
+    if (currentStep > 1) goToStep(currentStep - 1);
     else onBack();
   };
 
@@ -600,7 +598,7 @@ export function CreateJob({
       <div className="bg-white border-b border-gray-200 px-8 py-4 flex items-center justify-between sticky top-0 z-10 transition-all duration-300">
         <div className="flex items-center gap-4">
           <button
-            onClick={onBack}
+            onClick={handleBack}
             className="p-2 hover:bg-gray-100 rounded-full text-gray-500 transition-colors"
           >
             <ArrowLeft className="size-5" />
@@ -735,19 +733,14 @@ export function CreateJob({
 
                 <div>
                   <label className="block text-sm font-medium text-gray-700 mb-1">
-                    Requisition ID
+                    Reference Number
                   </label>
-                  <div className="relative">
-                    <input
-                      type="text"
-                      className="w-full p-3 bg-gray-50 border border-gray-200 rounded-lg text-gray-500 cursor-not-allowed"
-                      value={jobDetails.requisitionId}
-                      readOnly
-                    />
-                    <div className="absolute right-3 top-1/2 -translate-y-1/2 text-xs text-gray-400 flex items-center gap-1">
-                      <HelpCircle className="size-3" /> Auto-generated
-                    </div>
-                  </div>
+                  <p className="text-sm text-gray-500 py-2.5">
+                    {jobDetails.requisitionId &&
+                    jobDetails.requisitionId !== "Auto-generated on save"
+                      ? jobDetails.requisitionId
+                      : "Assigned automatically when you save"}
+                  </p>
                 </div>
 
                 <div>
@@ -1061,80 +1054,6 @@ export function CreateJob({
                   onChange={(html) => handleChange("description", html)}
                   placeholder="Enter detailed job description here..."
                 />
-              </div>
-
-              {/* Referral Program Section */}
-              <div className="p-5 bg-gray-50 rounded-xl border border-gray-200 transition-colors hover:bg-gray-100/50">
-                <div className="flex items-center gap-3 mb-4">
-                  <input
-                    type="checkbox"
-                    id="referralProgram"
-                    className="w-4 h-4 text-[var(--pumpkin-orange)] rounded border-gray-300 focus:ring-[var(--pumpkin-orange)]"
-                    checked={jobDetails.referralProgram}
-                    onChange={(e) =>
-                      handleChange("referralProgram", e.target.checked)
-                    }
-                  />
-                  <label
-                    htmlFor="referralProgram"
-                    className="font-bold text-gray-900 cursor-pointer select-none"
-                  >
-                    Add to Employee Referral Program
-                  </label>
-                </div>
-
-                {jobDetails.referralProgram && (
-                  <div className="grid grid-cols-1 md:grid-cols-3 gap-6 animate-in fade-in slide-in-from-top-2">
-                    <div className="md:col-span-3">
-                      <div className="flex items-center gap-3 mb-2">
-                        <input
-                          type="checkbox"
-                          id="referralEmployees"
-                          className="w-4 h-4 text-[var(--pumpkin-orange)] rounded border-gray-300 focus:ring-[var(--pumpkin-orange)]"
-                          checked={jobDetails.referralEmployees}
-                          onChange={(e) =>
-                            handleChange("referralEmployees", e.target.checked)
-                          }
-                        />
-                        <label
-                          htmlFor="referralEmployees"
-                          className="text-sm text-gray-700 cursor-pointer select-none"
-                        >
-                          Allow all employees to refer candidates
-                        </label>
-                      </div>
-                    </div>
-                    <div>
-                      <label className="block text-sm font-medium text-gray-700 mb-1">
-                        Reward Currency
-                      </label>
-                      <select
-                        className="w-full p-3 border border-gray-200 rounded-lg bg-white focus:ring-2 focus:ring-[var(--pumpkin-orange)]/20 focus:border-[var(--pumpkin-orange)] outline-none transition-all"
-                        value={jobDetails.referralRewardCurrency}
-                        onChange={(e) =>
-                          handleChange("referralRewardCurrency", e.target.value)
-                        }
-                      >
-                        <option>USD ($)</option>
-                        <option>Points</option>
-                        <option>Gift Card</option>
-                      </select>
-                    </div>
-                    <div>
-                      <label className="block text-sm font-medium text-gray-700 mb-1">
-                        Program End Date
-                      </label>
-                      <input
-                        type="date"
-                        className="w-full p-3 border border-gray-200 rounded-lg bg-white focus:ring-2 focus:ring-[var(--pumpkin-orange)]/20 focus:border-[var(--pumpkin-orange)] outline-none transition-all"
-                        value={jobDetails.referralEndDate}
-                        onChange={(e) =>
-                          handleChange("referralEndDate", e.target.value)
-                        }
-                      />
-                    </div>
-                  </div>
-                )}
               </div>
             </div>
 
@@ -1977,29 +1896,6 @@ export function CreateJob({
                         checked={jobSettings.isFeatured}
                         onChange={(e) =>
                           handleSettingsChange("isFeatured", e.target.checked)
-                        }
-                      />
-                    </div>
-
-                    <div className="flex items-center justify-between p-4 bg-gray-50 rounded-lg">
-                      <div>
-                        <div className="font-medium text-gray-900 flex items-center gap-2">
-                          <Linkedin className="size-4 text-blue-600" /> LinkedIn
-                          Apply
-                        </div>
-                        <div className="text-xs text-gray-500">
-                          Allow candidates to apply via LinkedIn
-                        </div>
-                      </div>
-                      <input
-                        type="checkbox"
-                        className="w-4 h-4 text-[var(--pumpkin-orange)] rounded border-gray-300 focus:ring-[var(--pumpkin-orange)]"
-                        checked={jobSettings.allowLinkedInApply}
-                        onChange={(e) =>
-                          handleSettingsChange(
-                            "allowLinkedInApply",
-                            e.target.checked,
-                          )
                         }
                       />
                     </div>

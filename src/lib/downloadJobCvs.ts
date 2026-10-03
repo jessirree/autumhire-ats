@@ -1,4 +1,5 @@
 import type { Application } from '../services/applicationService';
+import { downloadBlob } from './downloadBlob';
 
 const ILLEGAL_FILENAME_CHARS = /[\\/:*?"<>|]/g;
 const CONCURRENCY = 6;
@@ -97,14 +98,7 @@ export async function downloadJobCvs(
   const zipped = total - skipped.length;
   if (zipped > 0) {
     const content = await zip.generateAsync({ type: 'blob' });
-    const url = URL.createObjectURL(content);
-    const a = document.createElement('a');
-    a.href = url;
-    a.download = `${job.referenceNumber}-CVs-${new Date().toISOString().slice(0, 10)}.zip`;
-    document.body.appendChild(a);
-    a.click();
-    document.body.removeChild(a);
-    setTimeout(() => URL.revokeObjectURL(url), 1000);
+    downloadBlob(content, `${job.referenceNumber}-CVs-${new Date().toISOString().slice(0, 10)}.zip`);
   }
 
   return { zipped, skipped };

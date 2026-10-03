@@ -53,8 +53,11 @@ export async function notify(input: {
       read: false,
       createdAt: serverTimestamp(),
     });
-  } catch {
-    // Notifications are best-effort; never block the main action.
+  } catch (err) {
+    // Must never throw — notifications are best-effort and must not block
+    // the main action. Must not be silent either, for the same reason a
+    // bare catch hid the missing AuditLog rule (see auditService.logAudit).
+    console.warn('Failed to write notification', err);
   }
 }
 

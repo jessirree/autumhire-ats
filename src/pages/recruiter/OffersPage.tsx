@@ -17,6 +17,7 @@ import {
   recordOfferDecision,
   finalizeHire,
 } from '../../services/offerService';
+import { downloadCsv } from '../../lib/exportCsv';
 
 const STATUS_LABELS: Record<OfferStatus, string> = {
   'pending-approval': 'Pending Approval',
@@ -135,9 +136,8 @@ export function OffersPage() {
       toast.error('No accepted offers to export yet.');
       return;
     }
-    const rows: string[][] = [
-      ['Candidate', 'Email', 'Phone', 'Position', 'Department', 'Salary', 'Start date', 'Gender', 'Nationality', 'City', 'Country', 'Date of birth'],
-    ];
+    const headers = ['Candidate', 'Email', 'Phone', 'Position', 'Department', 'Salary', 'Start date', 'Gender', 'Nationality', 'City', 'Country', 'Date of birth'];
+    const rows: string[][] = [];
     for (const offer of accepted) {
       const app = await getApplicationById(offer.applicationId).catch(() => null);
       rows.push([
@@ -146,14 +146,7 @@ export function OffersPage() {
         app?.gender ?? '', app?.nationality ?? '', app?.city ?? '', app?.country ?? '', app?.dateOfBirth ?? '',
       ]);
     }
-    const csv = rows.map((r) => r.map((c) => `"${String(c).replace(/"/g, '""')}"`).join(',')).join('\n');
-    const blob = new Blob([csv], { type: 'text/csv' });
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement('a');
-    a.href = url;
-    a.download = `onboarding-handoff-${new Date().toISOString().slice(0, 10)}.csv`;
-    a.click();
-    URL.revokeObjectURL(url);
+    downloadCsv(`onboarding-handoff-${new Date().toISOString().slice(0, 10)}.csv`, headers, rows);
   };
 
   const filteredOffers = offers.filter((offer) => {

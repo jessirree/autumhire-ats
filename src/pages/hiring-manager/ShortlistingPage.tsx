@@ -6,7 +6,6 @@ import {
     MessageSquare,
     Eye,
     Search,
-    Filter,
     Info,
     ChevronUp,
     ChevronDown,
@@ -151,11 +150,17 @@ function PanelRatingCell({ ratings, myId, onRate, onClear, onComment }: PanelRat
                 <span className={`text-base font-bold ${ratingColorClass(avg)}`}>{avg.toFixed(1)}</span>
                 <span className="block text-xs text-muted-foreground">
                     from {ratings.length} · you rated {mine!.score}
+                    {mine!.comment && <MessageSquare className="size-3 inline ml-1 -mt-0.5 text-autumn-orange" />}
                 </span>
             </button>
-            <div className="hidden group-hover:block absolute z-10 left-0 top-full mt-1 bg-white border border-gray-200 rounded-lg shadow-md p-2 text-xs text-gray-600 whitespace-nowrap space-y-0.5">
+            <div className="hidden group-hover:block absolute z-10 left-0 top-full mt-1 w-max max-w-xs bg-white border border-gray-200 rounded-lg shadow-md p-2 text-xs text-gray-600 whitespace-normal space-y-1.5">
                 {ratings.map((r) => (
-                    <div key={r.panelistId}>{r.panelistName}: {RATING_LABELS[r.score]}</div>
+                    <div key={r.panelistId}>
+                        <span className="font-medium">{r.panelistName}</span>: {RATING_LABELS[r.score]}
+                        {r.comment && (
+                            <div className="text-muted-foreground italic">{r.comment}</div>
+                        )}
+                    </div>
                 ))}
             </div>
         </div>
@@ -170,6 +175,7 @@ export function ShortlistingPage({ onViewCandidate }: ShortlistingPageProps) {
     const { user } = useAuth();
     const [candidates, setCandidates] = useState<Candidate[]>([]);
     const [loading, setLoading] = useState(true);
+    const [error, setError] = useState<string | null>(null);
     const [searchTerm, setSearchTerm] = useState('');
     const [noteText, setNoteText] = useState('');
     const [activeNoteId, setActiveNoteId] = useState<string | null>(null);
@@ -177,6 +183,7 @@ export function ShortlistingPage({ onViewCandidate }: ShortlistingPageProps) {
     const [openCriteriaId, setOpenCriteriaId] = useState<string | null>(null);
     const [sortKey, setSortKey] = useState<SortKey>('appliedAt');
     const [sortDir, setSortDir] = useState<SortDir>('desc');
+    const [statusFilter, setStatusFilter] = useState('');
     const [ratingsByAppId, setRatingsByAppId] = useState<Record<string, PanelRating[]>>({});
 
     const toggleSort = (key: SortKey) => {
@@ -190,6 +197,7 @@ export function ShortlistingPage({ onViewCandidate }: ShortlistingPageProps) {
 
     const load = () => {
         setLoading(true);
+        setError(null);
         Promise.all([getAllApplications(), getJobs(true)])
             .then(async ([apps, jobs]) => {
                 // Hiring managers review the longlist + already shortlisted candidates.
@@ -215,7 +223,10 @@ export function ShortlistingPage({ onViewCandidate }: ShortlistingPageProps) {
                 // Loaded once for the whole visible list rather than per row.
                 setRatingsByAppId(await getPanelRatingsForApplications(relevant.map((a) => a.id)));
             })
-            .catch((err) => console.error('Failed to load candidates', err))
+            .catch((err: any) => {
+                console.error('Failed to load candidates', err);
+                setError(err?.message || 'Failed to load candidates.');
+            })
             .finally(() => setLoading(false));
     };
 
@@ -307,8 +318,9 @@ export function ShortlistingPage({ onViewCandidate }: ShortlistingPageProps) {
     const visibleCandidates = sortCandidateRows(
         candidates.filter(
             (c) =>
-                c.name.toLowerCase().includes(searchTerm.toLowerCase()) ||
-                c.role.toLowerCase().includes(searchTerm.toLowerCase())
+                (c.name.toLowerCase().includes(searchTerm.toLowerCase()) ||
+                    c.role.toLowerCase().includes(searchTerm.toLowerCase())) &&
+                (!statusFilter || c.status === statusFilter)
         ),
         sortKey,
         sortDir
@@ -338,9 +350,16 @@ export function ShortlistingPage({ onViewCandidate }: ShortlistingPageProps) {
                             className="pl-10 pr-4 py-2 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-autumn-orange/50"
                         />
                     </div>
-                    <Button variant="outline" className="flex items-center gap-2">
-                        <Filter className="size-4" /> Filter
-                    </Button>
+                    <select
+                        value={statusFilter}
+                        onChange={(e) => setStatusFilter(e.target.value)}
+                        className="px-4 py-2 border border-gray-200 rounded-lg text-sm bg-white font-medium text-gray-700 focus:outline-none focus:ring-2 focus:ring-autumn-orange/50"
+                    >
+                        <option value="">All Stages</option>
+                        <option value="longlisted">Longlisted</option>
+                        <option value="shortlisted">Shortlisted</option>
+                        <option value="rejected">Rejected</option>
+                    </select>
                 </div>
             </div>
 
@@ -381,10 +400,18 @@ export function ShortlistingPage({ onViewCandidate }: ShortlistingPageProps) {
                             {loading && (
                                 <tr><td colSpan={8} className="px-6 py-12 text-center text-gray-500">Loading candidates…</td></tr>
                             )}
-                            {!loading && visibleCandidates.length === 0 && (
+                            {!loading && error && (
+                                <tr>
+                                    <td colSpan={8} className="px-6 py-12 text-center">
+                                        <p className="text-red-600 font-medium mb-3">{error}</p>
+                                        <Button variant="outline" size="sm" onClick={load}>Retry</Button>
+                                    </td>
+                                </tr>
+                            )}
+                            {!loading && !error && visibleCandidates.length === 0 && (
                                 <tr><td colSpan={8} className="px-6 py-12 text-center text-gray-500">No longlisted candidates yet. Candidates appear here once the recruiter long-lists them.</td></tr>
                             )}
-                            {!loading && visibleCandidates.map((candidate) => (
+                            {!loading && !error && visibleCandidates.map((candidate) => (
                                 <tr key={candidate.id} className="hover:bg-gray-50 transition-colors">
                                     <td className="px-6 py-4">
                                         <div className="flex items-center gap-3">
