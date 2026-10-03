@@ -46,10 +46,10 @@ export type RequisitionPriority = 'low' | 'medium' | 'high' | 'urgent';
 export const GRADE_REGEX = /^[A-Za-z0-9]{1,10}$/;
 
 export const PRIORITY_STYLES: Record<RequisitionPriority, { label: string; badge: string; row: string }> = {
-  low:    { label: 'Low',    badge: 'bg-green-100 text-green-800 border-green-200',   row: 'border-l-4 border-l-green-400' },
-  medium: { label: 'Medium', badge: 'bg-amber-100 text-amber-800 border-amber-200',   row: 'border-l-4 border-l-amber-400' },
-  high:   { label: 'High',   badge: 'bg-orange-100 text-orange-800 border-orange-200', row: 'border-l-4 border-l-orange-500' },
-  urgent: { label: 'Urgent', badge: 'bg-red-100 text-red-800 border-red-200',         row: 'border-l-4 border-l-red-500' },
+  low:    { label: 'Low',    badge: 'bg-autumn-green/10 text-autumn-green border-autumn-green/30',   row: 'border-l-4 border-l-autumn-green' },
+  medium: { label: 'Medium', badge: 'bg-autumn-yellow/10 text-autumn-yellow border-autumn-yellow/30', row: 'border-l-4 border-l-autumn-yellow' },
+  high:   { label: 'High',   badge: 'bg-autumn-orange/10 text-autumn-orange border-autumn-orange/30', row: 'border-l-4 border-l-autumn-orange' },
+  urgent: { label: 'Urgent', badge: 'bg-autumn-red/10 text-autumn-red border-autumn-red/30',         row: 'border-l-4 border-l-autumn-red' },
 };
 
 export const STATUS_LABELS: Record<RequisitionStatus, string> = {
