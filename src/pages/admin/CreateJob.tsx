@@ -136,6 +136,43 @@ const initialJobSettings: JobSettings = {
   shortlistingCriteria: "",
 };
 
+interface DraftState {
+  jobDetails: JobDetails;
+  jobSettings: JobSettings;
+  questions: Question[];
+  hiringTeam: StaffMember[];
+  hiringCoordinatorId: string;
+}
+
+// A reload mid-wizard must not wipe what the user already typed — the step
+// number alone (?step=N) survives a reload via the URL, but the form data
+// lived only in React state until this draft was added. sessionStorage, not
+// localStorage, so an abandoned draft dies with the tab rather than lingering.
+function loadDraft(key: string): DraftState | null {
+  try {
+    const raw = sessionStorage.getItem(key);
+    return raw ? (JSON.parse(raw) as DraftState) : null;
+  } catch {
+    return null;
+  }
+}
+
+function saveDraft(key: string, draft: DraftState): void {
+  try {
+    sessionStorage.setItem(key, JSON.stringify(draft));
+  } catch {
+    // best-effort — a storage failure must not block editing
+  }
+}
+
+function clearDraft(key: string): void {
+  try {
+    sessionStorage.removeItem(key);
+  } catch {
+    // best-effort
+  }
+}
+
 // Map a Firestore Job document into the local form state shape.
 function jobToFormState(job: Job): {
   details: JobDetails;
@@ -200,6 +237,12 @@ export function CreateJob({
   fromRequisitionId?: string;
 }) {
   const { user } = useAuth();
+  const draftKey = `createJob:${editJobId ?? "new"}`;
+  // Read once, at mount, before the ?step=N logic below and before the
+  // editJobId/fromRequisitionId fetch effects run — those effects check
+  // hadDraft and skip their own overwrite when a draft was restored.
+  const [initialDraft] = useState<DraftState | null>(() => loadDraft(draftKey));
+  const hadDraft = initialDraft !== null;
   const [searchParams, setSearchParams] = useSearchParams();
   const [currentStep, setCurrentStepState] = useState(() => {
     const fromUrl = Number(searchParams.get("step"));
@@ -216,9 +259,12 @@ export function CreateJob({
       return next;
     });
   };
-  const [jobDetails, setJobDetails] = useState<JobDetails>(initialJobDetails);
-  const [jobSettings, setJobSettings] =
-    useState<JobSettings>(initialJobSettings);
+  const [jobDetails, setJobDetails] = useState<JobDetails>(
+    () => initialDraft?.jobDetails ?? initialJobDetails,
+  );
+  const [jobSettings, setJobSettings] = useState<JobSettings>(
+    () => initialDraft?.jobSettings ?? initialJobSettings,
+  );
   const [duplicateJobId, setDuplicateJobId] = useState("");
   const [existingJobs, setExistingJobs] = useState<Job[]>([]);
   const [staffMembers, setStaffMembers] = useState<StaffMember[]>([]);
@@ -253,7 +299,9 @@ export function CreateJob({
     },
   ];
 
-  const [questions, setQuestions] = useState<Question[]>(initialQuestions);
+  const [questions, setQuestions] = useState<Question[]>(
+    () => initialDraft?.questions ?? initialQuestions,
+  );
   const [currentQuestion, setCurrentQuestion] = useState<Question>({
     id: "",
     text: "",
@@ -263,8 +311,12 @@ export function CreateJob({
   });
 
   // Hiring Team State
-  const [hiringTeam, setHiringTeam] = useState<StaffMember[]>([]);
-  const [hiringCoordinatorId, setHiringCoordinatorId] = useState<string>("");
+  const [hiringTeam, setHiringTeam] = useState<StaffMember[]>(
+    () => initialDraft?.hiringTeam ?? [],
+  );
+  const [hiringCoordinatorId, setHiringCoordinatorId] = useState<string>(
+    () => initialDraft?.hiringCoordinatorId ?? "",
+  );
 
   // Load staff (for the hiring team picker) and existing jobs (for duplication)
   useEffect(() => {
@@ -299,7 +351,7 @@ export function CreateJob({
 
   // Prefill from an approved requisition (recruiter publish flow).
   useEffect(() => {
-    if (!fromRequisitionId || editJobId) return;
+    if (!fromRequisitionId || editJobId || hadDraft) return;
     (async () => {
       const requisition = await getRequisitionById(fromRequisitionId);
       if (!requisition) return;
@@ -327,6 +379,7 @@ export function CreateJob({
 
   // Load the job being edited
   useEffect(() => {
+    if (hadDraft) return;
     if (!editJobId) {
       setJobDetails((prev) => ({
         ...prev,
@@ -345,6 +398,22 @@ export function CreateJob({
       setHiringCoordinatorId(state.coordinatorId);
     })();
   }, [editJobId]);
+
+  // Persist the wizard's form data to sessionStorage, debounced, so a reload
+  // (?step=N already restores the step itself) doesn't land the user on an
+  // empty step believing their work survived.
+  useEffect(() => {
+    const timer = setTimeout(() => {
+      saveDraft(draftKey, {
+        jobDetails,
+        jobSettings,
+        questions,
+        hiringTeam,
+        hiringCoordinatorId,
+      });
+    }, 400);
+    return () => clearTimeout(timer);
+  }, [draftKey, jobDetails, jobSettings, questions, hiringTeam, hiringCoordinatorId]);
 
   const buildJobInput = (status: JobStatus): JobInput => ({
     title: jobDetails.jobTitle.trim() || "Untitled Job",
@@ -458,6 +527,7 @@ export function CreateJob({
           jobDetails.location,
         ).catch(() => {});
       }
+      clearDraft(draftKey);
       if (isDraft) {
         toast.success("Draft saved successfully!");
         onSubmit();
@@ -531,6 +601,11 @@ export function CreateJob({
   const handleBack = () => {
     if (currentStep > 1) goToStep(currentStep - 1);
     else onBack();
+  };
+
+  const handleCancel = () => {
+    clearDraft(draftKey);
+    onBack();
   };
 
   // Question Handlers
@@ -616,7 +691,7 @@ export function CreateJob({
           </h1>
         </div>
         <div className="flex gap-3">
-          <Button variant="outline" onClick={onBack}>
+          <Button variant="outline" onClick={handleCancel}>
             Cancel
           </Button>
           {currentStep !== 5 ? (
