@@ -151,11 +151,17 @@ function PanelRatingCell({ ratings, myId, onRate, onClear, onComment }: PanelRat
                 <span className={`text-base font-bold ${ratingColorClass(avg)}`}>{avg.toFixed(1)}</span>
                 <span className="block text-xs text-muted-foreground">
                     from {ratings.length} · you rated {mine!.score}
+                    {mine!.comment && <MessageSquare className="size-3 inline ml-1 -mt-0.5 text-autumn-orange" />}
                 </span>
             </button>
-            <div className="hidden group-hover:block absolute z-10 left-0 top-full mt-1 bg-white border border-gray-200 rounded-lg shadow-md p-2 text-xs text-gray-600 whitespace-nowrap space-y-0.5">
+            <div className="hidden group-hover:block absolute z-10 left-0 top-full mt-1 w-max max-w-xs bg-white border border-gray-200 rounded-lg shadow-md p-2 text-xs text-gray-600 whitespace-normal space-y-1.5">
                 {ratings.map((r) => (
-                    <div key={r.panelistId}>{r.panelistName}: {RATING_LABELS[r.score]}</div>
+                    <div key={r.panelistId}>
+                        <span className="font-medium">{r.panelistName}</span>: {RATING_LABELS[r.score]}
+                        {r.comment && (
+                            <div className="text-muted-foreground italic">{r.comment}</div>
+                        )}
+                    </div>
                 ))}
             </div>
         </div>
