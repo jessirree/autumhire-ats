@@ -367,9 +367,10 @@ export function JobAdvertsPage({
                 <tr>
                   <td
                     colSpan={7}
-                    className="px-6 py-12 text-center text-red-500"
+                    className="px-6 py-12 text-center"
                   >
-                    {error}
+                    <p className="text-red-600 font-medium mb-3">{error}</p>
+                    <Button variant="outline" size="sm" onClick={load}>Retry</Button>
                   </td>
                 </tr>
               )}

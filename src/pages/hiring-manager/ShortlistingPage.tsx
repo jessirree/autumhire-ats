@@ -170,6 +170,7 @@ export function ShortlistingPage({ onViewCandidate }: ShortlistingPageProps) {
     const { user } = useAuth();
     const [candidates, setCandidates] = useState<Candidate[]>([]);
     const [loading, setLoading] = useState(true);
+    const [error, setError] = useState<string | null>(null);
     const [searchTerm, setSearchTerm] = useState('');
     const [noteText, setNoteText] = useState('');
     const [activeNoteId, setActiveNoteId] = useState<string | null>(null);
@@ -190,6 +191,7 @@ export function ShortlistingPage({ onViewCandidate }: ShortlistingPageProps) {
 
     const load = () => {
         setLoading(true);
+        setError(null);
         Promise.all([getAllApplications(), getJobs(true)])
             .then(async ([apps, jobs]) => {
                 // Hiring managers review the longlist + already shortlisted candidates.
@@ -215,7 +217,10 @@ export function ShortlistingPage({ onViewCandidate }: ShortlistingPageProps) {
                 // Loaded once for the whole visible list rather than per row.
                 setRatingsByAppId(await getPanelRatingsForApplications(relevant.map((a) => a.id)));
             })
-            .catch((err) => console.error('Failed to load candidates', err))
+            .catch((err: any) => {
+                console.error('Failed to load candidates', err);
+                setError(err?.message || 'Failed to load candidates.');
+            })
             .finally(() => setLoading(false));
     };
 
@@ -381,10 +386,18 @@ export function ShortlistingPage({ onViewCandidate }: ShortlistingPageProps) {
                             {loading && (
                                 <tr><td colSpan={8} className="px-6 py-12 text-center text-gray-500">Loading candidates…</td></tr>
                             )}
-                            {!loading && visibleCandidates.length === 0 && (
+                            {!loading && error && (
+                                <tr>
+                                    <td colSpan={8} className="px-6 py-12 text-center">
+                                        <p className="text-red-600 font-medium mb-3">{error}</p>
+                                        <Button variant="outline" size="sm" onClick={load}>Retry</Button>
+                                    </td>
+                                </tr>
+                            )}
+                            {!loading && !error && visibleCandidates.length === 0 && (
                                 <tr><td colSpan={8} className="px-6 py-12 text-center text-gray-500">No longlisted candidates yet. Candidates appear here once the recruiter long-lists them.</td></tr>
                             )}
-                            {!loading && visibleCandidates.map((candidate) => (
+                            {!loading && !error && visibleCandidates.map((candidate) => (
                                 <tr key={candidate.id} className="hover:bg-gray-50 transition-colors">
                                     <td className="px-6 py-4">
                                         <div className="flex items-center gap-3">

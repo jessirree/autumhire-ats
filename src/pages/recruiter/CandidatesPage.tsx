@@ -104,15 +104,22 @@ export function CandidatesPage({ onViewCandidate }: CandidatesPageProps) {
   const [jobTitles, setJobTitles] = useState<string[]>([]);
   const [sortKey, setSortKey] = useState<SortKey>('appliedAt');
   const [sortDir, setSortDir] = useState<SortDir>('desc');
+  const [error, setError] = useState<string | null>(null);
 
-  useEffect(() => {
+  const load = () => {
+    setError(null);
     getAllApplications()
       .then((apps) => {
         setCandidates(buildProfiles(apps));
         setJobTitles(Array.from(new Set(apps.map((a) => a.jobTitle))));
       })
-      .catch((err) => console.error('Failed to load candidates', err));
-  }, []);
+      .catch((err: any) => {
+        console.error('Failed to load candidates', err);
+        setError(err?.message || 'Failed to load candidates.');
+      });
+  };
+
+  useEffect(load, []);
 
   const filteredCandidates = useMemo(() => {
     return candidates.filter(candidate => {
@@ -304,7 +311,13 @@ export function CandidatesPage({ onViewCandidate }: CandidatesPageProps) {
               </div>
             </div>
           ))}
-          {sortedCandidates.length === 0 && (
+          {error && (
+             <div className="col-span-full py-12 text-center bg-white rounded-xl border border-gray-100">
+               <p className="text-red-600 font-medium mb-3">{error}</p>
+               <Button variant="outline" size="sm" onClick={load}>Retry</Button>
+             </div>
+          )}
+          {!error && sortedCandidates.length === 0 && (
              <div className="col-span-full py-12 text-center text-gray-500 bg-white rounded-xl border border-gray-100">
                <div className="size-12 bg-gray-50 rounded-full flex items-center justify-center mx-auto mb-3">
                  <Search className="size-6 text-gray-400" />

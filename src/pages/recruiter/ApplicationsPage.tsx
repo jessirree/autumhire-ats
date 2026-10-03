@@ -45,6 +45,7 @@ export function ApplicationsPage({ onViewCandidate }: ApplicationsPageProps) {
   const [filterJob, setFilterJob] = useState<Job | null>(null);
   const [applications, setApplications] = useState<Application[]>([]);
   const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
   const [searchTerm, setSearchTerm] = useState('');
   const [statusFilter, setStatusFilter] = useState('');
   const [departmentFilter, setDepartmentFilter] = useState('');
@@ -63,6 +64,7 @@ export function ApplicationsPage({ onViewCandidate }: ApplicationsPageProps) {
 
   const load = () => {
     setLoading(true);
+    setError(null);
     Promise.all([
       jobFilterId ? getApplicationsForJob(jobFilterId) : getAllApplications(showArchived),
       jobFilterId ? getJobById(jobFilterId) : Promise.resolve(null),
@@ -77,7 +79,10 @@ export function ApplicationsPage({ onViewCandidate }: ApplicationsPageProps) {
         );
         setFilterJob(job);
       })
-      .catch((err) => console.error('Failed to load applications', err))
+      .catch((err: any) => {
+        console.error('Failed to load applications', err);
+        setError(err?.message || 'Failed to load applications.');
+      })
       .finally(() => setLoading(false));
   };
 
@@ -406,7 +411,15 @@ export function ApplicationsPage({ onViewCandidate }: ApplicationsPageProps) {
                   <td colSpan={7} className="px-6 py-12 text-center text-gray-500">Loading applications…</td>
                 </tr>
               )}
-              {!loading && filteredApplications.length === 0 && (
+              {!loading && error && (
+                <tr>
+                  <td colSpan={7} className="px-6 py-12 text-center">
+                    <p className="text-red-600 font-medium mb-3">{error}</p>
+                    <Button variant="outline" size="sm" onClick={load}>Retry</Button>
+                  </td>
+                </tr>
+              )}
+              {!loading && !error && filteredApplications.length === 0 && (
                 <tr>
                   <td colSpan={7} className="px-6 py-12 text-center text-gray-500">
                     <div className="size-12 bg-gray-50 rounded-full flex items-center justify-center mx-auto mb-3">
