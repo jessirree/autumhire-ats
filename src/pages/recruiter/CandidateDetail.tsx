@@ -274,7 +274,10 @@ export function CandidateDetail({ candidateId, onBack }: CandidateDetailProps) {
           <Button className="bg-amber-50 text-amber-700 hover:bg-amber-100 shadow-none border-0" onClick={() => handleUpdateStatus('shortlisted')}>
             <Star className="size-4 mr-2" /> Shortlist
           </Button>
-          <Button className="bg-purple-50 text-purple-700 hover:bg-purple-100 shadow-none border-0" onClick={() => handleUpdateStatus('interview')}>
+          <Button
+            className="bg-purple-50 text-purple-700 hover:bg-purple-100 shadow-none border-0"
+            onClick={() => navigate('/recruiter/interviews', { state: { scheduleForApplicationId: application.id } })}
+          >
             <Calendar className="size-4 mr-2" /> Move to Interview
           </Button>
           <Button className="bg-green-50 text-green-700 hover:bg-green-100 shadow-none border-0" onClick={() => handleUpdateStatus('offer')}>

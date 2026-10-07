@@ -1,4 +1,5 @@
 import { useEffect, useState } from 'react';
+import { useLocation, useNavigate } from 'react-router-dom';
 import { toast } from 'sonner';
 import { Search, Filter, CalendarPlus, UserCheck, Video, MapPin, Clock, X, Printer } from 'lucide-react';
 import { collection, getDocs } from 'firebase/firestore';
@@ -26,6 +27,8 @@ interface Staff {
 
 export function InterviewsPage() {
   const { user } = useAuth();
+  const location = useLocation();
+  const navigate = useNavigate();
   const [searchTerm, setSearchTerm] = useState('');
   const [statusFilter, setStatusFilter] = useState('all');
   const [interviews, setInterviews] = useState<Interview[]>([]);
@@ -62,6 +65,21 @@ export function InterviewsPage() {
   };
 
   useEffect(load, []);
+
+  // H5: CandidateDetail's "Move to Interview" button lands here now instead
+  // of just flipping the application status — scheduleInterview already
+  // sets status to 'interview' once scheduling actually completes, so there
+  // is no separate status-only step to preserve.
+  useEffect(() => {
+    const preselectId = (location.state as { scheduleForApplicationId?: string } | null)
+      ?.scheduleForApplicationId;
+    if (!preselectId) return;
+    openScheduler().then(() => {
+      setForm((prev) => ({ ...prev, applicationId: preselectId }));
+    });
+    navigate(location.pathname, { replace: true, state: null });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   const openScheduler = async () => {
     setShowSchedule(true);
