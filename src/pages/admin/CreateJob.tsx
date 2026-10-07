@@ -524,13 +524,22 @@ export function CreateJob({
         }
       }
       if (effectiveStatus === "Active") {
-        // Keep the public RSS feed in sync + tell subscribers (best-effort).
-        regenerateJobsFeed().catch(() => {});
+        // Keep the public RSS feed in sync + tell subscribers. Both run after
+        // the job itself has already saved successfully, so a failure here
+        // is surfaced, not silent, but must not be treated as the save
+        // itself failing.
+        regenerateJobsFeed().catch((err) => {
+          console.warn("Failed to regenerate the public jobs feed", err);
+          toast.warning("Job posted, but the public RSS feed failed to refresh.");
+        });
         notifyJobAlertSubscribers(
           jobDetails.jobTitle,
           jobDetails.location,
           user,
-        ).catch(() => {});
+        ).catch((err) => {
+          console.warn("Failed to notify job alert subscribers", err);
+          toast.warning("Job posted, but job-alert subscribers could not be notified.");
+        });
       }
       clearDraft(draftKey);
       if (isDraft) {

@@ -473,6 +473,27 @@ export async function setPrescreenScore(
   await logAudit(by, 'update', 'Application', applicationId, `Score set to ${score}`);
 }
 
+/**
+ * Persists edited per-answer points (set/define scores on individual
+ * pre-screening answers during long listing) alongside the total. The total
+ * is passed in rather than recomputed here because a recruiter may still
+ * type a manual override that ignores the per-answer breakdown entirely —
+ * this must keep working exactly as setPrescreenScore does.
+ */
+export async function setAnswerScores(
+  applicationId: string,
+  answers: ScreeningAnswer[],
+  totalScore: number,
+  by: { id: string; name: string }
+): Promise<void> {
+  await updateDoc(doc(db, COL, applicationId), {
+    answers,
+    prescreenScore: totalScore,
+    updatedAt: serverTimestamp(),
+  });
+  await logAudit(by, 'update', 'Application', applicationId, `Re-scored answers, total set to ${totalScore}`);
+}
+
 // ── Panel comments (shortlisting collaboration) ─────────────────────
 
 export async function addPanelComment(

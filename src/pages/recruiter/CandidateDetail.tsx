@@ -15,10 +15,11 @@ import {
   PanelComment,
   PanelRating,
   RATING_LABELS,
+  ScreeningAnswer,
   getApplicationById,
   getApplicationsByCandidate,
   updateApplicationStatus,
-  setPrescreenScore,
+  setAnswerScores,
   addPanelComment,
   getPanelComments,
   getPanelRatings,
@@ -48,6 +49,7 @@ export function CandidateDetail({ candidateId, onBack }: CandidateDetailProps) {
   const [panelRatings, setPanelRatings] = useState<PanelRating[]>([]);
   const [loading, setLoading] = useState(true);
   const [newScore, setNewScore] = useState<number>(0);
+  const [editedAnswers, setEditedAnswers] = useState<ScreeningAnswer[]>([]);
   const [notes, setNotes] = useState('');
   const [referenceChecks, setReferenceChecks] = useState<ReferenceCheck[]>([]);
   const [showRefForm, setShowRefForm] = useState(false);
@@ -62,6 +64,7 @@ export function CandidateDetail({ candidateId, onBack }: CandidateDetailProps) {
         setApplication(app);
         if (app) {
           setNewScore(app.prescreenScore);
+          setEditedAnswers(app.answers ?? []);
           const [ivs, cms, refs, allApps, ratings] = await Promise.all([
             getInterviewsForCandidate(app.candidateId),
             getPanelComments(app.id),
@@ -86,8 +89,19 @@ export function CandidateDetail({ candidateId, onBack }: CandidateDetailProps) {
 
   const handleUpdateScore = async () => {
     if (!application || !user) return;
-    await setPrescreenScore(application.id, newScore, user);
-    setApplication({ ...application, prescreenScore: newScore });
+    // newScore may be the auto-recomputed sum of editedAnswers, or a value
+    // the recruiter typed over it manually — either way it's what gets
+    // saved as the total, same as before per-answer editing existed.
+    await setAnswerScores(application.id, editedAnswers, newScore, user);
+    setApplication({ ...application, prescreenScore: newScore, answers: editedAnswers });
+  };
+
+  const handleAnswerScoreChange = (index: number, score: number) => {
+    setEditedAnswers((prev) => {
+      const next = prev.map((a, i) => (i === index ? { ...a, score } : a));
+      setNewScore(next.reduce((sum, a) => sum + (a.score ?? 0), 0));
+      return next;
+    });
   };
 
   const handleUpdateStatus = async (status: ApplicationStatus) => {
@@ -403,15 +417,25 @@ export function CandidateDetail({ candidateId, onBack }: CandidateDetailProps) {
             </div>
 
             <div className="space-y-4">
-              {(application.answers ?? []).length === 0 && (
+              {editedAnswers.length === 0 && (
                 <p className="text-sm text-gray-500">No pre-screening questions for this job.</p>
               )}
-              {(application.answers ?? []).map((item, index) => (
+              {editedAnswers.map((item, index) => (
                 <div key={index} className="bg-gray-50/50 p-3 rounded-lg border border-gray-100">
-                  <div className="flex justify-between items-start mb-1">
+                  <div className="flex justify-between items-start mb-1 gap-2">
                     <h4 className="font-semibold text-gray-800 text-sm leading-tight">{item.question}</h4>
                     {item.score !== undefined && (
-                      <span className="text-xs font-bold text-blue-600 bg-blue-50 px-1.5 py-0.5 rounded">{item.score} pts</span>
+                      <div className="flex items-center gap-1 shrink-0">
+                        <input
+                          type="number"
+                          value={item.score}
+                          onChange={(e) => handleAnswerScoreChange(index, Number(e.target.value))}
+                          className="w-14 px-1.5 py-0.5 text-xs font-bold text-blue-600 bg-blue-50 border border-blue-100 rounded text-center"
+                          min="0"
+                          title="Edit this answer's points — the total above recomputes automatically"
+                        />
+                        <span className="text-xs text-blue-600">pts</span>
+                      </div>
                     )}
                   </div>
                   <p className="text-gray-600 text-sm mt-2">{item.answer || '—'}</p>
