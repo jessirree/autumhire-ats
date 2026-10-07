@@ -82,11 +82,27 @@ export function ApplicationForm({ job, onBack, onSubmit }: ApplicationFormProps)
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [user, job.id]);
 
+  // H3: matches storage.rules:47-48 for every one of these three uploads —
+  // CV and cover letter were never checked client-side, so an 11MB CV was
+  // accepted by the form and only rejected by storage.rules at submit, with
+  // an opaque error. Checking here means the candidate finds out at attach
+  // time, not after filling in the rest of the form.
+  const MAX_FILE_SIZE = 10 * 1024 * 1024;
+  const MAX_OTHER_FILES = 5;
+
+  const isAcceptablePdf = (file: File) =>
+    file.name.toLowerCase().endsWith('.pdf') && (!file.type || file.type === 'application/pdf');
+
   const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>, type: 'resume' | 'coverLetter') => {
     const file = e.target.files?.[0];
     if (!file) return;
-    if (!file.name.toLowerCase().endsWith('.pdf') || (file.type && file.type !== 'application/pdf')) {
+    if (!isAcceptablePdf(file)) {
       setError('Only PDF files are accepted for CV/resume and cover letter uploads.');
+      e.target.value = '';
+      return;
+    }
+    if (file.size > MAX_FILE_SIZE) {
+      setError(`"${file.name}" is larger than 10 MB.`);
       e.target.value = '';
       return;
     }
@@ -100,21 +116,16 @@ export function ApplicationForm({ job, onBack, onSubmit }: ApplicationFormProps)
     else setCoverLetterFile(null);
   };
 
-  const MAX_OTHER_FILES = 5;
-  const MAX_OTHER_FILE_SIZE = 10 * 1024 * 1024; // matches storage.rules:47
-
   const handleOtherFilesChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     const incoming = Array.from(e.target.files ?? []);
     e.target.value = ''; // let the same file be re-selected if removed later
     if (incoming.length === 0) return;
-    const badType = incoming.find(
-      (f) => !f.name.toLowerCase().endsWith('.pdf') || (f.type && f.type !== 'application/pdf')
-    );
+    const badType = incoming.find((f) => !isAcceptablePdf(f));
     if (badType) {
       setError(`"${badType.name}" is not a PDF. Only PDF files are accepted for supporting documents.`);
       return;
     }
-    const tooBig = incoming.find((f) => f.size > MAX_OTHER_FILE_SIZE);
+    const tooBig = incoming.find((f) => f.size > MAX_FILE_SIZE);
     if (tooBig) {
       setError(`"${tooBig.name}" is larger than 10 MB.`);
       return;
@@ -461,7 +472,7 @@ export function ApplicationForm({ job, onBack, onSubmit }: ApplicationFormProps)
                   <>
                     <Upload className="size-8 text-gray-400 mx-auto mb-3" />
                     <p className="font-medium mb-1">Upload Resume/CV {job.requireResume !== false && <span className="text-red-500">*</span>}</p>
-                    <p className="text-sm text-gray-500 mb-3">PDF only (max 5MB)</p>
+                    <p className="text-sm text-gray-500 mb-3">PDF only (max 10MB)</p>
                     <div className="relative inline-block">
                       <Button type="button" variant="outline" size="sm" className="pointer-events-none">Choose File</Button>
                       <input
@@ -495,7 +506,7 @@ export function ApplicationForm({ job, onBack, onSubmit }: ApplicationFormProps)
                   <>
                     <Upload className="size-8 text-gray-400 mx-auto mb-3" />
                     <p className="font-medium mb-1">Upload Cover Letter {job.requireCoverLetter && <span className="text-red-500">*</span>}</p>
-                    <p className="text-sm text-gray-500 mb-3">PDF only (max 5MB)</p>
+                    <p className="text-sm text-gray-500 mb-3">PDF only (max 10MB)</p>
                     <div className="relative inline-block">
                       <Button type="button" variant="outline" size="sm" className="pointer-events-none">Choose File</Button>
                       <input

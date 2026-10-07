@@ -33,6 +33,39 @@ export async function updateCandidateProfile(
   await updateDoc(doc(db, 'Users', userId), { ...clean, updatedAt: serverTimestamp() });
 }
 
+/**
+ * H4: fills in profile fields from a just-submitted application, but only
+ * ones the candidate's profile doesn't already have — never overwrites
+ * something they set deliberately. Row 4.2 promises a profile and CV
+ * reusable across applications; without this, applying before ever
+ * touching the profile page leaves it permanently empty, so every later
+ * application starts from scratch.
+ */
+export async function backfillProfileFromApplication(
+  userId: string,
+  fields: Pick<CandidateProfile, 'phone' | 'dateOfBirth' | 'gender' | 'nationality' | 'city' | 'country' | 'cvUrl' | 'cvFileName'>
+): Promise<void> {
+  const current = await getCandidateProfile(userId);
+  const toBackfill: CandidateProfile = {};
+
+  (['phone', 'dateOfBirth', 'gender', 'nationality', 'city', 'country'] as const).forEach((key) => {
+    if (!current[key] && fields[key]) {
+      toBackfill[key] = fields[key];
+    }
+  });
+
+  // cvUrl/cvFileName are a pair — only backfill together, and only when
+  // there's no existing profile CV at all.
+  if (!current.cvUrl && fields.cvUrl) {
+    toBackfill.cvUrl = fields.cvUrl;
+    toBackfill.cvFileName = fields.cvFileName;
+  }
+
+  if (Object.keys(toBackfill).length > 0) {
+    await updateCandidateProfile(userId, toBackfill);
+  }
+}
+
 /** Uploads a reusable CV to the candidate's profile folder. */
 export async function uploadProfileCv(
   userId: string,

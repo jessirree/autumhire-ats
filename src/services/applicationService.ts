@@ -19,6 +19,7 @@ import { STORAGE_ENABLED } from '../lib/featureFlags';
 import { getJobById, isJobOpen, Job, ScreeningQuestion } from './jobService';
 import { notify } from './notificationService';
 import { logAudit } from './auditService';
+import { backfillProfileFromApplication } from './profileService';
 
 export type ApplicationStatus =
   | 'applied'
@@ -300,6 +301,19 @@ export async function applyToJob(input: {
 
   const docRef = await addDoc(collection(db, COL), appDoc);
 
+  // H4: best-effort — a profile-backfill failure must not fail the
+  // application that already succeeded.
+  await backfillProfileFromApplication(candidate.id, {
+    phone: input.phone,
+    dateOfBirth: input.dateOfBirth,
+    gender: input.gender,
+    nationality: input.nationality,
+    city: input.city,
+    country: input.country,
+    cvUrl: cv?.url,
+    cvFileName: cv?.name,
+  }).catch((err) => console.warn('Failed to backfill candidate profile from application', err));
+
   await notify({
     userId: candidate.id,
     email: candidate.email,
@@ -387,7 +401,12 @@ export async function updateApplicationStatus(
   status: ApplicationStatus,
   by: { id: string; name: string },
   comment?: string,
-  notifyCandidate = false
+  // H2: defaulted to false, so longlisted/interview/offer transitions were
+  // silent — row 5.4 promises online tracking through every stage. Default
+  // is now true; a caller only passes false when a more specific
+  // notification follows the same transition (e.g. scheduleInterview's own
+  // interview-invitation email) and a generic one would be a duplicate.
+  notifyCandidate = true
 ): Promise<void> {
   const entry: StatusHistoryEntry = {
     status,

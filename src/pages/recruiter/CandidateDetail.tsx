@@ -107,7 +107,11 @@ export function CandidateDetail({ candidateId, onBack }: CandidateDetailProps) {
   const handleUpdateStatus = async (status: ApplicationStatus) => {
     if (!application || !user) return;
     try {
-      await updateApplicationStatus(application, status, user, undefined, status === 'rejected');
+      // H2: every transition here now notifies the candidate — this page's
+      // status buttons (Longlist, Shortlist, Interview, Offer, Reject) had
+      // no more specific notification following them, so suppressing all
+      // but 'rejected' left the others silent.
+      await updateApplicationStatus(application, status, user, undefined, true);
       setApplication({ ...application, status });
     } catch (err: any) {
       toast.error(err?.message || 'Failed to update status.');
@@ -270,7 +274,10 @@ export function CandidateDetail({ candidateId, onBack }: CandidateDetailProps) {
           <Button className="bg-amber-50 text-amber-700 hover:bg-amber-100 shadow-none border-0" onClick={() => handleUpdateStatus('shortlisted')}>
             <Star className="size-4 mr-2" /> Shortlist
           </Button>
-          <Button className="bg-purple-50 text-purple-700 hover:bg-purple-100 shadow-none border-0" onClick={() => handleUpdateStatus('interview')}>
+          <Button
+            className="bg-purple-50 text-purple-700 hover:bg-purple-100 shadow-none border-0"
+            onClick={() => navigate('/recruiter/interviews', { state: { scheduleForApplicationId: application.id } })}
+          >
             <Calendar className="size-4 mr-2" /> Move to Interview
           </Button>
           <Button className="bg-green-50 text-green-700 hover:bg-green-100 shadow-none border-0" onClick={() => handleUpdateStatus('offer')}>

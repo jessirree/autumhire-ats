@@ -215,6 +215,13 @@ export async function decideOfferApproval(
 
 /** Mark an approved offer as sent to the candidate. */
 export async function sendOffer(offer: Offer, by: { id: string; name: string }): Promise<void> {
+  // Mirrors respondToOffer's guard (above). The UI's in-flight disable
+  // handles the double-click case; this is what stops a second send from
+  // any other caller — a double-click is not the only way to call this
+  // twice on the same offer.
+  if (offer.status !== 'approved') {
+    throw new Error('This offer is not awaiting sending.');
+  }
   await updateDoc(doc(db, OFFERS, offer.id), { status: 'sent', updatedAt: serverTimestamp() });
   await notify({
     userId: offer.candidateId,
@@ -249,7 +256,10 @@ export async function recordOfferDecision(
         await sendRegretsForJob(offer.jobId, by);
       }
     } else {
-      await updateApplicationStatus(application, 'rejected', by, 'Offer rejected by candidate', false);
+      // H2: nothing else in this branch tells the candidate — the notify()
+      // below this block is addressed to staff (notifyUserId/createdById),
+      // not the candidate.
+      await updateApplicationStatus(application, 'rejected', by, 'Offer rejected by candidate', true);
     }
   }
 
