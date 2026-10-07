@@ -654,15 +654,19 @@ export async function getPanelRatingsForApplications(
 
 // ── Regrets ─────────────────────────────────────────────────────────
 
-/** Send regrets to every non-hired candidate still in the pipeline for a job. */
+/**
+ * Send regrets to the candidates who were actually in the running for a job
+ * once it's been filled. Restricted to shortlisted and interviewed — an
+ * application still at 'applied' or merely 'longlisted' was never screened
+ * by a person, so a regret letter to them is a rejection nobody actually
+ * made, not just a premature one.
+ */
 export async function sendRegretsForJob(
   jobId: string,
   by: { id: string; name: string }
 ): Promise<number> {
   const apps = await getApplicationsForJob(jobId);
-  const toRegret = apps.filter(
-    (a) => !['hired', 'regretted', 'rejected', 'withdrawn'].includes(a.status)
-  );
+  const toRegret = apps.filter((a) => ['shortlisted', 'interview'].includes(a.status));
   for (const app of toRegret) {
     await updateApplicationStatus(app, 'regretted', by, 'Position filled', true);
   }

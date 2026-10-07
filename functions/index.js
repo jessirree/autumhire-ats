@@ -4,10 +4,12 @@ const { initializeApp } = require('firebase-admin/app');
 const { getAuth } = require('firebase-admin/auth');
 const { sendMail } = require('./mail');
 const { notifyOfferResponse } = require('./offerNotifications');
+const { deliverNotificationEmail } = require('./outbox');
 
 initializeApp();
 
 exports.notifyOfferResponse = notifyOfferResponse;
+exports.deliverNotificationEmail = deliverNotificationEmail;
 
 const VALID_ROLES = ['admin', 'recruiter', 'hiring-manager', 'candidate'];
 
