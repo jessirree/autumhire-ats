@@ -69,6 +69,8 @@ export interface Job {
   isFeatured: boolean;
   requireResume: boolean;
   requireCoverLetter: boolean;
+  /** When true, ApplicationForm.tsx shows the "other supporting documents" upload. */
+  allowOtherDocuments: boolean;
   /** Guidance for hiring managers/panel on what to look for when shortlisting. */
   shortlistingCriteria?: string;
   /** Archived adverts are hidden from active staff views but never deleted. */
@@ -120,6 +122,7 @@ function toJob(id: string, data: any): Job {
     isFeatured: false,
     requireResume: true,
     requireCoverLetter: false,
+    allowOtherDocuments: false,
     advertType: 'external',
     ...data,
     id,

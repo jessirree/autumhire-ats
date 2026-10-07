@@ -24,6 +24,7 @@ import {
   getPanelRatings,
 } from '../../services/applicationService';
 import { BioData, getBioData } from '../../services/bioDataService';
+import { downloadBlob } from '../../lib/downloadBlob';
 import { Interview, getInterviewsForCandidate } from '../../services/interviewService';
 import {
   ReferenceCheck,
@@ -129,6 +130,26 @@ export function CandidateDetail({ candidateId, onBack }: CandidateDetailProps) {
   const handleShareByEmail = () => {
     if (!application) return;
     shareCandidateProfileByEmail(application, interviews);
+  };
+
+  // The `download=` attribute on an <a> is ignored by browsers for a
+  // cross-origin Storage URL, so a plain anchor link saves the file under
+  // its raw Storage name. Fetching the bytes ourselves and handing them to
+  // downloadBlob is what actually makes the renamed filename stick.
+  const handleDownloadDocument = async (docItem: { name: string; type: string; url: string }) => {
+    if (!application) return;
+    try {
+      const res = await fetch(docItem.url);
+      if (!res.ok) throw new Error(`Download failed (HTTP ${res.status})`);
+      const blob = await res.blob();
+      const ext = docItem.name.includes('.') ? docItem.name.slice(docItem.name.lastIndexOf('.')) : '';
+      downloadBlob(
+        blob,
+        `${application.candidateName.replace(/\s+/g, '_')}-${application.jobId}-${docItem.type.replace(/\s+/g, '_')}${ext}`
+      );
+    } catch (err: any) {
+      toast.error(err?.message || 'Failed to download document.');
+    }
   };
 
   const handleCopyFullSummary = async () => {
@@ -311,16 +332,14 @@ export function CandidateDetail({ candidateId, onBack }: CandidateDetailProps) {
                         <Eye className="size-4" /> Preview
                       </Button>
                     )}
-                    <a
-                      href={docItem.url}
-                      target="_blank"
-                      rel="noreferrer"
-                      download={`${application.candidateName.replace(/\s+/g, '_')}-${application.jobId}-${docItem.type.replace(/\s+/g, '_')}`}
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      className="gap-2"
+                      onClick={() => handleDownloadDocument(docItem)}
                     >
-                      <Button variant="outline" size="sm" className="gap-2">
-                        <Download className="size-4" /> Download
-                      </Button>
-                    </a>
+                      <Download className="size-4" /> Download
+                    </Button>
                   </div>
                 </div>
               ))}

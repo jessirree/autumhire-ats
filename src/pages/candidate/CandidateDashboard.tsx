@@ -55,11 +55,29 @@ export function CandidateDashboard({
       getApplicationsByCandidate(user.id).then(async (apps) => {
         setMyApplications(apps);
         const relevant = apps.filter((a) => NEEDS_BIODATA_STATUSES.includes(a.status));
-        const entries = await Promise.all(
+        // Promise.all rejects the whole batch if even one record fails,
+        // which made every application show "bio-data not submitted" —
+        // including ones that had actually succeeded — whenever a single
+        // pending record errored. allSettled keeps the successes and
+        // reports only the ones that actually failed.
+        const results = await Promise.allSettled(
           relevant.map(async (a) => [a.id, await getBioData(a.id)] as const)
         );
+        const entries: [string, BioData | null][] = [];
+        let failures = 0;
+        for (const r of results) {
+          if (r.status === 'fulfilled') entries.push(r.value);
+          else failures += 1;
+        }
         setBioDataByAppId(Object.fromEntries(entries));
-      }).catch(() => {});
+        if (failures > 0) {
+          toast.error(
+            `Could not load bio-data status for ${failures} application${failures > 1 ? 's' : ''}. Reload to try again.`
+          );
+        }
+      }).catch(() => {
+        toast.error('Failed to load your applications. Please reload the page.');
+      });
       getOffersForCandidate(user.id).then(setMyOffers).catch(() => {});
     }
   };
