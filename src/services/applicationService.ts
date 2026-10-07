@@ -19,6 +19,7 @@ import { STORAGE_ENABLED } from '../lib/featureFlags';
 import { getJobById, isJobOpen, Job, ScreeningQuestion } from './jobService';
 import { notify } from './notificationService';
 import { logAudit } from './auditService';
+import { backfillProfileFromApplication } from './profileService';
 
 export type ApplicationStatus =
   | 'applied'
@@ -299,6 +300,19 @@ export async function applyToJob(input: {
   };
 
   const docRef = await addDoc(collection(db, COL), appDoc);
+
+  // H4: best-effort — a profile-backfill failure must not fail the
+  // application that already succeeded.
+  await backfillProfileFromApplication(candidate.id, {
+    phone: input.phone,
+    dateOfBirth: input.dateOfBirth,
+    gender: input.gender,
+    nationality: input.nationality,
+    city: input.city,
+    country: input.country,
+    cvUrl: cv?.url,
+    cvFileName: cv?.name,
+  }).catch((err) => console.warn('Failed to backfill candidate profile from application', err));
 
   await notify({
     userId: candidate.id,
