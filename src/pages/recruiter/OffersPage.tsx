@@ -43,6 +43,11 @@ export function OffersPage() {
   const [approvers, setApprovers] = useState<{ id: string; name: string }[]>([]);
   const [form, setForm] = useState({ applicationId: '', salary: '', currency: 'KES', startDate: '', notes: '', approverId: '' });
   const [saving, setSaving] = useState(false);
+  // A double-click on Send/Decide/Finalize fires the handler twice before
+  // the offer list re-renders with its new status — this is what a single
+  // offer id being "busy" disables against. See H1 in the Phase 3
+  // clickthrough fix pass: a double-click sent the same offer email twice.
+  const [busyOfferId, setBusyOfferId] = useState<string | null>(null);
 
   const load = () => {
     setLoading(true);
@@ -95,33 +100,44 @@ export function OffersPage() {
   };
 
   const handleSend = async (offer: Offer) => {
-    if (!user) return;
-    await sendOffer(offer, user);
-    load();
+    if (!user || busyOfferId) return;
+    setBusyOfferId(offer.id);
+    try {
+      await sendOffer(offer, user);
+      load();
+    } catch (err: any) {
+      toast.error(err?.message || 'Failed to send offer.');
+    } finally {
+      setBusyOfferId(null);
+    }
   };
 
   const handleFinalizeHire = async (offer: Offer) => {
-    if (!user) return;
+    if (!user || busyOfferId) return;
     const regrets = await confirm({
       title: `Finalize the hire of ${offer.candidateName}?`,
       description: 'The application will be marked as Hired. You can also send regret notifications to the remaining candidates for this job.',
       confirmText: 'Hire & send regrets',
       cancelText: 'Hire only',
     });
+    setBusyOfferId(offer.id);
     try {
       await finalizeHire(offer, user, { sendRegrets: regrets });
       load();
       toast.success('Hire finalized — application marked as Hired.');
     } catch (err: any) {
       toast.error(err?.message || 'Failed to finalize hire.');
+    } finally {
+      setBusyOfferId(null);
     }
   };
 
   const handleDecision = async (offer: Offer, decision: 'accepted' | 'rejected') => {
-    if (!user) return;
+    if (!user || busyOfferId) return;
     const regrets = decision === 'accepted'
       ? await confirm({ title: `${offer.candidateName} accepted — also send regret notifications to the remaining candidates for this job?` })
       : false;
+    setBusyOfferId(offer.id);
     try {
       // Row 9.2: without this, recordOfferDecision defaults to notifying
       // offer.createdById — whoever drafted the offer — not the hiring
@@ -132,6 +148,8 @@ export function OffersPage() {
       load();
     } catch (err: any) {
       toast.error(err?.message || 'Failed to record decision.');
+    } finally {
+      setBusyOfferId(null);
     }
   };
 
@@ -276,15 +294,17 @@ export function OffersPage() {
                         <Button
                           size="sm"
                           className="h-8 bg-autumn-primary hover:bg-autumn-dark text-white px-3 gap-1.5"
+                          disabled={!!busyOfferId}
                           onClick={() => handleSend(offer)}
                         >
-                          <Mail className="size-3.5" /> Send Offer
+                          <Mail className="size-3.5" /> {busyOfferId === offer.id ? 'Sending…' : 'Send Offer'}
                         </Button>
                       )}
                       {offer.status === 'accepted' && (
                         <Button
                           size="sm"
                           className="h-8 bg-green-600 hover:bg-green-700 text-white px-3 gap-1.5"
+                          disabled={!!busyOfferId}
                           onClick={() => handleFinalizeHire(offer)}
                         >
                           <CheckCircle2 className="size-3.5" /> Complete Hire
@@ -295,6 +315,7 @@ export function OffersPage() {
                           <Button
                             size="sm"
                             className="h-8 bg-green-600 hover:bg-green-700 text-white px-3 gap-1.5"
+                            disabled={!!busyOfferId}
                             onClick={() => handleDecision(offer, 'accepted')}
                           >
                             <CheckCircle2 className="size-3.5" /> Mark Accepted
@@ -303,6 +324,7 @@ export function OffersPage() {
                             variant="outline"
                             size="sm"
                             className="h-8 border-red-200 text-red-600 hover:bg-red-50 px-3 gap-1.5"
+                            disabled={!!busyOfferId}
                             onClick={() => handleDecision(offer, 'rejected')}
                           >
                             <XCircle className="size-3.5" /> Mark Declined
