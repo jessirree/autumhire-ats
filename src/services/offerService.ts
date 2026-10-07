@@ -48,6 +48,8 @@ export interface Offer {
   approvalComment?: string;
   createdById: string;
   createdByName: string;
+  /** Set by respondToOffer — tells notifyOfferResponse (Cloud Function) this update came from the candidate, not recordOfferDecision. */
+  respondedByCandidate?: boolean;
   createdAt?: Timestamp | null;
   updatedAt?: Timestamp | null;
 }
@@ -128,9 +130,20 @@ export async function getOffersForCandidate(candidateId: string): Promise<Offer[
 }
 
 /**
- * Candidate's own response to a sent offer. Only flips the offer status and
- * notifies the offer owner — the recruiter then finalizes the hire (which
- * updates the application and sends regrets).
+ * Candidate's own response to a sent offer. Only flips the offer status —
+ * the recruiter then finalizes the hire (which updates the application and
+ * sends regrets).
+ *
+ * The notification used to be written here, addressed to offer.createdById.
+ * That is a non-staff client creating a Notifications doc addressed to
+ * someone else, which the Notifications create rule (tightened for the F0
+ * open-relay fix) denies outright — notify() swallowed the failure, so
+ * nobody was ever told. Moved server-side instead: notifyOfferResponse
+ * (functions/index.js) fires on this document's own update, via the Admin
+ * SDK, which bypasses the rule entirely and also resolves the correct
+ * recipient (the hiring manager, not whoever drafted the offer — row 9.2).
+ * respondedByCandidate is the signal that tells that function this update
+ * came from the candidate, not from recordOfferDecision.
  */
 export async function respondToOffer(
   offer: Offer,
@@ -140,14 +153,10 @@ export async function respondToOffer(
   if (offer.status !== 'sent') {
     throw new Error('This offer is not awaiting your response.');
   }
-  await updateDoc(doc(db, OFFERS, offer.id), { status: decision, updatedAt: serverTimestamp() });
-  await notify({
-    userId: offer.createdById,
-    title: `Offer ${decision} — ${offer.candidateName}`,
-    body: `${offer.candidateName} has ${decision} the offer for ${offer.jobTitle}. ${decision === 'accepted' ? 'Open the Offers page to finalize the hire.' : ''}`,
-    type: 'offer',
-    relatedId: offer.id,
-    createdById: candidate.id,
+  await updateDoc(doc(db, OFFERS, offer.id), {
+    status: decision,
+    respondedByCandidate: true,
+    updatedAt: serverTimestamp(),
   });
   await logAudit(candidate, 'status-change', 'Offer', offer.id, `candidate ${decision}`);
 }

@@ -3,8 +3,11 @@ const { onCall, HttpsError } = require('firebase-functions/v2/https');
 const { initializeApp } = require('firebase-admin/app');
 const { getAuth } = require('firebase-admin/auth');
 const { sendMail } = require('./mail');
+const { notifyOfferResponse } = require('./offerNotifications');
 
 initializeApp();
+
+exports.notifyOfferResponse = notifyOfferResponse;
 
 const VALID_ROLES = ['admin', 'recruiter', 'hiring-manager', 'candidate'];
 

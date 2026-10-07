@@ -149,13 +149,17 @@ service cloud.firestore {
         || (isActive() && resource.data.candidateId == request.auth.uid);
       allow create: if isStaff();
       // Staff manage offers; a candidate may only flip their own 'sent'
-      // offer to accepted/rejected (nothing else).
+      // offer to accepted/rejected (nothing else). respondedByCandidate is a
+      // signal flag for the notifyOfferResponse Cloud Function (functions/
+      // index.js) to tell a candidate's own response apart from a
+      // staff-recorded one — the candidate must be able to set it in the
+      // same write as the status change, not as a separate update.
       allow update: if isStaff()
         || (isActive()
             && resource.data.candidateId == request.auth.uid
             && resource.data.status == 'sent'
             && request.resource.data.status in ['accepted', 'rejected']
-            && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['status', 'updatedAt']));
+            && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['status', 'updatedAt', 'respondedByCandidate']));
       allow delete: if isAdmin();
     }
 

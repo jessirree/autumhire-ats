@@ -502,6 +502,76 @@ describe('BioData read (clean negative, not a thrown error)', () => {
   });
 });
 
+// ── Offers — respondToOffer's notification moved server-side ────────────
+describe('Offers (candidate response notification moved to a Cloud Function)', () => {
+  const OFFER = 'OFFER-TEST-01';
+
+  const seedOffer = () =>
+    testEnv.withSecurityRulesDisabled(async (ctx) => {
+      await setDoc(doc(ctx.firestore(), 'Offers', OFFER), {
+        applicationId: APP,
+        jobId: 'JOB-TEST-9001',
+        jobTitle: 'Research Data Analyst',
+        candidateId: CANDIDATE,
+        candidateName: 'Asha Wanjiru',
+        candidateEmail: 'asha@example.com',
+        status: 'sent',
+        createdById: RECRUITER,
+        createdByName: 'Recruiter',
+      });
+    });
+
+  // This is deliberately denied, same as the general open-relay case above —
+  // a non-staff client still cannot address a notification to someone else.
+  // respondToOffer used to do exactly this (addressed to offer.createdById)
+  // and relied on it succeeding; it was silently broken by the F0 §0 fix.
+  // The replacement is notifyOfferResponse (functions/offerNotifications.js),
+  // a Cloud Function using the Admin SDK, which bypasses this rule entirely.
+  // A future reader must not see this test pass and conclude the
+  // notification doesn't need to exist anywhere — it does, just not here.
+  it('a candidate may NOT notify the offer owner directly — delivery is server-side now', async () => {
+    await seedOffer();
+    const db = testEnv.authenticatedContext(CANDIDATE).firestore();
+    await assertFails(
+      addDoc(collection(db, 'Notifications'), {
+        userId: RECRUITER,
+        title: 'Offer accepted',
+        body: 'x',
+        type: 'offer',
+        createdById: CANDIDATE,
+      })
+    );
+  });
+
+  it('a candidate may flip their own sent offer to accepted, setting respondedByCandidate in the same write', async () => {
+    await seedOffer();
+    const db = testEnv.authenticatedContext(CANDIDATE).firestore();
+    await assertSucceeds(
+      updateDoc(doc(db, 'Offers', OFFER), {
+        status: 'accepted',
+        respondedByCandidate: true,
+        updatedAt: new Date(),
+      })
+    );
+  });
+
+  // Regression guard: adding respondedByCandidate to the allowed field list
+  // must not accidentally widen it further — any other field in the same
+  // write is still denied.
+  it('a candidate may NOT smuggle another field in alongside status and respondedByCandidate', async () => {
+    await seedOffer();
+    const db = testEnv.authenticatedContext(CANDIDATE).firestore();
+    await assertFails(
+      updateDoc(doc(db, 'Offers', OFFER), {
+        status: 'accepted',
+        respondedByCandidate: true,
+        salary: '999999',
+        updatedAt: new Date(),
+      })
+    );
+  });
+});
+
 // ── Sweep: the control that stops instance seven ────────────────────────
 describe('Rule coverage sweep', () => {
   it('every top-level collection written anywhere in src/ has a match block in firestore.rules', () => {
