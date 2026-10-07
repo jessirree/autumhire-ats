@@ -108,6 +108,7 @@ export async function createOffer(
       body: `An offer for ${application.candidateName} (${application.jobTitle}) is awaiting your approval.`,
       type: 'offer',
       relatedId: docRef.id,
+      createdById: by.id,
     });
   }
   await logAudit(by, 'create', 'Offer', docRef.id, `Offer for ${application.candidateName}`);
@@ -146,6 +147,7 @@ export async function respondToOffer(
     body: `${offer.candidateName} has ${decision} the offer for ${offer.jobTitle}. ${decision === 'accepted' ? 'Open the Offers page to finalize the hire.' : ''}`,
     type: 'offer',
     relatedId: offer.id,
+    createdById: candidate.id,
   });
   await logAudit(candidate, 'status-change', 'Offer', offer.id, `candidate ${decision}`);
 }
@@ -197,6 +199,7 @@ export async function decideOfferApproval(
     body: `The offer for ${offer.candidateName} (${offer.jobTitle}) was ${decision === 'approved' ? 'approved' : 'declined'} by ${by.name}.${comment ? ` Comment: ${comment}` : ''}`,
     type: 'offer',
     relatedId: offer.id,
+    createdById: by.id,
   });
   await logAudit(by, 'status-change', 'Offer', offer.id, decision);
 }
@@ -211,6 +214,7 @@ export async function sendOffer(offer: Offer, by: { id: string; name: string }):
     body: `Congratulations! You have received an offer for the ${offer.jobTitle} position. Please respond from your dashboard.`,
     type: 'offer',
     relatedId: offer.id,
+    createdById: by.id,
   });
   await logAudit(by, 'status-change', 'Offer', offer.id, 'sent');
 }
@@ -247,6 +251,7 @@ export async function recordOfferDecision(
     body: `${offer.candidateName} has ${decision} the offer for ${offer.jobTitle}.`,
     type: 'offer',
     relatedId: offer.id,
+    createdById: by.id,
   });
   await logAudit(by, 'status-change', 'Offer', offer.id, decision);
 }

@@ -95,6 +95,7 @@ export async function scheduleInterview(
     body: `You have been invited to an interview on ${new Date(input.scheduledAt).toLocaleString()}. ${input.locationOrLink ? `Location/link: ${input.locationOrLink}` : ''}`,
     type: 'interview',
     relatedId: docRef.id,
+    createdById: by.id,
   });
   await logAudit(by, 'create', 'Interview', docRef.id, `Scheduled for ${application.candidateName}`);
   return toInterview(docRef.id, docData);

@@ -307,6 +307,7 @@ export async function applyToJob(input: {
     body: `Your application for ${fresh.title} (${fresh.referenceNumber}) has been received. We will keep you updated on its progress.`,
     type: 'application-received',
     relatedId: docRef.id,
+    createdById: candidate.id,
   });
   await logAudit(candidate, 'apply', 'Application', docRef.id, `Applied to ${fresh.title}`);
 
@@ -415,6 +416,7 @@ export async function updateApplicationStatus(
           : `Your application status has changed to: ${STATUS_LABELS[status]}.`,
       type: status === 'regretted' || status === 'rejected' ? 'regret' : 'status-update',
       relatedId: application.id,
+      createdById: by.id,
     });
   }
 }
@@ -452,6 +454,7 @@ export async function bulkUpdateStatus(
         body: `You've been shortlisted for ${app.jobTitle}. Please log in and complete your bio-data so we can proceed with your application.`,
         type: 'status-update',
         relatedId: app.id,
+        createdById: by.id,
       });
     }
   }

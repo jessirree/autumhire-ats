@@ -170,12 +170,18 @@ function historyEntry(action: string, by: { id: string; name: string }, comment?
   return { action, byId: by.id, byName: by.name, ...(comment ? { comment } : {}), at: new Date() };
 }
 
-async function notifyRole(role: 'recruiter' | 'hiring-manager' | 'admin', title: string, body: string, relatedId: string) {
+async function notifyRole(
+  role: 'recruiter' | 'hiring-manager' | 'admin',
+  title: string,
+  body: string,
+  relatedId: string,
+  by: { id: string; name: string }
+) {
   try {
     const snap = await getDocs(query(collection(db, 'Users'), where('role', '==', role)));
     await Promise.all(
       snap.docs.map((d) =>
-        notify({ userId: d.id, title, body, type: 'general', relatedId })
+        notify({ userId: d.id, title, body, type: 'general', relatedId, createdById: by.id })
       )
     );
   } catch {
@@ -280,11 +286,12 @@ export async function createRequisition(input: {
       body: `${input.createdBy.name} raised ${referenceNumber} (${input.positionTitle}, grade ${input.grade}, ${PRIORITY_STYLES[input.priority].label} priority) on your behalf. Please confirm it.`,
       type: 'general',
       relatedId: referenceNumber,
+      createdById: input.createdBy.id,
     });
   } else {
     await notifyRole('recruiter', 'New requisition to review',
       `${input.createdBy.name} raised ${referenceNumber} (${input.positionTitle}, grade ${input.grade}, ${PRIORITY_STYLES[input.priority].label} priority). Please review and refine it.`,
-      referenceNumber);
+      referenceNumber, input.createdBy);
   }
   return { id: referenceNumber, ...requisition };
 }
@@ -326,6 +333,7 @@ export async function sendForConfirmation(
     body: `${by.name} has refined ${requisition.referenceNumber} (${requisition.positionTitle}). Please confirm it.`,
     type: 'general',
     relatedId: requisition.id,
+    createdById: by.id,
   });
   await logAudit(by, 'status-change', 'Requisition', requisition.id, 'sent for confirmation');
 }
@@ -356,10 +364,10 @@ export async function confirmRequisition(
       `confirmed + admin approval SKIPPED (${skipReason || 'no reason given'})`);
     await notifyRole('admin', 'Requisition approved without admin review',
       `${by.name} confirmed ${requisition.referenceNumber} (${requisition.positionTitle}) and skipped admin approval. Reason: ${skipReason || 'not given'}.`,
-      requisition.id);
+      requisition.id, by);
     await notifyRole('recruiter', 'Requisition ready to publish',
       `${requisition.referenceNumber} (${requisition.positionTitle}) is approved and ready to publish.`,
-      requisition.id);
+      requisition.id, by);
   } else {
     await updateDoc(doc(db, 'Requisitions', requisition.id), {
       status: 'pending-admin',
@@ -369,7 +377,7 @@ export async function confirmRequisition(
     await logAudit(by, 'status-change', 'Requisition', requisition.id, 'confirmed');
     await notifyRole('admin', 'Requisition awaiting your approval',
       `${by.name} confirmed ${requisition.referenceNumber} (${requisition.positionTitle}). It needs admin approval.`,
-      requisition.id);
+      requisition.id, by);
   }
 }
 
@@ -385,7 +393,7 @@ export async function returnToRecruiter(
     updatedAt: serverTimestamp(),
   });
   await notifyRole('recruiter', 'Requisition returned for changes',
-    `${by.name} returned ${requisition.referenceNumber}: ${comment}`, requisition.id);
+    `${by.name} returned ${requisition.referenceNumber}: ${comment}`, requisition.id, by);
   await logAudit(by, 'status-change', 'Requisition', requisition.id, `returned: ${comment}`);
 }
 
@@ -411,10 +419,11 @@ export async function adminDecideRequisition(
     body: `${requisition.referenceNumber} (${requisition.positionTitle}) was ${decision} by ${by.name}.${comment ? ` Comment: ${comment}` : ''}`,
     type: 'general',
     relatedId: requisition.id,
+    createdById: by.id,
   });
   if (decision === 'approved') {
     await notifyRole('recruiter', 'Requisition ready to publish',
-      `${requisition.referenceNumber} (${requisition.positionTitle}) is approved and ready to publish.`, requisition.id);
+      `${requisition.referenceNumber} (${requisition.positionTitle}) is approved and ready to publish.`, requisition.id, by);
   }
   await logAudit(by, 'status-change', 'Requisition', requisition.id, `admin ${decision}`);
 }
@@ -440,6 +449,7 @@ export async function markRequisitionPublished(
     body: `The job for ${requisition.referenceNumber} (${requisition.positionTitle}) has been published by ${by.name}.`,
     type: 'general',
     relatedId: jobId,
+    createdById: by.id,
   });
   await logAudit(by, 'status-change', 'Requisition', requisitionId, `published as ${jobId}`);
 }

@@ -525,6 +525,7 @@ export function CreateJob({
         notifyJobAlertSubscribers(
           jobDetails.jobTitle,
           jobDetails.location,
+          user,
         ).catch(() => {});
       }
       clearDraft(draftKey);

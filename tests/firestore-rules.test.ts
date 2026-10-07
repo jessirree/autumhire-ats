@@ -373,6 +373,135 @@ describe('AuditLog (F8 regression)', () => {
   });
 });
 
+// ── F0 §0 — Notifications create was an open relay ──────────────────────
+describe('Notifications create (F0 §0 — open relay)', () => {
+  it('a candidate may create a notification addressed to themselves', async () => {
+    const db = testEnv.authenticatedContext(CANDIDATE).firestore();
+    await assertSucceeds(
+      addDoc(collection(db, 'Notifications'), {
+        userId: CANDIDATE,
+        title: 'x',
+        body: 'x',
+        type: 'application-received',
+        createdById: CANDIDATE,
+      })
+    );
+  });
+
+  // The open relay this rule exists to close: before this fix, any signed-in
+  // candidate could plant a Notifications doc addressed to someone else.
+  it('a candidate may NOT create a notification addressed to another user', async () => {
+    const db = testEnv.authenticatedContext(CANDIDATE).firestore();
+    await assertFails(
+      addDoc(collection(db, 'Notifications'), {
+        userId: CANDIDATE2,
+        title: 'x',
+        body: 'x',
+        type: 'general',
+        createdById: CANDIDATE,
+      })
+    );
+  });
+
+  it('a candidate may NOT forge createdById as someone else, even when userId is their own', async () => {
+    const db = testEnv.authenticatedContext(CANDIDATE).firestore();
+    await assertFails(
+      addDoc(collection(db, 'Notifications'), {
+        userId: CANDIDATE,
+        title: 'x',
+        body: 'x',
+        type: 'general',
+        createdById: ADMIN,
+      })
+    );
+  });
+
+  // Acceptance criterion 7, second half: the rule only controls WHO a
+  // non-staff write is addressed to by uid. An arbitrary `email` field is
+  // allowed through at this layer — the future sender (F0b) is what ignores
+  // it and resolves the real address itself, never trusting a client-
+  // supplied email from a non-staff creator.
+  it('a candidate may write an arbitrary email field onto their own notification (the sender ignores it, not this rule)', async () => {
+    const db = testEnv.authenticatedContext(CANDIDATE).firestore();
+    await assertSucceeds(
+      addDoc(collection(db, 'Notifications'), {
+        userId: CANDIDATE,
+        email: 'someone-else@example.com',
+        title: 'x',
+        body: 'x',
+        type: 'general',
+        createdById: CANDIDATE,
+      })
+    );
+  });
+
+  it('staff may create a notification addressed to any user', async () => {
+    const db = testEnv.authenticatedContext(RECRUITER).firestore();
+    await assertSucceeds(
+      addDoc(collection(db, 'Notifications'), {
+        userId: CANDIDATE,
+        title: 'x',
+        body: 'x',
+        type: 'status-update',
+        createdById: RECRUITER,
+      })
+    );
+  });
+
+  it('a signed-out user may NOT create a notification', async () => {
+    const db = testEnv.unauthenticatedContext().firestore();
+    await assertFails(
+      addDoc(collection(db, 'Notifications'), {
+        userId: CANDIDATE,
+        title: 'x',
+        body: 'x',
+        type: 'general',
+        createdById: CANDIDATE,
+      })
+    );
+  });
+});
+
+// ── BioData read — null `resource` on a not-yet-submitted document ──────
+describe('BioData read (clean negative, not a thrown error)', () => {
+  it('a candidate checking their own not-yet-submitted bio-data gets a clean negative', async () => {
+    const db = testEnv.authenticatedContext(CANDIDATE).firestore();
+    const snap = await assertSucceeds(getDoc(doc(db, 'BioData', APP)));
+    expect(snap.exists()).toBe(false);
+  });
+
+  it('a candidate may read their own existing bio-data', async () => {
+    await testEnv.withSecurityRulesDisabled(async (ctx) => {
+      await setDoc(doc(ctx.firestore(), 'BioData', APP), {
+        candidateId: CANDIDATE,
+        applicationId: APP,
+      });
+    });
+    const db = testEnv.authenticatedContext(CANDIDATE).firestore();
+    const snap = await assertSucceeds(getDoc(doc(db, 'BioData', APP)));
+    expect(snap.exists()).toBe(true);
+  });
+
+  // Regression guard: the null-resource fix must not widen access to a
+  // real document belonging to someone else.
+  it('a different candidate may NOT read that bio-data once it exists', async () => {
+    await testEnv.withSecurityRulesDisabled(async (ctx) => {
+      await setDoc(doc(ctx.firestore(), 'BioData', APP), {
+        candidateId: CANDIDATE,
+        applicationId: APP,
+      });
+    });
+    const db = testEnv.authenticatedContext(CANDIDATE2).firestore();
+    await assertFails(getDoc(doc(db, 'BioData', APP)));
+  });
+
+  it('staff may read bio-data that does not exist yet', async () => {
+    const db = testEnv.authenticatedContext(RECRUITER).firestore();
+    const snap = await assertSucceeds(getDoc(doc(db, 'BioData', APP)));
+    expect(snap.exists()).toBe(false);
+  });
+});
+
 // ── Sweep: the control that stops instance seven ────────────────────────
 describe('Rule coverage sweep', () => {
   it('every top-level collection written anywhere in src/ has a match block in firestore.rules', () => {
