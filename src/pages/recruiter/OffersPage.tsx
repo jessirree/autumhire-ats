@@ -289,17 +289,22 @@ export function OffersPage() {
                     )}
                   </td>
                   <td className="px-6 py-4 text-right">
-                    <div className="flex items-center justify-end gap-2 opacity-0 group-hover:opacity-100 transition-opacity">
+                    <div className="flex items-center justify-end gap-2">
+                      {/* H6: an approved offer looks like any other row until
+                          you hover — this is the one blocking next step, so
+                          it stays visible rather than sitting inside the
+                          hover-reveal group below with everything else. */}
                       {offer.status === 'approved' && (
                         <Button
                           size="sm"
-                          className="h-8 bg-autumn-primary hover:bg-autumn-dark text-white px-3 gap-1.5"
+                          className="h-8 bg-autumn-primary hover:bg-autumn-dark text-white px-3 gap-1.5 shadow-sm"
                           disabled={!!busyOfferId}
                           onClick={() => handleSend(offer)}
                         >
-                          <Mail className="size-3.5" /> {busyOfferId === offer.id ? 'Sending…' : 'Send Offer'}
+                          <Mail className="size-3.5" /> {busyOfferId === offer.id ? 'Sending…' : 'Send to Candidate'}
                         </Button>
                       )}
+                      <div className="flex items-center justify-end gap-2 opacity-0 group-hover:opacity-100 transition-opacity">
                       {offer.status === 'accepted' && (
                         <Button
                           size="sm"
@@ -331,6 +336,7 @@ export function OffersPage() {
                           </Button>
                         </>
                       )}
+                      </div>
                     </div>
                   </td>
                 </tr>
