@@ -1,3 +1,7 @@
 node_modules/
 .env
 .env.*
+# .env.example carries no secrets — just the key names with empty values —
+# and is meant to be committed so the required config is discoverable
+# without reading docs/wave-f0-email-brief.md.
+!.env.example

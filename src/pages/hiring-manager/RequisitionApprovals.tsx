@@ -44,7 +44,7 @@ export function RequisitionApprovals() {
   const pending = requisitions.filter((r) =>
     isAdmin
       ? r.status === 'pending-admin'
-      : r.status === 'pending-confirmation' && r.createdById === user?.id
+      : r.status === 'pending-confirmation' && r.hiringManagerId === user?.id
   );
 
   const handleConfirm = async (req: Requisition, skip: boolean) => {

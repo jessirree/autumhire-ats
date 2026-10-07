@@ -14,7 +14,9 @@ import { toast } from "sonner";
 import { AuthProvider, useAuth } from "./context/AuthContext";
 import { Toaster } from "./components/ui/sonner";
 import { DialogHost } from "./components/ui/confirm-dialog";
-import { Job as JobType, getJobById } from "./services/jobService";
+import { AlertCircle } from "lucide-react";
+import { Button } from "./components/ui/button";
+import { Job as JobType, getJobById, isJobOpen } from "./services/jobService";
 import { ProtectedRoute } from "./components/auth/ProtectedRoute";
 import { DashboardLayout } from "./layouts/DashboardLayout";
 import { LoginPage } from "./pages/auth/LoginPage";
@@ -58,6 +60,7 @@ import { TemplateManagement } from "./pages/admin/TemplateManagement";
 import { PrescreeningBuilder } from "./pages/admin/PrescreeningBuilder";
 import { ReportsPage } from "./pages/admin/ReportsPage";
 import { WorkflowConfiguration } from "./pages/admin/WorkflowConfiguration";
+import { SystemSettings } from "./pages/admin/SystemSettings";
 
 // A wrapper to handle the complex mock properties previously passed to Candidate views
 function CandidateViewsWrapper({ children }: { children: React.ReactNode }) {
@@ -134,8 +137,24 @@ function ApplicationFormWrapper() {
       </div>
     );
   }
-  if (!job) {
-    return <Navigate to="/jobs" replace />;
+  // G3: opening /jobs/:id/apply directly on a closed (or missing) job used
+  // to redirect to /jobs with no explanation. Show the same "no longer
+  // available" state JobDetail.tsx already has instead of bouncing silently.
+  if (!job || !isJobOpen(job)) {
+    return (
+      <div className="min-h-screen bg-gray-50 flex items-center justify-center p-6">
+        <div className="bg-white rounded-lg border border-gray-200 p-10 text-center max-w-md">
+          <AlertCircle className="size-10 text-gray-400 mx-auto mb-4" />
+          <h2 className="text-xl font-semibold mb-2">Job is no longer available</h2>
+          <p className="text-gray-600 mb-6">
+            {job
+              ? "This position has closed and is not accepting applications."
+              : "We could not find this job posting."}
+          </p>
+          <Button variant="outline" onClick={() => navigate("/jobs")}>Back to Jobs</Button>
+        </div>
+      </div>
+    );
   }
   return (
     <ApplicationForm
@@ -345,6 +364,7 @@ function AppRoutes() {
         <Route path="screening" element={<PrescreeningBuilder />} />
         <Route path="workflow" element={<WorkflowConfiguration />} />
         <Route path="reports" element={<ReportsPage />} />
+        <Route path="settings" element={<SystemSettings />} />
         <Route
           path="post-job"
           element={

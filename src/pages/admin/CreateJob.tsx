@@ -80,6 +80,7 @@ interface JobSettings {
   isFeatured: boolean;
   requireCoverLetter: boolean;
   requireResume: boolean;
+  allowOtherDocuments: boolean;
   hiringWorkflow: string;
   closingDate: string;
   recruitmentCost: string;
@@ -130,11 +131,49 @@ const initialJobSettings: JobSettings = {
   isFeatured: false,
   requireCoverLetter: true,
   requireResume: true,
+  allowOtherDocuments: false,
   hiringWorkflow: "Standard",
   closingDate: "",
   recruitmentCost: "",
   shortlistingCriteria: "",
 };
+
+interface DraftState {
+  jobDetails: JobDetails;
+  jobSettings: JobSettings;
+  questions: Question[];
+  hiringTeam: StaffMember[];
+  hiringCoordinatorId: string;
+}
+
+// A reload mid-wizard must not wipe what the user already typed — the step
+// number alone (?step=N) survives a reload via the URL, but the form data
+// lived only in React state until this draft was added. sessionStorage, not
+// localStorage, so an abandoned draft dies with the tab rather than lingering.
+function loadDraft(key: string): DraftState | null {
+  try {
+    const raw = sessionStorage.getItem(key);
+    return raw ? (JSON.parse(raw) as DraftState) : null;
+  } catch {
+    return null;
+  }
+}
+
+function saveDraft(key: string, draft: DraftState): void {
+  try {
+    sessionStorage.setItem(key, JSON.stringify(draft));
+  } catch {
+    // best-effort — a storage failure must not block editing
+  }
+}
+
+function clearDraft(key: string): void {
+  try {
+    sessionStorage.removeItem(key);
+  } catch {
+    // best-effort
+  }
+}
 
 // Map a Firestore Job document into the local form state shape.
 function jobToFormState(job: Job): {
@@ -166,6 +205,7 @@ function jobToFormState(job: Job): {
       isFeatured: job.isFeatured,
       requireCoverLetter: job.requireCoverLetter,
       requireResume: job.requireResume,
+      allowOtherDocuments: job.allowOtherDocuments ?? false,
       hiringWorkflow: job.hiringWorkflow || "Standard",
       closingDate: job.closingDate || "",
       recruitmentCost:
@@ -200,6 +240,12 @@ export function CreateJob({
   fromRequisitionId?: string;
 }) {
   const { user } = useAuth();
+  const draftKey = `createJob:${editJobId ?? "new"}`;
+  // Read once, at mount, before the ?step=N logic below and before the
+  // editJobId/fromRequisitionId fetch effects run — those effects check
+  // hadDraft and skip their own overwrite when a draft was restored.
+  const [initialDraft] = useState<DraftState | null>(() => loadDraft(draftKey));
+  const hadDraft = initialDraft !== null;
   const [searchParams, setSearchParams] = useSearchParams();
   const [currentStep, setCurrentStepState] = useState(() => {
     const fromUrl = Number(searchParams.get("step"));
@@ -216,9 +262,12 @@ export function CreateJob({
       return next;
     });
   };
-  const [jobDetails, setJobDetails] = useState<JobDetails>(initialJobDetails);
-  const [jobSettings, setJobSettings] =
-    useState<JobSettings>(initialJobSettings);
+  const [jobDetails, setJobDetails] = useState<JobDetails>(
+    () => initialDraft?.jobDetails ?? initialJobDetails,
+  );
+  const [jobSettings, setJobSettings] = useState<JobSettings>(
+    () => initialDraft?.jobSettings ?? initialJobSettings,
+  );
   const [duplicateJobId, setDuplicateJobId] = useState("");
   const [existingJobs, setExistingJobs] = useState<Job[]>([]);
   const [staffMembers, setStaffMembers] = useState<StaffMember[]>([]);
@@ -253,7 +302,9 @@ export function CreateJob({
     },
   ];
 
-  const [questions, setQuestions] = useState<Question[]>(initialQuestions);
+  const [questions, setQuestions] = useState<Question[]>(
+    () => initialDraft?.questions ?? initialQuestions,
+  );
   const [currentQuestion, setCurrentQuestion] = useState<Question>({
     id: "",
     text: "",
@@ -263,8 +314,12 @@ export function CreateJob({
   });
 
   // Hiring Team State
-  const [hiringTeam, setHiringTeam] = useState<StaffMember[]>([]);
-  const [hiringCoordinatorId, setHiringCoordinatorId] = useState<string>("");
+  const [hiringTeam, setHiringTeam] = useState<StaffMember[]>(
+    () => initialDraft?.hiringTeam ?? [],
+  );
+  const [hiringCoordinatorId, setHiringCoordinatorId] = useState<string>(
+    () => initialDraft?.hiringCoordinatorId ?? "",
+  );
 
   // Load staff (for the hiring team picker) and existing jobs (for duplication)
   useEffect(() => {
@@ -299,7 +354,7 @@ export function CreateJob({
 
   // Prefill from an approved requisition (recruiter publish flow).
   useEffect(() => {
-    if (!fromRequisitionId || editJobId) return;
+    if (!fromRequisitionId || editJobId || hadDraft) return;
     (async () => {
       const requisition = await getRequisitionById(fromRequisitionId);
       if (!requisition) return;
@@ -310,6 +365,10 @@ export function CreateJob({
         showOnCareerSite: requisition.advertType === "external",
         requisitionId: requisition.referenceNumber,
         status: "Active",
+        // Rich-text description from the requisition, if the recruiter wrote
+        // one. Carried in addition to the PDF attachment below, not instead
+        // of it — the PDF can't be prefilled into a rich-text field.
+        ...(requisition.jobDescription ? { description: requisition.jobDescription } : {}),
       }));
       setQuestions((requisition.questions ?? []).map(bankToJobQuestion));
       if (requisition.jobDescriptionUrl) {
@@ -323,6 +382,7 @@ export function CreateJob({
 
   // Load the job being edited
   useEffect(() => {
+    if (hadDraft) return;
     if (!editJobId) {
       setJobDetails((prev) => ({
         ...prev,
@@ -341,6 +401,22 @@ export function CreateJob({
       setHiringCoordinatorId(state.coordinatorId);
     })();
   }, [editJobId]);
+
+  // Persist the wizard's form data to sessionStorage, debounced, so a reload
+  // (?step=N already restores the step itself) doesn't land the user on an
+  // empty step believing their work survived.
+  useEffect(() => {
+    const timer = setTimeout(() => {
+      saveDraft(draftKey, {
+        jobDetails,
+        jobSettings,
+        questions,
+        hiringTeam,
+        hiringCoordinatorId,
+      });
+    }, 400);
+    return () => clearTimeout(timer);
+  }, [draftKey, jobDetails, jobSettings, questions, hiringTeam, hiringCoordinatorId]);
 
   const buildJobInput = (status: JobStatus): JobInput => ({
     title: jobDetails.jobTitle.trim() || "Untitled Job",
@@ -361,6 +437,7 @@ export function CreateJob({
     isFeatured: jobSettings.isFeatured,
     requireResume: jobSettings.requireResume,
     requireCoverLetter: jobSettings.requireCoverLetter,
+    allowOtherDocuments: jobSettings.allowOtherDocuments,
     shortlistingCriteria: jobSettings.shortlistingCriteria.trim(),
     closingDate: jobSettings.closingDate,
     // Strip undefined fields — Firestore rejects undefined values.
@@ -447,13 +524,24 @@ export function CreateJob({
         }
       }
       if (effectiveStatus === "Active") {
-        // Keep the public RSS feed in sync + tell subscribers (best-effort).
-        regenerateJobsFeed().catch(() => {});
+        // Keep the public RSS feed in sync + tell subscribers. Both run after
+        // the job itself has already saved successfully, so a failure here
+        // is surfaced, not silent, but must not be treated as the save
+        // itself failing.
+        regenerateJobsFeed().catch((err) => {
+          console.warn("Failed to regenerate the public jobs feed", err);
+          toast.warning("Job posted, but the public RSS feed failed to refresh.");
+        });
         notifyJobAlertSubscribers(
           jobDetails.jobTitle,
           jobDetails.location,
-        ).catch(() => {});
+          user,
+        ).catch((err) => {
+          console.warn("Failed to notify job alert subscribers", err);
+          toast.warning("Job posted, but job-alert subscribers could not be notified.");
+        });
       }
+      clearDraft(draftKey);
       if (isDraft) {
         toast.success("Draft saved successfully!");
         onSubmit();
@@ -527,6 +615,11 @@ export function CreateJob({
   const handleBack = () => {
     if (currentStep > 1) goToStep(currentStep - 1);
     else onBack();
+  };
+
+  const handleCancel = () => {
+    clearDraft(draftKey);
+    onBack();
   };
 
   // Question Handlers
@@ -612,7 +705,7 @@ export function CreateJob({
           </h1>
         </div>
         <div className="flex gap-3">
-          <Button variant="outline" onClick={onBack}>
+          <Button variant="outline" onClick={handleCancel}>
             Cancel
           </Button>
           {currentStep !== 5 ? (
@@ -1144,6 +1237,31 @@ export function CreateJob({
                       onChange={(e) =>
                         handleSettingsChange(
                           "requireCoverLetter",
+                          e.target.checked,
+                        )
+                      }
+                    />
+                    <div className="w-11 h-6 bg-gray-200 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-[var(--pumpkin-orange)]"></div>
+                  </label>
+                </div>
+
+                <div className="p-4 bg-white rounded-lg border border-gray-200 flex items-center justify-between shadow-sm">
+                  <div>
+                    <div className="font-medium text-gray-900">
+                      Allow other supporting documents
+                    </div>
+                    <div className="text-sm text-gray-500">
+                      Let candidates attach up to 5 additional PDFs (certificates, portfolios, etc.)
+                    </div>
+                  </div>
+                  <label className="relative inline-flex items-center cursor-pointer">
+                    <input
+                      type="checkbox"
+                      className="sr-only peer"
+                      checked={jobSettings.allowOtherDocuments}
+                      onChange={(e) =>
+                        handleSettingsChange(
+                          "allowOtherDocuments",
                           e.target.checked,
                         )
                       }
@@ -1823,16 +1941,42 @@ export function CreateJob({
                     }
                   >
                     <option value="Standard">Standard Workflow</option>
-                    {workflows.map((w) => (
-                      <option key={w.id} value={w.name}>
-                        {w.name} ({w.stages.map((s) => s.name).join(" → ")})
-                      </option>
-                    ))}
+                    {workflows
+                      .filter((w) =>
+                        fromRequisitionId
+                          ? w.type === "with-requisition"
+                          : w.type === "without-requisition"
+                      )
+                      .map((w) => (
+                        <option key={w.id} value={w.name}>
+                          {w.name}
+                        </option>
+                      ))}
                   </select>
                   <p className="text-xs text-gray-500 mt-1">
                     Workflows are managed by admins under Workflow
-                    Configuration.
+                    Configuration. Not required — optional.
                   </p>
+                  {(() => {
+                    const selectedWorkflow = workflows.find(
+                      (w) => w.name === jobSettings.hiringWorkflow
+                    );
+                    if (!selectedWorkflow) return null;
+                    return (
+                      <div className="mt-2 flex flex-wrap items-center gap-1.5 text-xs text-gray-500">
+                        {selectedWorkflow.stages.map((s, i) => (
+                          <span key={s.id} className="flex items-center gap-1.5">
+                            <span className="px-2 py-0.5 rounded-full border border-gray-200 bg-gray-50">
+                              {s.name}
+                            </span>
+                            {i < selectedWorkflow.stages.length - 1 && (
+                              <span className="text-gray-300">→</span>
+                            )}
+                          </span>
+                        ))}
+                      </div>
+                    );
+                  })()}
                 </div>
 
                 <div>

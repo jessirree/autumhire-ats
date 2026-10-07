@@ -15,6 +15,7 @@ import {
 } from 'firebase/firestore';
 import { db } from '../lib/firebase';
 import { logAudit } from './auditService';
+import { getRequisitionById } from './requisitionService';
 import type { QuestionChoice } from './questionBankService';
 
 export type { QuestionChoice };
@@ -69,6 +70,8 @@ export interface Job {
   isFeatured: boolean;
   requireResume: boolean;
   requireCoverLetter: boolean;
+  /** When true, ApplicationForm.tsx shows the "other supporting documents" upload. */
+  allowOtherDocuments: boolean;
   /** Guidance for hiring managers/panel on what to look for when shortlisting. */
   shortlistingCriteria?: string;
   /** Archived adverts are hidden from active staff views but never deleted. */
@@ -120,10 +123,33 @@ function toJob(id: string, data: any): Job {
     isFeatured: false,
     requireResume: true,
     requireCoverLetter: false,
+    allowOtherDocuments: false,
     advertType: 'external',
     ...data,
     id,
   } as Job;
+}
+
+/**
+ * "The hiring manager" for a job, in priority order:
+ *   1. The named owner of the requisition it was posted from (set in
+ *      Wave B — a recruiter can raise a requisition on a hiring manager's
+ *      behalf, so this is the authoritative source, not createdBy).
+ *   2. Whoever on the job's hiring team has the hiring-manager role.
+ *   3. The job's coordinator, then whoever created it.
+ * Returns null if none resolve — callers should skip notifying rather than
+ * guess a recipient. Mirrors functions/offerNotifications.js's
+ * resolveHiringManagerId, which runs this same lookup server-side for the
+ * candidate-response path.
+ */
+export async function getHiringManagerId(job: Job): Promise<string | null> {
+  if (job.requisitionId) {
+    const requisition = await getRequisitionById(job.requisitionId);
+    if (requisition?.hiringManagerId) return requisition.hiringManagerId;
+  }
+  const hiringTeamManager = (job.hiringTeam ?? []).find((m) => m.role === 'hiring-manager');
+  if (hiringTeamManager) return hiringTeamManager.id;
+  return job.coordinatorId || job.createdBy || null;
 }
 
 /** Returns true when the job's closing date is in the past. */

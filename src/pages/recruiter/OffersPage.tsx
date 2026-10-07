@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react';
 import { toast } from 'sonner';
 import { Search, Filter, Mail, DollarSign, Clock, FileCheck, Plus, X, CheckCircle2, XCircle, Download } from 'lucide-react';
 import { getApplicationById } from '../../services/applicationService';
+import { getJobById, getHiringManagerId } from '../../services/jobService';
 import { collection, getDocs } from 'firebase/firestore';
 import { Button } from '../../components/ui/button';
 import { confirm } from '../../components/ui/confirm-dialog';
@@ -122,7 +123,12 @@ export function OffersPage() {
       ? await confirm({ title: `${offer.candidateName} accepted — also send regret notifications to the remaining candidates for this job?` })
       : false;
     try {
-      await recordOfferDecision(offer, decision, user, { sendRegrets: regrets });
+      // Row 9.2: without this, recordOfferDecision defaults to notifying
+      // offer.createdById — whoever drafted the offer — not the hiring
+      // manager who actually needs to know the outcome.
+      const job = await getJobById(offer.jobId);
+      const notifyUserId = job ? (await getHiringManagerId(job)) ?? undefined : undefined;
+      await recordOfferDecision(offer, decision, user, { sendRegrets: regrets, notifyUserId });
       load();
     } catch (err: any) {
       toast.error(err?.message || 'Failed to record decision.');

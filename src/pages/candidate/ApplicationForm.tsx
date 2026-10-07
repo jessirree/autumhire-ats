@@ -33,6 +33,7 @@ export function ApplicationForm({ job, onBack, onSubmit }: ApplicationFormProps)
   const [answers, setAnswers] = useState<Record<string, string>>({});
   const [resumeFile, setResumeFile] = useState<File | null>(null);
   const [coverLetterFile, setCoverLetterFile] = useState<File | null>(null);
+  const [otherFiles, setOtherFiles] = useState<File[]>([]);
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [alreadyApplied, setAlreadyApplied] = useState(false);
@@ -97,6 +98,38 @@ export function ApplicationForm({ job, onBack, onSubmit }: ApplicationFormProps)
   const handleRemoveFile = (type: 'resume' | 'coverLetter') => {
     if (type === 'resume') setResumeFile(null);
     else setCoverLetterFile(null);
+  };
+
+  const MAX_OTHER_FILES = 5;
+  const MAX_OTHER_FILE_SIZE = 10 * 1024 * 1024; // matches storage.rules:47
+
+  const handleOtherFilesChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const incoming = Array.from(e.target.files ?? []);
+    e.target.value = ''; // let the same file be re-selected if removed later
+    if (incoming.length === 0) return;
+    const badType = incoming.find(
+      (f) => !f.name.toLowerCase().endsWith('.pdf') || (f.type && f.type !== 'application/pdf')
+    );
+    if (badType) {
+      setError(`"${badType.name}" is not a PDF. Only PDF files are accepted for supporting documents.`);
+      return;
+    }
+    const tooBig = incoming.find((f) => f.size > MAX_OTHER_FILE_SIZE);
+    if (tooBig) {
+      setError(`"${tooBig.name}" is larger than 10 MB.`);
+      return;
+    }
+    const combined = [...otherFiles, ...incoming];
+    if (combined.length > MAX_OTHER_FILES) {
+      setError(`You can attach at most ${MAX_OTHER_FILES} supporting documents.`);
+      return;
+    }
+    setError(null);
+    setOtherFiles(combined);
+  };
+
+  const handleRemoveOtherFile = (index: number) => {
+    setOtherFiles((prev) => prev.filter((_, i) => i !== index));
   };
 
   if (!isAuthenticated || !user) {
@@ -168,6 +201,7 @@ export function ApplicationForm({ job, onBack, onSubmit }: ApplicationFormProps)
             ? { url: profile.cvUrl, name: profile.cvFileName || 'CV' }
             : null,
         coverLetterFile,
+        otherFiles: job.allowOtherDocuments ? otherFiles : undefined,
         answers: screeningAnswers,
         consentGiven: formData.consent,
       });
@@ -475,6 +509,58 @@ export function ApplicationForm({ job, onBack, onSubmit }: ApplicationFormProps)
                   </>
                 )}
               </div>
+              {job.allowOtherDocuments && (
+                <div>
+                  <p className="text-sm font-medium text-gray-700 mb-2">
+                    Other supporting documents (optional) — certificates, portfolio, etc.
+                  </p>
+                  <div className="border-2 border-dashed rounded-lg p-6 text-center border-gray-300 hover:border-blue-400 transition-colors">
+                    <Upload className="size-6 text-gray-400 mx-auto mb-2" />
+                    <p className="text-sm text-gray-500 mb-3">
+                      PDF only, up to {MAX_OTHER_FILES} files, max 10MB each
+                    </p>
+                    <div className="relative inline-block">
+                      <Button
+                        type="button"
+                        variant="outline"
+                        size="sm"
+                        className="pointer-events-none"
+                        disabled={otherFiles.length >= MAX_OTHER_FILES}
+                      >
+                        Add File{otherFiles.length > 0 ? 's' : ''}
+                      </Button>
+                      <input
+                        type="file"
+                        accept=".pdf"
+                        multiple
+                        disabled={otherFiles.length >= MAX_OTHER_FILES}
+                        className="absolute inset-0 opacity-0 cursor-pointer disabled:cursor-not-allowed"
+                        onChange={handleOtherFilesChange}
+                      />
+                    </div>
+                  </div>
+                  {otherFiles.length > 0 && (
+                    <ul className="mt-3 space-y-2">
+                      {otherFiles.map((f, i) => (
+                        <li
+                          key={`${f.name}-${i}`}
+                          className="flex items-center justify-between gap-3 p-2.5 bg-green-50 border border-green-200 rounded-lg text-sm"
+                        >
+                          <span className="text-green-700 truncate">{f.name}</span>
+                          <button
+                            type="button"
+                            onClick={() => handleRemoveOtherFile(i)}
+                            className="text-gray-400 hover:text-red-600 shrink-0"
+                            title="Remove file"
+                          >
+                            <X className="size-4" />
+                          </button>
+                        </li>
+                      ))}
+                    </ul>
+                  )}
+                </div>
+              )}
             </div>
           </section>
 

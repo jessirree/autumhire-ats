@@ -48,6 +48,8 @@ export interface Offer {
   approvalComment?: string;
   createdById: string;
   createdByName: string;
+  /** Set by respondToOffer — tells notifyOfferResponse (Cloud Function) this update came from the candidate, not recordOfferDecision. */
+  respondedByCandidate?: boolean;
   createdAt?: Timestamp | null;
   updatedAt?: Timestamp | null;
 }
@@ -108,6 +110,7 @@ export async function createOffer(
       body: `An offer for ${application.candidateName} (${application.jobTitle}) is awaiting your approval.`,
       type: 'offer',
       relatedId: docRef.id,
+      createdById: by.id,
     });
   }
   await logAudit(by, 'create', 'Offer', docRef.id, `Offer for ${application.candidateName}`);
@@ -127,9 +130,20 @@ export async function getOffersForCandidate(candidateId: string): Promise<Offer[
 }
 
 /**
- * Candidate's own response to a sent offer. Only flips the offer status and
- * notifies the offer owner — the recruiter then finalizes the hire (which
- * updates the application and sends regrets).
+ * Candidate's own response to a sent offer. Only flips the offer status —
+ * the recruiter then finalizes the hire (which updates the application and
+ * sends regrets).
+ *
+ * The notification used to be written here, addressed to offer.createdById.
+ * That is a non-staff client creating a Notifications doc addressed to
+ * someone else, which the Notifications create rule (tightened for the F0
+ * open-relay fix) denies outright — notify() swallowed the failure, so
+ * nobody was ever told. Moved server-side instead: notifyOfferResponse
+ * (functions/index.js) fires on this document's own update, via the Admin
+ * SDK, which bypasses the rule entirely and also resolves the correct
+ * recipient (the hiring manager, not whoever drafted the offer — row 9.2).
+ * respondedByCandidate is the signal that tells that function this update
+ * came from the candidate, not from recordOfferDecision.
  */
 export async function respondToOffer(
   offer: Offer,
@@ -139,13 +153,10 @@ export async function respondToOffer(
   if (offer.status !== 'sent') {
     throw new Error('This offer is not awaiting your response.');
   }
-  await updateDoc(doc(db, OFFERS, offer.id), { status: decision, updatedAt: serverTimestamp() });
-  await notify({
-    userId: offer.createdById,
-    title: `Offer ${decision} — ${offer.candidateName}`,
-    body: `${offer.candidateName} has ${decision} the offer for ${offer.jobTitle}. ${decision === 'accepted' ? 'Open the Offers page to finalize the hire.' : ''}`,
-    type: 'offer',
-    relatedId: offer.id,
+  await updateDoc(doc(db, OFFERS, offer.id), {
+    status: decision,
+    respondedByCandidate: true,
+    updatedAt: serverTimestamp(),
   });
   await logAudit(candidate, 'status-change', 'Offer', offer.id, `candidate ${decision}`);
 }
@@ -197,6 +208,7 @@ export async function decideOfferApproval(
     body: `The offer for ${offer.candidateName} (${offer.jobTitle}) was ${decision === 'approved' ? 'approved' : 'declined'} by ${by.name}.${comment ? ` Comment: ${comment}` : ''}`,
     type: 'offer',
     relatedId: offer.id,
+    createdById: by.id,
   });
   await logAudit(by, 'status-change', 'Offer', offer.id, decision);
 }
@@ -211,6 +223,7 @@ export async function sendOffer(offer: Offer, by: { id: string; name: string }):
     body: `Congratulations! You have received an offer for the ${offer.jobTitle} position. Please respond from your dashboard.`,
     type: 'offer',
     relatedId: offer.id,
+    createdById: by.id,
   });
   await logAudit(by, 'status-change', 'Offer', offer.id, 'sent');
 }
@@ -247,6 +260,7 @@ export async function recordOfferDecision(
     body: `${offer.candidateName} has ${decision} the offer for ${offer.jobTitle}.`,
     type: 'offer',
     relatedId: offer.id,
+    createdById: by.id,
   });
   await logAudit(by, 'status-change', 'Offer', offer.id, decision);
 }
@@ -282,6 +296,20 @@ export async function createReferenceCheck(
     createdAt: serverTimestamp(),
   };
   const docRef = await addDoc(collection(db, REFCHECKS), docData);
+  // userId: '' is the staff-created path the Notifications rule and the
+  // outbox (functions/outbox.js) already support — the referee has no
+  // account, so there's no uid to address this to, only an email a staff
+  // member vouches for. Without this, status: 'sent' was a lie: nothing
+  // ever emailed the referee.
+  await notify({
+    userId: '',
+    email: referee.email,
+    title: `Reference request — ${application.candidateName} (${application.jobTitle})`,
+    body: emailBody,
+    type: 'reference-check',
+    relatedId: docRef.id,
+    createdById: by.id,
+  });
   await logAudit(by, 'create', 'ReferenceCheck', docRef.id, `Referee: ${referee.name}`);
   return { id: docRef.id, ...docData } as ReferenceCheck;
 }

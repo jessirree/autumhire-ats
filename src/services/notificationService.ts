@@ -30,6 +30,13 @@ export interface AppNotification {
   type: NotificationType;
   relatedId?: string;
   read: boolean;
+  /**
+   * The uid that wrote this row, required by the Notifications create rule
+   * so a non-staff client can only ever notify itself. The future email
+   * sender also uses it: a client-supplied `email` is only trusted when this
+   * resolves to a staff account (see docs/wave-f0-email-brief.md §0.2).
+   */
+  createdById: string;
   createdAt?: Timestamp | null;
 }
 
@@ -46,6 +53,8 @@ export async function notify(input: {
   body: string;
   type: NotificationType;
   relatedId?: string;
+  /** The acting user's uid — see AppNotification.createdById. */
+  createdById: string;
 }): Promise<void> {
   try {
     await addDoc(collection(db, COL), {

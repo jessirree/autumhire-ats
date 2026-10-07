@@ -15,6 +15,13 @@ import { logAudit } from './auditService';
 
 export type StageRole = 'Recruiter' | 'Hiring Manager' | 'Admin';
 
+/**
+ * Whether a workflow applies to jobs posted from an approved requisition, or
+ * to jobs posted directly without one. Existing workflows predate this field
+ * and are treated as 'with-requisition' (see toWorkflow below).
+ */
+export type WorkflowType = 'with-requisition' | 'without-requisition';
+
 export interface WorkflowStage {
   id: string;
   name: string;
@@ -25,6 +32,7 @@ export interface WorkflowStage {
 export interface Workflow {
   id: string;
   name: string;
+  type: WorkflowType;
   stages: WorkflowStage[];
   updatedAt?: Timestamp | null;
   updatedBy?: string;
@@ -41,29 +49,35 @@ export const DEFAULT_STAGES: WorkflowStage[] = [
 
 const COL = 'Workflows';
 
+function toWorkflow(id: string, data: any): Workflow {
+  return { type: 'with-requisition', ...data, id } as Workflow;
+}
+
 export async function getWorkflows(): Promise<Workflow[]> {
   const snap = await getDocs(query(collection(db, COL), orderBy('name')));
-  return snap.docs.map((d) => ({ id: d.id, ...d.data() } as Workflow));
+  return snap.docs.map((d) => toWorkflow(d.id, d.data()));
 }
 
 export async function createWorkflow(
   name: string,
   stages: WorkflowStage[],
-  by: { id: string; name: string }
+  by: { id: string; name: string },
+  type: WorkflowType = 'with-requisition'
 ): Promise<string> {
   const ref = await addDoc(collection(db, COL), {
     name,
+    type,
     stages,
     updatedAt: serverTimestamp(),
     updatedBy: by.name,
   });
-  await logAudit(by, 'create', 'Workflow', ref.id, name);
+  await logAudit(by, 'create', 'Workflow', ref.id, `${name} (${type})`);
   return ref.id;
 }
 
 export async function updateWorkflow(
   id: string,
-  updates: { name?: string; stages?: WorkflowStage[] },
+  updates: { name?: string; type?: WorkflowType; stages?: WorkflowStage[] },
   by: { id: string; name: string }
 ): Promise<void> {
   await updateDoc(doc(db, COL, id), {
@@ -71,7 +85,8 @@ export async function updateWorkflow(
     updatedAt: serverTimestamp(),
     updatedBy: by.name,
   });
-  await logAudit(by, 'update', 'Workflow', id, updates.name);
+  const detail = [updates.name, updates.type].filter(Boolean).join(' / ');
+  await logAudit(by, 'update', 'Workflow', id, detail || undefined);
 }
 
 export async function deleteWorkflow(id: string, by: { id: string; name: string }): Promise<void> {

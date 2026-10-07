@@ -18,6 +18,7 @@ import { useAuth } from '../../context/AuthContext';
 import {
     Workflow,
     WorkflowStage,
+    WorkflowType,
     StageRole as Role,
     DEFAULT_STAGES,
     getWorkflows,
@@ -25,6 +26,11 @@ import {
     updateWorkflow,
     deleteWorkflow,
 } from '../../services/workflowService';
+
+const WORKFLOW_TYPE_LABELS: Record<WorkflowType, string> = {
+    'with-requisition': 'With requisition',
+    'without-requisition': 'Without requisition',
+};
 
 export type { Role, WorkflowStage };
 
@@ -200,6 +206,7 @@ export function WorkflowConfiguration() {
     const [workflows, setWorkflows] = useState<Workflow[]>([]);
     const [selectedId, setSelectedId] = useState<string>('');
     const [stages, setStages] = useState<WorkflowStage[]>(DEFAULT_STAGES);
+    const [type, setType] = useState<WorkflowType>('with-requisition');
     const [saving, setSaving] = useState(false);
 
     const load = async (selectId?: string) => {
@@ -210,6 +217,7 @@ export function WorkflowConfiguration() {
             if (target) {
                 setSelectedId(target.id);
                 setStages(target.stages);
+                setType(target.type);
             }
         } catch (err) {
             console.error('Failed to load workflows', err);
@@ -221,7 +229,10 @@ export function WorkflowConfiguration() {
     const handleSelectWorkflow = (id: string) => {
         setSelectedId(id);
         const wf = workflows.find((w) => w.id === id);
-        if (wf) setStages(wf.stages);
+        if (wf) {
+            setStages(wf.stages);
+            setType(wf.type);
+        }
     };
 
     const handleSave = async () => {
@@ -229,11 +240,11 @@ export function WorkflowConfiguration() {
         setSaving(true);
         try {
             if (selectedId) {
-                await updateWorkflow(selectedId, { stages }, user);
+                await updateWorkflow(selectedId, { stages, type }, user);
             } else {
                 const name = await promptText({ title: 'Name for this workflow:', defaultValue: 'Standard' });
                 if (!name?.trim()) { setSaving(false); return; }
-                const id = await createWorkflow(name.trim(), stages, user);
+                const id = await createWorkflow(name.trim(), stages, user, type);
                 await load(id);
             }
             toast.success('Workflow saved.');
@@ -249,7 +260,7 @@ export function WorkflowConfiguration() {
         const name = await promptText({ title: 'Name for the new workflow (e.g. Executive Search):' });
         if (!name?.trim()) return;
         try {
-            const id = await createWorkflow(name.trim(), DEFAULT_STAGES, user);
+            const id = await createWorkflow(name.trim(), DEFAULT_STAGES, user, type);
             await load(id);
         } catch (err: any) {
             toast.error(err?.message || 'Failed to create workflow.');
@@ -263,6 +274,7 @@ export function WorkflowConfiguration() {
         await deleteWorkflow(selectedId, user);
         setSelectedId('');
         setStages(DEFAULT_STAGES);
+        setType('with-requisition');
         load();
     };
 
@@ -313,11 +325,28 @@ export function WorkflowConfiguration() {
                                 onChange={(e) => handleSelectWorkflow(e.target.value)}
                                 className="px-3 py-2 border border-gray-200 rounded-lg text-sm font-medium text-gray-700 bg-white focus:outline-none"
                             >
-                                {workflows.map((w) => (
-                                    <option key={w.id} value={w.id}>{w.name}</option>
-                                ))}
+                                {(['with-requisition', 'without-requisition'] as WorkflowType[]).map((grp) => {
+                                    const inGroup = workflows.filter((w) => w.type === grp);
+                                    if (inGroup.length === 0) return null;
+                                    return (
+                                        <optgroup key={grp} label={WORKFLOW_TYPE_LABELS[grp]}>
+                                            {inGroup.map((w) => (
+                                                <option key={w.id} value={w.id}>{w.name}</option>
+                                            ))}
+                                        </optgroup>
+                                    );
+                                })}
                             </select>
                         )}
+                        <select
+                            value={type}
+                            onChange={(e) => setType(e.target.value as WorkflowType)}
+                            className="px-3 py-2 border border-gray-200 rounded-lg text-sm font-medium text-gray-700 bg-white focus:outline-none"
+                            title="Which kind of job posting this workflow applies to"
+                        >
+                            <option value="with-requisition">With requisition</option>
+                            <option value="without-requisition">Without requisition</option>
+                        </select>
                         <Button variant="outline" onClick={handleNewWorkflow}>
                             New Workflow
                         </Button>

@@ -43,7 +43,11 @@ export async function isSubscribed(userId: string): Promise<boolean> {
  * (The Notifications collection also acts as the email outbox once a sender
  * is connected.)
  */
-export async function notifyJobAlertSubscribers(jobTitle: string, location: string): Promise<number> {
+export async function notifyJobAlertSubscribers(
+  jobTitle: string,
+  location: string,
+  by: { id: string; name: string }
+): Promise<number> {
   const snap = await getDocs(collection(db, COL));
   const subscribers = snap.docs.map((d) => d.data() as JobAlert);
   await Promise.all(
@@ -54,6 +58,7 @@ export async function notifyJobAlertSubscribers(jobTitle: string, location: stri
         title: 'New job posted at Autumhire',
         body: `A new position has just been advertised: ${jobTitle} (${location}). Visit the vacancies page to apply.`,
         type: 'general',
+        createdById: by.id,
       })
     )
   );

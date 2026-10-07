@@ -307,6 +307,7 @@ export async function applyToJob(input: {
     body: `Your application for ${fresh.title} (${fresh.referenceNumber}) has been received. We will keep you updated on its progress.`,
     type: 'application-received',
     relatedId: docRef.id,
+    createdById: candidate.id,
   });
   await logAudit(candidate, 'apply', 'Application', docRef.id, `Applied to ${fresh.title}`);
 
@@ -415,6 +416,7 @@ export async function updateApplicationStatus(
           : `Your application status has changed to: ${STATUS_LABELS[status]}.`,
       type: status === 'regretted' || status === 'rejected' ? 'regret' : 'status-update',
       relatedId: application.id,
+      createdById: by.id,
     });
   }
 }
@@ -452,6 +454,7 @@ export async function bulkUpdateStatus(
         body: `You've been shortlisted for ${app.jobTitle}. Please log in and complete your bio-data so we can proceed with your application.`,
         type: 'status-update',
         relatedId: app.id,
+        createdById: by.id,
       });
     }
   }
@@ -468,6 +471,27 @@ export async function setPrescreenScore(
     updatedAt: serverTimestamp(),
   });
   await logAudit(by, 'update', 'Application', applicationId, `Score set to ${score}`);
+}
+
+/**
+ * Persists edited per-answer points (set/define scores on individual
+ * pre-screening answers during long listing) alongside the total. The total
+ * is passed in rather than recomputed here because a recruiter may still
+ * type a manual override that ignores the per-answer breakdown entirely —
+ * this must keep working exactly as setPrescreenScore does.
+ */
+export async function setAnswerScores(
+  applicationId: string,
+  answers: ScreeningAnswer[],
+  totalScore: number,
+  by: { id: string; name: string }
+): Promise<void> {
+  await updateDoc(doc(db, COL, applicationId), {
+    answers,
+    prescreenScore: totalScore,
+    updatedAt: serverTimestamp(),
+  });
+  await logAudit(by, 'update', 'Application', applicationId, `Re-scored answers, total set to ${totalScore}`);
 }
 
 // ── Panel comments (shortlisting collaboration) ─────────────────────
@@ -630,15 +654,19 @@ export async function getPanelRatingsForApplications(
 
 // ── Regrets ─────────────────────────────────────────────────────────
 
-/** Send regrets to every non-hired candidate still in the pipeline for a job. */
+/**
+ * Send regrets to the candidates who were actually in the running for a job
+ * once it's been filled. Restricted to shortlisted and interviewed — an
+ * application still at 'applied' or merely 'longlisted' was never screened
+ * by a person, so a regret letter to them is a rejection nobody actually
+ * made, not just a premature one.
+ */
 export async function sendRegretsForJob(
   jobId: string,
   by: { id: string; name: string }
 ): Promise<number> {
   const apps = await getApplicationsForJob(jobId);
-  const toRegret = apps.filter(
-    (a) => !['hired', 'regretted', 'rejected', 'withdrawn'].includes(a.status)
-  );
+  const toRegret = apps.filter((a) => ['shortlisted', 'interview'].includes(a.status));
   for (const app of toRegret) {
     await updateApplicationStatus(app, 'regretted', by, 'Position filled', true);
   }

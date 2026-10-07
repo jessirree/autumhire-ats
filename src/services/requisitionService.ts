@@ -46,10 +46,10 @@ export type RequisitionPriority = 'low' | 'medium' | 'high' | 'urgent';
 export const GRADE_REGEX = /^[A-Za-z0-9]{1,10}$/;
 
 export const PRIORITY_STYLES: Record<RequisitionPriority, { label: string; badge: string; row: string }> = {
-  low:    { label: 'Low',    badge: 'bg-green-100 text-green-800 border-green-200',   row: 'border-l-4 border-l-green-400' },
-  medium: { label: 'Medium', badge: 'bg-amber-100 text-amber-800 border-amber-200',   row: 'border-l-4 border-l-amber-400' },
-  high:   { label: 'High',   badge: 'bg-orange-100 text-orange-800 border-orange-200', row: 'border-l-4 border-l-orange-500' },
-  urgent: { label: 'Urgent', badge: 'bg-red-100 text-red-800 border-red-200',         row: 'border-l-4 border-l-red-500' },
+  low:    { label: 'Low',    badge: 'bg-autumn-green/10 text-autumn-green border-autumn-green/30',   row: 'border-l-4 border-l-autumn-green' },
+  medium: { label: 'Medium', badge: 'bg-autumn-yellow/10 text-autumn-yellow border-autumn-yellow/30', row: 'border-l-4 border-l-autumn-yellow' },
+  high:   { label: 'High',   badge: 'bg-autumn-orange/10 text-autumn-orange border-autumn-orange/30', row: 'border-l-4 border-l-autumn-orange' },
+  urgent: { label: 'Urgent', badge: 'bg-autumn-red/10 text-autumn-red border-autumn-red/30',         row: 'border-l-4 border-l-autumn-red' },
 };
 
 export const STATUS_LABELS: Record<RequisitionStatus, string> = {
@@ -96,6 +96,8 @@ export interface Requisition {
   notes?: string;
   jobDescriptionUrl?: string;
   jobDescriptionFileName?: string;
+  /** Rich-text job description (HTML), authored alongside or instead of the PDF upload. */
+  jobDescription?: string;
   status: RequisitionStatus;
   /** Set when the HM fast-tracked past admin approval. */
   skippedApproval?: boolean;
@@ -105,6 +107,14 @@ export interface Requisition {
   jobId?: string;
   createdById: string;
   createdByName: string;
+  /**
+   * The hiring manager who owns confirmation of this requisition. Equal to
+   * createdById/createdByName when an HM raised it themselves; set to the
+   * chosen HM when a recruiter raises it on their behalf (request 3) — this
+   * is what RequisitionApprovals.tsx filters on, not createdById.
+   */
+  hiringManagerId: string;
+  hiringManagerName: string;
   history: RequisitionHistoryEntry[];
   createdAt?: any;
   updatedAt?: any;
@@ -160,17 +170,29 @@ function historyEntry(action: string, by: { id: string; name: string }, comment?
   return { action, byId: by.id, byName: by.name, ...(comment ? { comment } : {}), at: new Date() };
 }
 
-async function notifyRole(role: 'recruiter' | 'hiring-manager' | 'admin', title: string, body: string, relatedId: string) {
+async function notifyRole(
+  role: 'recruiter' | 'hiring-manager' | 'admin',
+  title: string,
+  body: string,
+  relatedId: string,
+  by: { id: string; name: string }
+) {
   try {
     const snap = await getDocs(query(collection(db, 'Users'), where('role', '==', role)));
     await Promise.all(
       snap.docs.map((d) =>
-        notify({ userId: d.id, title, body, type: 'general', relatedId })
+        notify({ userId: d.id, title, body, type: 'general', relatedId, createdById: by.id })
       )
     );
   } catch {
     // best-effort
   }
+}
+
+/** Hiring managers a recruiter can raise a requisition on behalf of. */
+export async function getHiringManagers(): Promise<{ id: string; name: string }[]> {
+  const snap = await getDocs(query(collection(db, 'Users'), where('role', '==', 'hiring-manager')));
+  return snap.docs.map((d) => ({ id: d.id, name: (d.data().name as string) || 'Unnamed' }));
 }
 
 function assertGrade(grade: string) {
@@ -181,7 +203,16 @@ function assertGrade(grade: string) {
 
 // ── Flow ────────────────────────────────────────────────────────────
 
-/** Step 1: HM (or recruiter) raises the requisition → goes to the recruiters. */
+/**
+ * Step 1: HM (or recruiter) raises the requisition.
+ *
+ * An HM-raised requisition goes to the recruiter for refinement, as before.
+ * A recruiter-raised requisition skips that refinement step — there's no
+ * refining before the recruiter has even seen it — and goes straight to the
+ * named hiring manager for confirmation. `hiringManager` is required in that
+ * case; it's who RequisitionApprovals.tsx's pending-confirmation queue is
+ * filtered on.
+ */
 export async function createRequisition(input: {
   positionId: string;
   positionTitle: string;
@@ -192,10 +223,16 @@ export async function createRequisition(input: {
   advertType: AdvertType;
   questions: BankQuestion[];
   notes?: string;
+  jobDescription?: string;
   jobDescriptionFile?: File | null;
   createdBy: { id: string; name: string };
+  createdByRole: 'hiring-manager' | 'recruiter';
+  hiringManager?: { id: string; name: string };
 }): Promise<Requisition> {
   assertGrade(input.grade);
+  if (input.createdByRole === 'recruiter' && !input.hiringManager) {
+    throw new Error('Select the hiring manager who should confirm this requisition.');
+  }
   const referenceNumber = await getNextReferenceNumber();
 
   let jobDescriptionUrl: string | undefined;
@@ -208,6 +245,14 @@ export async function createRequisition(input: {
     jobDescriptionFileName = file.name;
   }
 
+  const isRecruiterRaised = input.createdByRole === 'recruiter';
+  const hiringManagerId = isRecruiterRaised ? input.hiringManager!.id : input.createdBy.id;
+  const hiringManagerName = isRecruiterRaised ? input.hiringManager!.name : input.createdBy.name;
+  const status: RequisitionStatus = isRecruiterRaised ? 'pending-confirmation' : 'with-recruiter';
+  const historyMessage = isRecruiterRaised
+    ? 'Raised by recruiter — recruiter refinement step skipped'
+    : 'Created — sent to recruiter';
+
   const requisition: Omit<Requisition, 'id'> = {
     referenceNumber,
     positionId: input.positionId,
@@ -219,27 +264,42 @@ export async function createRequisition(input: {
     advertType: input.advertType,
     questions: input.questions,
     ...(input.notes ? { notes: input.notes } : {}),
+    ...(input.jobDescription ? { jobDescription: input.jobDescription } : {}),
     ...(jobDescriptionUrl ? { jobDescriptionUrl, jobDescriptionFileName } : {}),
-    status: 'with-recruiter',
+    status,
+    hiringManagerId,
+    hiringManagerName,
     createdById: input.createdBy.id,
     createdByName: input.createdBy.name,
-    history: [historyEntry('Created — sent to recruiter', input.createdBy)],
+    history: [historyEntry(historyMessage, input.createdBy)],
     createdAt: serverTimestamp(),
     updatedAt: serverTimestamp(),
   };
 
   await setDoc(doc(db, 'Requisitions', referenceNumber), requisition);
   await logAudit(input.createdBy, 'create', 'Requisition', referenceNumber, input.positionTitle);
-  await notifyRole('recruiter', 'New requisition to review',
-    `${input.createdBy.name} raised ${referenceNumber} (${input.positionTitle}, grade ${input.grade}, ${PRIORITY_STYLES[input.priority].label} priority). Please review and refine it.`,
-    referenceNumber);
+
+  if (isRecruiterRaised) {
+    await notify({
+      userId: hiringManagerId,
+      title: 'Requisition ready for your confirmation',
+      body: `${input.createdBy.name} raised ${referenceNumber} (${input.positionTitle}, grade ${input.grade}, ${PRIORITY_STYLES[input.priority].label} priority) on your behalf. Please confirm it.`,
+      type: 'general',
+      relatedId: referenceNumber,
+      createdById: input.createdBy.id,
+    });
+  } else {
+    await notifyRole('recruiter', 'New requisition to review',
+      `${input.createdBy.name} raised ${referenceNumber} (${input.positionTitle}, grade ${input.grade}, ${PRIORITY_STYLES[input.priority].label} priority). Please review and refine it.`,
+      referenceNumber, input.createdBy);
+  }
   return { id: referenceNumber, ...requisition };
 }
 
 /** Step 2: recruiter edits the details (only while it sits with the recruiter). */
 export async function updateRequisitionDetails(
   requisition: Requisition,
-  updates: Partial<Pick<Requisition, 'grade' | 'priority' | 'vacancies' | 'advertType' | 'questions' | 'notes'>>,
+  updates: Partial<Pick<Requisition, 'grade' | 'priority' | 'vacancies' | 'advertType' | 'questions' | 'notes' | 'jobDescription'>>,
   by: { id: string; name: string }
 ): Promise<void> {
   if (requisition.status !== 'with-recruiter') {
@@ -268,11 +328,12 @@ export async function sendForConfirmation(
     updatedAt: serverTimestamp(),
   });
   await notify({
-    userId: requisition.createdById,
+    userId: requisition.hiringManagerId,
     title: 'Requisition ready for your confirmation',
     body: `${by.name} has refined ${requisition.referenceNumber} (${requisition.positionTitle}). Please confirm it.`,
     type: 'general',
     relatedId: requisition.id,
+    createdById: by.id,
   });
   await logAudit(by, 'status-change', 'Requisition', requisition.id, 'sent for confirmation');
 }
@@ -303,10 +364,10 @@ export async function confirmRequisition(
       `confirmed + admin approval SKIPPED (${skipReason || 'no reason given'})`);
     await notifyRole('admin', 'Requisition approved without admin review',
       `${by.name} confirmed ${requisition.referenceNumber} (${requisition.positionTitle}) and skipped admin approval. Reason: ${skipReason || 'not given'}.`,
-      requisition.id);
+      requisition.id, by);
     await notifyRole('recruiter', 'Requisition ready to publish',
       `${requisition.referenceNumber} (${requisition.positionTitle}) is approved and ready to publish.`,
-      requisition.id);
+      requisition.id, by);
   } else {
     await updateDoc(doc(db, 'Requisitions', requisition.id), {
       status: 'pending-admin',
@@ -316,7 +377,7 @@ export async function confirmRequisition(
     await logAudit(by, 'status-change', 'Requisition', requisition.id, 'confirmed');
     await notifyRole('admin', 'Requisition awaiting your approval',
       `${by.name} confirmed ${requisition.referenceNumber} (${requisition.positionTitle}). It needs admin approval.`,
-      requisition.id);
+      requisition.id, by);
   }
 }
 
@@ -332,7 +393,7 @@ export async function returnToRecruiter(
     updatedAt: serverTimestamp(),
   });
   await notifyRole('recruiter', 'Requisition returned for changes',
-    `${by.name} returned ${requisition.referenceNumber}: ${comment}`, requisition.id);
+    `${by.name} returned ${requisition.referenceNumber}: ${comment}`, requisition.id, by);
   await logAudit(by, 'status-change', 'Requisition', requisition.id, `returned: ${comment}`);
 }
 
@@ -358,10 +419,11 @@ export async function adminDecideRequisition(
     body: `${requisition.referenceNumber} (${requisition.positionTitle}) was ${decision} by ${by.name}.${comment ? ` Comment: ${comment}` : ''}`,
     type: 'general',
     relatedId: requisition.id,
+    createdById: by.id,
   });
   if (decision === 'approved') {
     await notifyRole('recruiter', 'Requisition ready to publish',
-      `${requisition.referenceNumber} (${requisition.positionTitle}) is approved and ready to publish.`, requisition.id);
+      `${requisition.referenceNumber} (${requisition.positionTitle}) is approved and ready to publish.`, requisition.id, by);
   }
   await logAudit(by, 'status-change', 'Requisition', requisition.id, `admin ${decision}`);
 }
@@ -387,6 +449,7 @@ export async function markRequisitionPublished(
     body: `The job for ${requisition.referenceNumber} (${requisition.positionTitle}) has been published by ${by.name}.`,
     type: 'general',
     relatedId: jobId,
+    createdById: by.id,
   });
   await logAudit(by, 'status-change', 'Requisition', requisitionId, `published as ${jobId}`);
 }
@@ -394,7 +457,19 @@ export async function markRequisitionPublished(
 // ── Reads ───────────────────────────────────────────────────────────
 
 function toRequisition(id: string, data: any): Requisition {
-  return { history: [], questions: [], priority: 'medium', ...data, id } as Requisition;
+  return {
+    history: [],
+    questions: [],
+    priority: 'medium',
+    ...data,
+    // Requisitions written before request 3 have no hiringManagerId — for
+    // those, the creator was always the hiring manager, so fall back to them.
+    // Must come after the ...data spread, not before, or it would always be
+    // overwritten back to undefined.
+    hiringManagerId: data.hiringManagerId ?? data.createdById,
+    hiringManagerName: data.hiringManagerName ?? data.createdByName,
+    id,
+  } as Requisition;
 }
 
 export async function getRequisitions(): Promise<Requisition[]> {

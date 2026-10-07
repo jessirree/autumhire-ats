@@ -15,6 +15,8 @@ import {
   sendForConfirmation,
 } from '../../services/requisitionService';
 import { BankQuestion, getQuestionBank } from '../../services/questionBankService';
+import { RichTextEditor } from '../../components/ui/rich-text-editor';
+import { sanitizeHtml } from '../../lib/sanitizeHtml';
 
 interface JobRequisitionsPageProps {
   onCreateRequisition: () => void;
@@ -41,6 +43,7 @@ export function JobRequisitionsPage({ onCreateRequisition, onPublish }: JobRequi
   const [form, setForm] = useState({
     grade: '', priority: 'medium' as RequisitionPriority,
     vacancies: 1, advertType: 'external' as AdvertType, notes: '', questionIds: [] as string[],
+    jobDescription: '',
   });
   const [saving, setSaving] = useState(false);
 
@@ -66,6 +69,7 @@ export function JobRequisitionsPage({ onCreateRequisition, onPublish }: JobRequi
       advertType: req.advertType,
       notes: req.notes ?? '',
       questionIds: (req.questions ?? []).map((q) => q.id),
+      jobDescription: req.jobDescription ?? '',
     });
   };
 
@@ -80,6 +84,7 @@ export function JobRequisitionsPage({ onCreateRequisition, onPublish }: JobRequi
         advertType: form.advertType,
         notes: form.notes,
         questions: questionBank.filter((q) => form.questionIds.includes(q.id)),
+        jobDescription: form.jobDescription,
       }, user);
       if (sendOn) {
         const fresh = { ...editing, history: [...editing.history, { action: 'Edited by recruiter', byId: user.id, byName: user.name, at: new Date() }] };
@@ -142,6 +147,12 @@ export function JobRequisitionsPage({ onCreateRequisition, onPublish }: JobRequi
                     {(req.questions ?? []).length > 0 && <> • {req.questions.length} screening question{req.questions.length > 1 ? 's' : ''}</>}
                   </p>
                   {req.notes && <p className="text-xs text-gray-400 italic mt-1">“{req.notes}”</p>}
+                  {req.jobDescription && (
+                    <div
+                      className="text-xs text-gray-500 mt-2 max-h-16 overflow-y-auto prose prose-sm max-w-none"
+                      dangerouslySetInnerHTML={{ __html: sanitizeHtml(req.jobDescription) }}
+                    />
+                  )}
                 </div>
                 <div className="flex items-center gap-2">
                   {req.jobDescriptionUrl && (
@@ -253,6 +264,20 @@ export function JobRequisitionsPage({ onCreateRequisition, onPublish }: JobRequi
               <div>
                 <label className="block text-xs font-medium text-gray-700 mb-1">Notes</label>
                 <textarea value={form.notes} onChange={(e) => setForm({ ...form, notes: e.target.value })} className="w-full p-2 border border-gray-200 rounded-lg text-sm h-16 resize-none" />
+              </div>
+              <div>
+                <label className="block text-xs font-medium text-gray-700 mb-1">Job description text</label>
+                {editing.jobDescriptionUrl && !editing.jobDescription && (
+                  <p className="text-xs text-amber-700 bg-amber-50 border border-amber-200 rounded-lg p-2 mb-2">
+                    Only a file (<a href={editing.jobDescriptionUrl} target="_blank" rel="noreferrer" className="underline">{editing.jobDescriptionFileName || 'attachment'}</a>) is on file for this requisition — add text here if you'd like it carried into the job advert too.
+                  </p>
+                )}
+                <RichTextEditor
+                  value={form.jobDescription}
+                  onChange={(html) => setForm({ ...form, jobDescription: html })}
+                  placeholder="Role summary, responsibilities, requirements…"
+                  className="text-sm"
+                />
               </div>
             </div>
             <div className="p-4 border-t border-gray-100 flex justify-end gap-3 bg-gray-50/50">

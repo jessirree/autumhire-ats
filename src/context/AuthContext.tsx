@@ -1,4 +1,5 @@
 ﻿import { createContext, useContext, useState, useEffect, ReactNode } from 'react';
+import { toast } from 'sonner';
 import {
   signInWithEmailAndPassword,
   createUserWithEmailAndPassword,
@@ -38,6 +39,14 @@ async function fetchUserProfile(firebaseUser: FirebaseUser): Promise<User | null
 
   if (snap.exists()) {
     const data = snap.data();
+    // Rules alone would leave a deactivated user staring at a broken
+    // dashboard full of permission errors. Tell them plainly and sign them
+    // out — the Users read rule deliberately still permits this one read of
+    // their own document so this check can run at all.
+    if (data.status === 'inactive') {
+      await signOut(auth);
+      throw new Error('This account has been deactivated. Please contact your administrator.');
+    }
     return {
       id: firebaseUser.uid,
       name: data.name || firebaseUser.displayName || 'User',
@@ -60,8 +69,13 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         // "role" custom claim via the syncUserRoleClaim Cloud Function) is
         // picked up without requiring the user to sign out and back in.
         await firebaseUser.getIdToken(true).catch(() => {});
-        const profile = await fetchUserProfile(firebaseUser);
-        setUser(profile);
+        try {
+          const profile = await fetchUserProfile(firebaseUser);
+          setUser(profile);
+        } catch (err: any) {
+          setUser(null);
+          toast.error(err?.message || 'This account has been deactivated.');
+        }
       } else {
         setUser(null);
       }
