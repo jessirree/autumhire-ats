@@ -60,6 +60,7 @@ import { TemplateManagement } from "./pages/admin/TemplateManagement";
 import { PrescreeningBuilder } from "./pages/admin/PrescreeningBuilder";
 import { ReportsPage } from "./pages/admin/ReportsPage";
 import { WorkflowConfiguration } from "./pages/admin/WorkflowConfiguration";
+import { SystemSettings } from "./pages/admin/SystemSettings";
 
 // A wrapper to handle the complex mock properties previously passed to Candidate views
 function CandidateViewsWrapper({ children }: { children: React.ReactNode }) {
@@ -363,6 +364,7 @@ function AppRoutes() {
         <Route path="screening" element={<PrescreeningBuilder />} />
         <Route path="workflow" element={<WorkflowConfiguration />} />
         <Route path="reports" element={<ReportsPage />} />
+        <Route path="settings" element={<SystemSettings />} />
         <Route
           path="post-job"
           element={
