@@ -1,0 +1,11 @@
+packages:
+  - .
+
+overrides:
+  vite: 6.3.5
+
+allowBuilds:
+  '@firebase/util': true
+  '@tailwindcss/oxide': true
+  esbuild: true
+  protobufjs: true
