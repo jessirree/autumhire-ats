@@ -256,7 +256,10 @@ export async function recordOfferDecision(
         await sendRegretsForJob(offer.jobId, by);
       }
     } else {
-      await updateApplicationStatus(application, 'rejected', by, 'Offer rejected by candidate', false);
+      // H2: nothing else in this branch tells the candidate — the notify()
+      // below this block is addressed to staff (notifyUserId/createdById),
+      // not the candidate.
+      await updateApplicationStatus(application, 'rejected', by, 'Offer rejected by candidate', true);
     }
   }
 

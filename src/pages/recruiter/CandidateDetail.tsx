@@ -107,7 +107,11 @@ export function CandidateDetail({ candidateId, onBack }: CandidateDetailProps) {
   const handleUpdateStatus = async (status: ApplicationStatus) => {
     if (!application || !user) return;
     try {
-      await updateApplicationStatus(application, status, user, undefined, status === 'rejected');
+      // H2: every transition here now notifies the candidate — this page's
+      // status buttons (Longlist, Shortlist, Interview, Offer, Reject) had
+      // no more specific notification following them, so suppressing all
+      // but 'rejected' left the others silent.
+      await updateApplicationStatus(application, status, user, undefined, true);
       setApplication({ ...application, status });
     } catch (err: any) {
       toast.error(err?.message || 'Failed to update status.');

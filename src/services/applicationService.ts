@@ -387,7 +387,12 @@ export async function updateApplicationStatus(
   status: ApplicationStatus,
   by: { id: string; name: string },
   comment?: string,
-  notifyCandidate = false
+  // H2: defaulted to false, so longlisted/interview/offer transitions were
+  // silent — row 5.4 promises online tracking through every stage. Default
+  // is now true; a caller only passes false when a more specific
+  // notification follows the same transition (e.g. scheduleInterview's own
+  // interview-invitation email) and a generic one would be a duplicate.
+  notifyCandidate = true
 ): Promise<void> {
   const entry: StatusHistoryEntry = {
     status,
