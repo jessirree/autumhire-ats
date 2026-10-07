@@ -296,6 +296,20 @@ export async function createReferenceCheck(
     createdAt: serverTimestamp(),
   };
   const docRef = await addDoc(collection(db, REFCHECKS), docData);
+  // userId: '' is the staff-created path the Notifications rule and the
+  // outbox (functions/outbox.js) already support — the referee has no
+  // account, so there's no uid to address this to, only an email a staff
+  // member vouches for. Without this, status: 'sent' was a lie: nothing
+  // ever emailed the referee.
+  await notify({
+    userId: '',
+    email: referee.email,
+    title: `Reference request — ${application.candidateName} (${application.jobTitle})`,
+    body: emailBody,
+    type: 'reference-check',
+    relatedId: docRef.id,
+    createdById: by.id,
+  });
   await logAudit(by, 'create', 'ReferenceCheck', docRef.id, `Referee: ${referee.name}`);
   return { id: docRef.id, ...docData } as ReferenceCheck;
 }
