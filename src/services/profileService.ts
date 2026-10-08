@@ -2,6 +2,7 @@ import { doc, getDoc, updateDoc, serverTimestamp } from 'firebase/firestore';
 import { ref, uploadBytes, getDownloadURL } from 'firebase/storage';
 import { db, storage } from '../lib/firebase';
 import { STORAGE_ENABLED } from '../lib/featureFlags';
+import type { EducationLevel } from '../lib/education';
 
 /** Extended candidate profile stored on the Users document. */
 export interface CandidateProfile {
@@ -14,6 +15,16 @@ export interface CandidateProfile {
   country?: string;
   cvUrl?: string;
   cvFileName?: string;
+  /**
+   * Candidate-matching spec §2.2 capability profile. References to Skills
+   * document ids, never names — step 1 made skills deactivatable rather
+   * than deletable precisely so a taxonomy rename doesn't orphan a profile
+   * that used the old string; resolve ids to names on read
+   * (skillService.getSkills), never store the resolved name here.
+   */
+  skillIds?: string[];
+  yearsOfExperience?: number;
+  highestEducation?: EducationLevel;
 }
 
 export async function getCandidateProfile(userId: string): Promise<CandidateProfile> {
