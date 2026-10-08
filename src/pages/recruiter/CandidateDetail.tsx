@@ -33,6 +33,9 @@ import {
   getReferenceChecks,
   recordReferenceResponse,
 } from '../../services/offerService';
+import { Job, getJobById } from '../../services/jobService';
+import { CandidateProfile, getCandidateProfile } from '../../services/profileService';
+import { computeMatch, MatchResult } from '../../lib/matching';
 
 interface CandidateDetailProps {
   candidateId: string; // application document id
@@ -56,6 +59,11 @@ export function CandidateDetail({ candidateId, onBack }: CandidateDetailProps) {
   const [refForm, setRefForm] = useState({ name: '', email: '', organization: '', relationship: '' });
   const [previewDoc, setPreviewDoc] = useState<{ name: string; url: string } | null>(null);
   const [bioData, setBioData] = useState<BioData | null>(null);
+  // Candidate-matching spec §2.4: the per-criterion breakdown needs the
+  // job's requirements/linked questions and the candidate's current
+  // capability profile, neither of which is denormalized onto Application.
+  const [matchJob, setMatchJob] = useState<Job | null>(null);
+  const [matchProfile, setMatchProfile] = useState<CandidateProfile | null>(null);
 
   useEffect(() => {
     (async () => {
@@ -65,12 +73,14 @@ export function CandidateDetail({ candidateId, onBack }: CandidateDetailProps) {
         if (app) {
           setNewScore(app.prescreenScore);
           setEditedAnswers(app.answers ?? []);
-          const [ivs, cms, refs, allApps, ratings] = await Promise.all([
+          const [ivs, cms, refs, allApps, ratings, job, profile] = await Promise.all([
             getInterviewsForCandidate(app.candidateId),
             getPanelComments(app.id),
             getReferenceChecks(app.id),
             getApplicationsByCandidate(app.candidateId),
             getPanelRatings(app.id),
+            getJobById(app.jobId),
+            getCandidateProfile(app.candidateId),
           ]);
           setInterviews(ivs.filter((iv) => iv.applicationId === app.id));
           setComments(cms);
@@ -78,6 +88,8 @@ export function CandidateDetail({ candidateId, onBack }: CandidateDetailProps) {
           setReferenceChecks(refs);
           setOtherApplications(allApps.filter((a) => a.id !== app.id));
           setBioData(await getBioData(app.id));
+          setMatchJob(job);
+          setMatchProfile(profile);
         }
       } catch (err) {
         console.error('Failed to load candidate', err);
@@ -86,6 +98,21 @@ export function CandidateDetail({ candidateId, onBack }: CandidateDetailProps) {
       }
     })();
   }, [candidateId]);
+
+  const match: MatchResult | null =
+    application && matchJob
+      ? computeMatch(
+          {
+            minYearsExperience: matchJob.minYearsExperience,
+            minEducation: matchJob.minEducation,
+            requiredSkillIds: matchJob.requiredSkillIds,
+            workAuthorizationRequired: matchJob.workAuthorizationRequired,
+          },
+          matchProfile ?? {},
+          matchJob.questions ?? [],
+          application.answers ?? []
+        )
+      : null;
 
   const handleUpdateScore = async () => {
     if (!application || !user) return;
@@ -261,6 +288,23 @@ export function CandidateDetail({ candidateId, onBack }: CandidateDetailProps) {
                 <Star className="size-5 text-yellow-400 fill-yellow-400" />
                 <span className="text-2xl font-semibold">{application.prescreenScore}</span>
               </div>
+            </div>
+            {/* Alongside, never replacing, the screening score above — candidate-matching spec §2.4. */}
+            <div className="text-right mr-4">
+              <p className="text-sm text-gray-600 mb-1">Match Score</p>
+              {match?.score == null ? (
+                <span className="text-sm text-gray-400 italic">Not assessed</span>
+              ) : (
+                <div className="flex items-center gap-2">
+                  <Briefcase className="size-5 text-blue-400" />
+                  <span className="text-2xl font-semibold">{match.score}</span>
+                </div>
+              )}
+              {match?.hardCriterion.status === 'unmet' && (
+                <span className="inline-flex items-center gap-1 mt-1 px-2 py-0.5 rounded-full text-xs font-medium bg-red-50 text-red-700 border border-red-200">
+                  Work auth flagged
+                </span>
+              )}
             </div>
             <StatusBadge status={application.status} />
           </div>
@@ -449,6 +493,63 @@ export function CandidateDetail({ candidateId, onBack }: CandidateDetailProps) {
                 </div>
               ))}
             </div>
+          </div>
+
+          {/* Candidate-matching spec §2.4: required vs existing, line by line — "a recruiter has to be able to see why someone scored what they did", never just the number above. */}
+          <div className="bg-white rounded-lg border border-gray-200 p-6">
+            <h2 className="text-lg font-bold text-gray-900 mb-4 flex items-center gap-2">
+              <Briefcase className="size-5 text-gray-400" />
+              Match Breakdown
+            </h2>
+            {!matchJob ? (
+              <p className="text-sm text-gray-500">Loading…</p>
+            ) : (
+              <div className="space-y-3">
+                <div className="flex items-center justify-between bg-gray-50/50 p-3 rounded-lg border border-gray-100">
+                  <div>
+                    <p className="font-semibold text-gray-800 text-sm">Work authorisation</p>
+                    <p className="text-xs text-gray-500 mt-0.5">
+                      {match?.hardCriterion.status === 'not-required'
+                        ? 'Not required for this role'
+                        : match?.hardCriterion.status === 'not-assessed'
+                          ? 'No linked screening question answered — not assessed'
+                          : match?.hardCriterion.status === 'met'
+                            ? 'Candidate confirmed'
+                            : 'Candidate indicated they do not have it'}
+                    </p>
+                  </div>
+                  {match?.hardCriterion.status === 'unmet' ? (
+                    <span className="px-2.5 py-1 rounded-full text-xs font-bold bg-red-50 text-red-700 border border-red-200 shrink-0">
+                      Flagged
+                    </span>
+                  ) : match?.hardCriterion.status === 'met' ? (
+                    <span className="px-2.5 py-1 rounded-full text-xs font-bold bg-green-50 text-green-700 border border-green-200 shrink-0">
+                      Met
+                    </span>
+                  ) : (
+                    <span className="px-2.5 py-1 rounded-full text-xs font-medium bg-gray-100 text-gray-500 shrink-0">
+                      Not assessed
+                    </span>
+                  )}
+                </div>
+                {match?.gradientCriteria.map((c) => (
+                  <div key={c.key} className="bg-gray-50/50 p-3 rounded-lg border border-gray-100">
+                    <div className="flex items-center justify-between mb-1">
+                      <p className="font-semibold text-gray-800 text-sm">{c.label}</p>
+                      {c.assessed ? (
+                        <span className="text-sm font-bold text-gray-700">{c.subScore}/100</span>
+                      ) : (
+                        <span className="text-xs font-medium text-gray-400 italic">Not assessed</span>
+                      )}
+                    </div>
+                    <div className="flex justify-between text-xs text-gray-500">
+                      <span>Required: {c.required}</span>
+                      <span>Existing: {c.existing}</span>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            )}
           </div>
 
           {/* Panel ratings from shortlisting — read-only here, recruiters see the full breakdown unconditionally. */}

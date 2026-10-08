@@ -18,10 +18,10 @@ import {
 import { db } from '../lib/firebase';
 import { logAudit } from './auditService';
 import { getRequisitionById } from './requisitionService';
-import type { QuestionChoice, ProfileFieldMapping } from './questionBankService';
+import type { QuestionChoice, RequirementMapping } from './questionBankService';
 import type { EducationLevel } from '../lib/education';
 
-export type { QuestionChoice, ProfileFieldMapping };
+export type { QuestionChoice, RequirementMapping };
 
 // Re-exported so CreateJob.tsx can call updateJob with { field: deleteField() }
 // without importing firebase/firestore itself (CLAUDE.md: components never
@@ -48,8 +48,8 @@ export interface ScreeningQuestion {
   score?: number;
   /** Per-choice scoring for 'checkbox' (Yes/No) and 'dropdown' (Multiple Choice) questions. */
   choices?: QuestionChoice[];
-  /** Candidate-matching spec §4 — see ProfileFieldMapping. */
-  profileField?: ProfileFieldMapping;
+  /** Candidate-matching spec §4 — see RequirementMapping. */
+  requirementField?: RequirementMapping;
 }
 
 export interface TeamMember {

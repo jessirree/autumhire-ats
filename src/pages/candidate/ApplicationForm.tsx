@@ -66,18 +66,21 @@ export function ApplicationForm({ job, onBack, onSubmit }: ApplicationFormProps)
           city: prev.city || p.city || '',
           country: prev.country || p.country || '',
         }));
-        // Candidate-matching spec §4: a screening question explicitly mapped
-        // to a profile field (authored on the job/bank question, never
+        // Candidate-matching spec §4: a screening question explicitly linked
+        // to a requirement (authored on the job/bank question, never
         // inferred from question text) gets prefilled the same way the bio
         // fields above do — never overriding an answer already typed, and
         // left empty (not an error) when the profile has nothing for it.
+        // 'workAuthorization' is deliberately skipped here: it has no
+        // profile field to prefill from (see RequirementMapping) — the
+        // candidate answers it directly, same as always.
         setAnswers((prev) => {
           const next = { ...prev };
           for (const q of questions) {
             if (next[q.id]) continue;
-            if (q.profileField === 'yearsOfExperience' && p.yearsOfExperience != null) {
+            if (q.requirementField === 'yearsOfExperience' && p.yearsOfExperience != null) {
               next[q.id] = String(p.yearsOfExperience);
-            } else if (q.profileField === 'highestEducation' && p.highestEducation) {
+            } else if (q.requirementField === 'highestEducation' && p.highestEducation) {
               const label = EDUCATION_LABELS[p.highestEducation];
               const match = q.choices?.find((c) => c.label.toLowerCase() === label.toLowerCase());
               next[q.id] = match ? match.label : label;

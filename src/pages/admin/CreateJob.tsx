@@ -21,6 +21,7 @@ import {
   ChevronDown,
   Eye,
   Download,
+  AlertTriangle,
 } from "lucide-react";
 import { useSearchParams } from "react-router-dom";
 import { collection, getDocs } from "firebase/firestore";
@@ -40,7 +41,7 @@ import {
   JobInput,
   JobInputUpdate,
   JobStatus,
-  ProfileFieldMapping,
+  RequirementMapping,
   createJob,
   updateJob,
   deleteField,
@@ -111,8 +112,8 @@ interface Question {
   score?: number;
   /** Per-choice points for checkbox (Yes/No) and dropdown questions. */
   choices?: QuestionChoice[];
-  /** Candidate-matching spec §4 — which capability-profile field this question duplicates, if any. */
-  profileField?: ProfileFieldMapping;
+  /** Candidate-matching spec §4 — which requirement this question's answer satisfies, if any. */
+  requirementField?: RequirementMapping;
 }
 
 interface StaffMember {
@@ -244,7 +245,7 @@ function jobToFormState(job: Job): {
       expectedAnswer: q.expectedAnswer,
       score: q.score,
       choices: q.choices,
-      profileField: q.profileField,
+      requirementField: q.requirementField,
     })),
     team: job.hiringTeam || [],
     coordinatorId: job.coordinatorId || "",
@@ -514,7 +515,7 @@ export function CreateJob({
               })),
             }
           : {}),
-        ...(q.profileField ? { profileField: q.profileField } : {}),
+        ...(q.requirementField ? { requirementField: q.requirementField } : {}),
       })),
       hiringTeam,
       coordinatorId: hiringCoordinatorId,
@@ -1313,6 +1314,17 @@ export function CreateJob({
                   </span>
                 </label>
               </div>
+              {jobDetails.workAuthorizationRequired &&
+                !questions.some((q) => q.requirementField === "workAuthorization") && (
+                  <div className="mt-4 flex items-start gap-3 p-4 bg-amber-50 border border-amber-200 rounded-lg text-sm text-amber-800">
+                    <AlertTriangle className="size-4 shrink-0 mt-0.5" />
+                    <span>
+                      Work authorisation is required, but no screening question is linked to it yet
+                      (Step 3 — set a question's "Links to requirement" to Work Authorisation).
+                      Without that link, every candidate comes back unassessed on this criterion.
+                    </span>
+                  </div>
+                )}
             </div>
 
             <div className="flex justify-end gap-3 pb-8">
@@ -1571,9 +1583,14 @@ export function CreateJob({
                               : `${question.score} pts${question.expectedAnswer ? ` • expects ${question.expectedAnswer}` : ""}`}
                           </span>
                         )}
-                        {question.profileField && (
+                        {question.requirementField && (
                           <span className="bg-purple-50 text-purple-600 px-2 py-1 rounded text-xs uppercase font-medium">
-                            Prefills {question.profileField === "yearsOfExperience" ? "Years of Experience" : "Highest Education"}
+                            Links to{" "}
+                            {question.requirementField === "yearsOfExperience"
+                              ? "Years of Experience"
+                              : question.requirementField === "highestEducation"
+                                ? "Highest Education"
+                                : "Work Authorisation"}
                           </span>
                         )}
                       </div>
@@ -1729,16 +1746,16 @@ export function CreateJob({
 
                 <div>
                   <label className="block text-sm font-medium text-gray-700 mb-1">
-                    Maps to profile field
+                    Links to requirement
                   </label>
                   <select
                     className="w-full p-3 border border-gray-200 rounded-lg focus:ring-2 focus:ring-[var(--pumpkin-orange)]/20 focus:border-[var(--pumpkin-orange)] outline-none transition-all"
-                    value={currentQuestion.profileField ?? ""}
+                    value={currentQuestion.requirementField ?? ""}
                     onChange={(e) =>
                       setCurrentQuestion((prev) => ({
                         ...prev,
-                        profileField: e.target.value
-                          ? (e.target.value as ProfileFieldMapping)
+                        requirementField: e.target.value
+                          ? (e.target.value as RequirementMapping)
                           : undefined,
                       }))
                     }
@@ -1746,10 +1763,12 @@ export function CreateJob({
                     <option value="">None</option>
                     <option value="yearsOfExperience">Years of Experience</option>
                     <option value="highestEducation">Highest Education</option>
+                    <option value="workAuthorization">Work Authorisation</option>
                   </select>
                   <p className="text-xs text-gray-500 mt-1">
-                    Candidate-matching spec §4: when set, ApplicationForm prefills this answer
-                    from the candidate's profile instead of asking twice.
+                    Candidate-matching spec §4: Years/Education prefill this answer from the
+                    candidate's profile. Work Authorisation has no profile source — it marks this
+                    question as the one the match score reads to check the requirement below.
                   </p>
                 </div>
 
