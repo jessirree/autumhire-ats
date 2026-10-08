@@ -2,11 +2,13 @@ import {
   addDoc,
   collection,
   doc,
+  getDoc,
   getDocs,
   query,
   where,
   orderBy,
   updateDoc,
+  setDoc,
   serverTimestamp,
   Timestamp,
 } from 'firebase/firestore';
@@ -51,6 +53,34 @@ const COL = 'Interviews';
 
 function toInterview(id: string, data: any): Interview {
   return { panel: [], questions: [], scores: [], ...data, id } as Interview;
+}
+
+/**
+ * G6: scores now live in a subcollection (see firestore.rules), one doc per
+ * panelist, which is what stops two panellists' saves from racing each
+ * other. Legacy interviews still carry scores as an array on the parent —
+ * this merges the two per panelist, same shape as
+ * requisitionService.ts's `hiringManagerId ?? createdById` default: a
+ * panelist's subcollection entry wins when they have one; otherwise their
+ * legacy array entry (if any) still counts. This is not a plain "prefer the
+ * subcollection unless it's empty" fallback, because that would drop a
+ * legacy score the moment any other panelist on the same interview saves
+ * through the subcollection — correctness here means staying right when
+ * some panellists have scored through one path and others through the
+ * other, not just when nobody has used the subcollection yet.
+ */
+async function resolveScores(interviewId: string, legacyScores: PanelScore[]): Promise<PanelScore[]> {
+  const snap = await getDocs(collection(db, COL, interviewId, 'scores'));
+  const fromSubcollection = snap.docs.map((d) => d.data() as PanelScore);
+  const covered = new Set(fromSubcollection.map((s) => s.panelistId));
+  const legacyRemainder = (legacyScores ?? []).filter((s) => !covered.has(s.panelistId));
+  return [...fromSubcollection, ...legacyRemainder];
+}
+
+async function withResolvedScores(interviews: Interview[]): Promise<Interview[]> {
+  return Promise.all(
+    interviews.map(async (iv) => ({ ...iv, scores: await resolveScores(iv.id, iv.scores) }))
+  );
 }
 
 export async function scheduleInterview(
@@ -103,29 +133,42 @@ export async function scheduleInterview(
 
 export async function getInterviews(): Promise<Interview[]> {
   const snap = await getDocs(query(collection(db, COL), orderBy('scheduledAt', 'desc')));
-  return snap.docs.map((d) => toInterview(d.id, d.data()));
+  return withResolvedScores(snap.docs.map((d) => toInterview(d.id, d.data())));
 }
 
 export async function getInterviewsForJob(jobId: string): Promise<Interview[]> {
   const snap = await getDocs(query(collection(db, COL), where('jobId', '==', jobId)));
-  return snap.docs.map((d) => toInterview(d.id, d.data()));
+  return withResolvedScores(snap.docs.map((d) => toInterview(d.id, d.data())));
 }
 
+/** Staff-only, like the other two reads here — the scores subcollection rule denies a non-staff read. */
 export async function getInterviewsForCandidate(candidateId: string): Promise<Interview[]> {
   const snap = await getDocs(query(collection(db, COL), where('candidateId', '==', candidateId)));
-  return snap.docs.map((d) => toInterview(d.id, d.data()));
+  return withResolvedScores(snap.docs.map((d) => toInterview(d.id, d.data())));
 }
 
-/** Record (or replace) one panelist's score. */
+/**
+ * Record (or replace) one panelist's score. G6: writes to
+ * Interviews/{id}/scores/{panelistId} — a document keyed by the writer's
+ * own uid, not a read-filter-rewrite of a shared array — so two panellists
+ * saving close together can no longer race each other; the second write
+ * only ever overwrites its own prior entry, never the other panelist's.
+ */
 export async function recordPanelScore(
-  interview: Interview,
-  score: PanelScore
+  interviewId: string,
+  score: PanelScore,
+  by: { id: string; name: string }
 ): Promise<void> {
-  const others = (interview.scores ?? []).filter((s) => s.panelistId !== score.panelistId);
-  await updateDoc(doc(db, COL, interview.id), {
-    scores: [...others, { ...score, recordedAt: new Date() }],
-    updatedAt: serverTimestamp(),
-  });
+  const ref = doc(db, COL, interviewId, 'scores', score.panelistId);
+  const existing = await getDoc(ref);
+  await setDoc(ref, { ...score, recordedAt: serverTimestamp() });
+  await logAudit(
+    by,
+    existing.exists() ? 'update' : 'create',
+    'Interview',
+    interviewId,
+    `Panel score ${existing.exists() ? 'updated' : 'recorded'}: ${score.score}`
+  );
 }
 
 export async function completeInterview(
@@ -148,9 +191,14 @@ export async function cancelInterview(id: string, by: { id: string; name: string
   await logAudit(by, 'update', 'Interview', id, 'Cancelled');
 }
 
-/** Average of all recorded panel scores. */
-export function averageScore(interview: Interview): number | null {
-  const s = interview.scores ?? [];
-  if (!s.length) return null;
-  return Math.round((s.reduce((sum, x) => sum + x.score, 0) / s.length) * 10) / 10;
+/**
+ * Average of whatever scores list is passed in — the caller is expected to
+ * have already read the merged (subcollection + legacy) list via
+ * getInterviews()/getInterviewsForJob()/getInterviewsForCandidate(), not to
+ * reach into a stale Interview.scores itself. Stays correct regardless of
+ * how many panellists have scored, including partial lists.
+ */
+export function averageScore(scores: PanelScore[]): number | null {
+  if (!scores.length) return null;
+  return Math.round((scores.reduce((sum, x) => sum + x.score, 0) / scores.length) * 10) / 10;
 }

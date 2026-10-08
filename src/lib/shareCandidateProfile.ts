@@ -63,7 +63,7 @@ function interviewLines(interviews: Interview[], full: boolean): string[] {
   if (!interviews.length) return ['No interviews on record.'];
   const lines: string[] = [];
   for (const iv of interviews) {
-    const avg = averageScore(iv);
+    const avg = averageScore(iv.scores ?? []);
     const when = new Date(iv.scheduledAt);
     const whenStr = Number.isNaN(when.getTime()) ? iv.scheduledAt : when.toLocaleString();
     lines.push(

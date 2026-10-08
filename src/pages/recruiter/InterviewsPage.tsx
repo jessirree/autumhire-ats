@@ -145,12 +145,16 @@ export function InterviewsPage() {
 
   const handleSaveScore = async () => {
     if (!managing || !user) return;
-    await recordPanelScore(managing, {
-      panelistId: user.id,
-      panelistName: user.name,
-      score: myScore,
-      comments: myComments,
-    });
+    await recordPanelScore(
+      managing.id,
+      {
+        panelistId: user.id,
+        panelistName: user.name,
+        score: myScore,
+        comments: myComments,
+      },
+      user
+    );
     load();
     toast.success('Score recorded.');
   };
@@ -249,7 +253,7 @@ export function InterviewsPage() {
                 <tr><td colSpan={6} className="px-6 py-12 text-center text-gray-500">Loading interviews…</td></tr>
               )}
               {!loading && filteredInterviews.map((interview) => {
-                const avg = averageScore(interview);
+                const avg = averageScore(interview.scores);
                 return (
                   <tr key={interview.id} className="hover:bg-orange-50/30 transition-colors group">
                     <td className="px-6 py-4">

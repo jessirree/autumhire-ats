@@ -44,8 +44,8 @@ function scoreRow(score: PanelScore): string {
 
 /** Build the full standalone HTML document for an interview report. */
 export function buildInterviewReportHtml(interview: Interview): string {
-  const avg = averageScore(interview);
   const scores = interview.scores ?? [];
+  const avg = averageScore(scores);
   const scored = new Set(scores.map((s) => s.panelistId));
   const pending = (interview.panel ?? []).filter((p) => !scored.has(p.id));
 
