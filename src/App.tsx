@@ -6,6 +6,7 @@ import {
   Navigate,
   useNavigate,
   useParams,
+  useLocation,
   Outlet,
 } from "react-router-dom";
 import "./index.css";
@@ -172,11 +173,17 @@ function ApplicationFormWrapper() {
 
 function RecruiterCandidateDetailWrapper() {
   const navigate = useNavigate();
+  const location = useLocation();
   const { id } = useParams();
+  // B: restores the Applications filters the recruiter had when they opened
+  // this candidate, carried via route state (set where onViewCandidate is
+  // passed below) rather than falling back to a bare, unfiltered list.
+  const returnTo =
+    (location.state as { returnTo?: string } | null)?.returnTo ?? "/recruiter/applications";
   return (
     <CandidateDetail
       candidateId={id || ""}
-      onBack={() => navigate("/recruiter/applications")}
+      onBack={() => navigate(returnTo)}
     />
   );
 }
@@ -431,8 +438,12 @@ function AppRoutes() {
           path="applications"
           element={
             <ApplicationsPage
-              onViewCandidate={(id) =>
-                navigate(`/recruiter/candidate-detail/${id}`)
+              onViewCandidate={(id, returnQuery) =>
+                navigate(`/recruiter/candidate-detail/${id}`, {
+                  state: {
+                    returnTo: `/recruiter/applications${returnQuery ? `?${returnQuery}` : ""}`,
+                  },
+                })
               }
             />
           }

@@ -21,7 +21,8 @@ import { logAudit } from '../../services/auditService';
 import { DownloadCvsButton } from '../../components/ats/DownloadCvsButton';
 
 interface ApplicationsPageProps {
-  onViewCandidate: (id: string) => void;
+  /** `returnQuery` is this page's current query string, so "Back to Applications" can restore it. */
+  onViewCandidate: (id: string, returnQuery: string) => void;
 }
 
 function exportToCSV(applications: Application[]) {
@@ -45,26 +46,39 @@ export function ApplicationsPage({ onViewCandidate }: ApplicationsPageProps) {
   const { user } = useAuth();
   const [searchParams, setSearchParams] = useSearchParams();
   const jobFilterId = searchParams.get('job');
+  // B: these four used to be component state and died the moment the user
+  // opened a candidate. The job filter already lived in the URL (?job=) and
+  // survived a reload — same pattern, same reason, applied to the rest so a
+  // filtered view is a URL a recruiter can bookmark or send on, not just
+  // something that happens to survive this one filter.
+  const searchTerm = searchParams.get('q') ?? '';
+  const statusFilter = searchParams.get('status') ?? '';
+  const departmentFilter = searchParams.get('department') ?? '';
+  const showArchived = searchParams.get('archived') === '1';
   const [filterJob, setFilterJob] = useState<Job | null>(null);
   const [applications, setApplications] = useState<Application[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
-  const [searchTerm, setSearchTerm] = useState('');
-  const [statusFilter, setStatusFilter] = useState('');
-  const [departmentFilter, setDepartmentFilter] = useState('');
   const [selectedApplications, setSelectedApplications] = useState<string[]>([]);
   const [bulkAction, setBulkAction] = useState('Bulk Actions');
-  const [showArchived, setShowArchived] = useState(false);
   const [archiving, setArchiving] = useState(false);
   const [exportingXlsx, setExportingXlsx] = useState(false);
 
-  const clearJobFilter = () => {
+  const updateParam = (key: string, value: string | null) => {
     setSearchParams((prev) => {
       const next = new URLSearchParams(prev);
-      next.delete('job');
+      if (value) next.set(key, value);
+      else next.delete(key);
       return next;
     });
   };
+
+  const setSearchTerm = (v: string) => updateParam('q', v || null);
+  const setStatusFilter = (v: string) => updateParam('status', v || null);
+  const setDepartmentFilter = (v: string) => updateParam('department', v || null);
+  const setShowArchived = (v: boolean) => updateParam('archived', v ? '1' : null);
+
+  const clearJobFilter = () => updateParam('job', null);
 
   const load = () => {
     setLoading(true);
@@ -203,7 +217,7 @@ export function ApplicationsPage({ onViewCandidate }: ApplicationsPageProps) {
           <Button
             variant="outline"
             className={`gap-2 rounded-xl ${showArchived ? 'bg-orange-50 text-autumn-primary border-autumn-primary/40' : ''}`}
-            onClick={() => setShowArchived((v) => !v)}
+            onClick={() => setShowArchived(!showArchived)}
           >
             {showArchived ? <ArchiveRestore className="size-4" /> : <Archive className="size-4" />}
             {showArchived ? 'Viewing Archived' : 'Show Archived'}
@@ -441,7 +455,7 @@ export function ApplicationsPage({ onViewCandidate }: ApplicationsPageProps) {
                       <Button
                         variant="outline"
                         size="sm"
-                        onClick={() => onViewCandidate(app.id)}
+                        onClick={() => onViewCandidate(app.id, searchParams.toString())}
                         className="h-8 border-gray-200 hover:bg-gray-50 hover:text-autumn-primary"
                       >
                         View
