@@ -91,6 +91,41 @@ answer to whichever screening question is linked to the requirement: truthy
 meets it, falsy raises the flag, no linked question (or no answer) is "not
 assessed", the same null case as an unscored gradient criterion.
 
+### 2.4.1 Structural limit: the pool version can't assess work authorisation
+
+Found while building the row 5.8 report (step 5). The work-authorisation hard
+criterion reads the answer to a screening question **linked on an application
+for that specific job** (§2.4) — it is not, and cannot be, read from the
+capability profile, because that fact isn't collected there (§2.3).
+
+That's fine for the report as built: ranking a job's own applicants, every one
+of them has an application for that job, so the linked question's answer
+exists whenever one was set. It stops being fine the moment someone builds the
+**pool version** — ranking every candidate on file against a job, not just its
+applicants, which §2.4.2 below calls the more valuable version of this
+report. A candidate who never
+applied to that job has no application to that job, so no answer to the linked
+question, so no basis to resolve the criterion. They would come back
+"not assessed" on work authorisation always, not sometimes — not a bug to fix,
+a property of where the data lives. Whoever builds the pool version needs to
+know this before they start, not after: either accept that the hard criterion
+is permanently unassessable for non-applicants, or decide work authorisation
+needs a second, profile-level source for that report specifically — don't
+infer or guess an answer to close the gap.
+
+### 2.4.2 The pool version — deliberately not built in step 5
+
+Row 5.8's report (step 5) ranks only the applicants to one job. Ranking the
+whole candidate pool against a job — including people who applied to
+something else, or nothing at all — is the more valuable version of this
+report and the one that would make the Candidates page earn its place over
+Applications. It was left out on purpose, on read-volume grounds: it changes
+the read from "applicants to this job" (bounded by one job's applicant count)
+to "every candidate on file", and the traceability pass already flags unpaged
+full-collection reads as a scale risk at row 4.1. Building it needs that
+risk addressed first, or a deliberately bounded/paged read, not a straight
+port of the applicant version's `getApplicationsForJob` → `getAllUsers` swap.
+
 ## 3. Non-negotiables
 
 Decided 2026-10-08. These are not implementation details; changing any of them
