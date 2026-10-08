@@ -3,7 +3,7 @@ import {
   LayoutDashboard, Users, Briefcase, FileText, Search,
   Calendar, Award, BarChart2, Megaphone,
   ClipboardList, UserCheck, GitBranch, Mail,
-  CheckSquare, LogOut, Layers, Settings,
+  CheckSquare, LogOut, Layers, Settings, Sparkles,
 } from 'lucide-react';
 
 interface NavItem {
@@ -21,6 +21,7 @@ const NAV_ITEMS: Record<string, NavItem[]> = {
     { id: 'post-job',              label: 'Post New Job',          icon: <Briefcase className="size-4" /> },
     { id: 'templates',             label: 'Email Templates',       icon: <Mail className="size-4" /> },
     { id: 'screening',             label: 'Pre-screening',         icon: <ClipboardList className="size-4" /> },
+    { id: 'skills',                label: 'Skills',                icon: <Sparkles className="size-4" /> },
     { id: 'workflow',              label: 'Workflows',             icon: <GitBranch className="size-4" /> },
     { id: 'reports',               label: 'Reports',               icon: <BarChart2 className="size-4" /> },
     { id: 'settings',              label: 'System Settings',       icon: <Settings className="size-4" /> },

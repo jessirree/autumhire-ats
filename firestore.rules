@@ -227,6 +227,16 @@ service cloud.firestore {
       }
     }
 
+    // Skills taxonomy (candidate-matching spec §2.1) — admin-managed, same
+    // shape as QuestionBank. As written, this is staff read / admin write
+    // only; the candidate-facing typeahead pickers in step 2 (profile
+    // skills) need their own read access and are not yet covered here —
+    // flagged to the user rather than silently widened.
+    match /Skills/{skillId} {
+      allow read: if isStaff();
+      allow write: if isAdmin();
+    }
+
     // Email/interview/advert templates: staff use them, admins manage them.
     match /Templates/{templateId} {
       allow read: if isStaff();

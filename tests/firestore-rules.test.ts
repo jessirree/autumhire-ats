@@ -662,6 +662,49 @@ describe('Interviews/{id}/scores (G6 — panel score subcollection)', () => {
   });
 });
 
+// ── Skills taxonomy (candidate-matching spec §2.1, step 1) ──────────────
+describe('Skills', () => {
+  it('staff may read the Skills collection', async () => {
+    const db = testEnv.authenticatedContext(RECRUITER).firestore();
+    await assertSucceeds(getDocs(collection(db, 'Skills')));
+  });
+
+  it('a candidate may NOT read the Skills collection', async () => {
+    const db = testEnv.authenticatedContext(CANDIDATE).firestore();
+    await assertFails(getDocs(collection(db, 'Skills')));
+  });
+
+  it('an admin may create a skill', async () => {
+    const db = testEnv.authenticatedContext(ADMIN).firestore();
+    await assertSucceeds(addDoc(collection(db, 'Skills'), { name: 'JavaScript', active: true }));
+  });
+
+  it('a non-admin staff member may NOT create a skill', async () => {
+    const db = testEnv.authenticatedContext(RECRUITER).firestore();
+    await assertFails(addDoc(collection(db, 'Skills'), { name: 'JavaScript', active: true }));
+  });
+
+  it('an admin may deactivate a skill', async () => {
+    let skillId = '';
+    await testEnv.withSecurityRulesDisabled(async (ctx) => {
+      const ref = await addDoc(collection(ctx.firestore(), 'Skills'), { name: 'Python', active: true });
+      skillId = ref.id;
+    });
+    const db = testEnv.authenticatedContext(ADMIN).firestore();
+    await assertSucceeds(updateDoc(doc(db, 'Skills', skillId), { active: false }));
+  });
+
+  it('a non-admin staff member may NOT update a skill', async () => {
+    let skillId = '';
+    await testEnv.withSecurityRulesDisabled(async (ctx) => {
+      const ref = await addDoc(collection(ctx.firestore(), 'Skills'), { name: 'Python', active: true });
+      skillId = ref.id;
+    });
+    const db = testEnv.authenticatedContext(RECRUITER).firestore();
+    await assertFails(updateDoc(doc(db, 'Skills', skillId), { active: false }));
+  });
+});
+
 // ── Sweep: the control that stops instance seven ────────────────────────
 describe('Rule coverage sweep', () => {
   it('every top-level collection written anywhere in src/ has a match block in firestore.rules', () => {
