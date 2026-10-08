@@ -3,6 +3,8 @@ import { toast } from 'sonner';
 import { Search, AlertCircle, CheckCircle, XCircle, ChevronDown, ListOrdered } from 'lucide-react';
 import { Button } from '../../components/ui/button';
 import { confirm, promptText } from '../../components/ui/confirm-dialog';
+import { SortableHeader } from '../../components/ats/SortableHeader';
+import { sortRows, useTableSort, SortColumn } from '../../lib/tableSort';
 import { useAuth } from '../../context/AuthContext';
 import {
   Application,
@@ -49,6 +51,13 @@ function toScreeningResult(app: Application): ScreeningResult {
   };
 }
 
+type SortKey = 'candidateName' | 'overallScore';
+
+const SORT_COLUMNS: Record<SortKey, SortColumn<ScreeningResult>> = {
+  candidateName: { getValue: (r) => r.candidateName, type: 'string' },
+  overallScore: { getValue: (r) => r.overallScore },
+};
+
 export function ScreeningPage() {
   const { user } = useAuth();
   const [searchTerm, setSearchTerm] = useState('');
@@ -56,6 +65,8 @@ export function ScreeningPage() {
   const [expandedCandidate, setExpandedCandidate] = useState<string | null>(null);
   const [applications, setApplications] = useState<Application[]>([]);
   const [loading, setLoading] = useState(true);
+  // Default matches the page's previous fixed behaviour: highest score first.
+  const { sortKey, sortDir, toggleSort } = useTableSort<SortKey>('overallScore', 'desc', ['candidateName']);
 
   const load = () => {
     setLoading(true);
@@ -73,7 +84,7 @@ export function ScreeningPage() {
   const screeningResults = useMemo(() => applications.map(toScreeningResult), [applications]);
 
   const filteredCandidates = useMemo(() => {
-    return screeningResults.filter(result => {
+    const filtered = screeningResults.filter(result => {
       const matchesSearch = result.candidateName.toLowerCase().includes(searchTerm.toLowerCase()) ||
                             result.jobTitle.toLowerCase().includes(searchTerm.toLowerCase());
 
@@ -84,8 +95,9 @@ export function ScreeningPage() {
       if (statusFilter === 'pending') matchesStatus = result.status === 'pending';
 
       return matchesSearch && matchesStatus;
-    }).sort((a, b) => b.overallScore - a.overallScore);
-  }, [screeningResults, searchTerm, statusFilter]);
+    });
+    return sortRows(filtered, SORT_COLUMNS, sortKey, sortDir);
+  }, [screeningResults, searchTerm, statusFilter, sortKey, sortDir]);
 
   const toggleExpand = (id: string) => {
     setExpandedCandidate(expandedCandidate === id ? null : id);
@@ -159,8 +171,14 @@ export function ScreeningPage() {
           <table className="w-full">
             <thead className="bg-gray-50/80 border-b border-gray-100">
               <tr>
-                <th className="px-6 py-4 text-left text-xs font-semibold text-gray-500 uppercase tracking-wider">Candidate / Job</th>
-                <th className="px-6 py-4 text-left text-xs font-semibold text-gray-500 uppercase tracking-wider flex items-center gap-2">Score Rank <ListOrdered className="size-3" /></th>
+                <SortableHeader label="Candidate / Job" sortKey="candidateName" activeKey={sortKey} dir={sortDir} onSort={toggleSort} />
+                <SortableHeader
+                  label={<span className="inline-flex items-center gap-2">Score Rank <ListOrdered className="size-3" /></span>}
+                  sortKey="overallScore"
+                  activeKey={sortKey}
+                  dir={sortDir}
+                  onSort={toggleSort}
+                />
                 <th className="px-6 py-4 text-left text-xs font-semibold text-gray-500 uppercase tracking-wider">Knockout Status</th>
                 <th className="px-6 py-4 text-left text-xs font-semibold text-gray-500 uppercase tracking-wider">Screening Review</th>
                 <th className="px-6 py-4 text-right text-xs font-semibold text-gray-500 uppercase tracking-wider">Actions</th>

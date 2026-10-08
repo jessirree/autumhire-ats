@@ -19,6 +19,8 @@ import {
   finalizeHire,
 } from '../../services/offerService';
 import { downloadCsv } from '../../lib/exportCsv';
+import { SortableHeader } from '../../components/ats/SortableHeader';
+import { sortRows, useTableSort, SortColumn } from '../../lib/tableSort';
 
 const STATUS_LABELS: Record<OfferStatus, string> = {
   'pending-approval': 'Pending Approval',
@@ -30,12 +32,22 @@ const STATUS_LABELS: Record<OfferStatus, string> = {
   withdrawn: 'Withdrawn',
 };
 
+type SortKey = 'candidateName' | 'status' | 'createdAt';
+
+const SORT_COLUMNS: Record<SortKey, SortColumn<Offer>> = {
+  candidateName: { getValue: (o) => o.candidateName, type: 'string' },
+  status: { getValue: (o) => o.status, type: 'string' },
+  createdAt: { getValue: (o) => o.createdAt?.toMillis?.() ?? null },
+};
+
 export function OffersPage() {
   const { user } = useAuth();
   const [searchTerm, setSearchTerm] = useState('');
   const [statusFilter, setStatusFilter] = useState('all');
   const [offers, setOffers] = useState<Offer[]>([]);
   const [loading, setLoading] = useState(true);
+  // Default matches getOffers()'s own query ordering: newest first.
+  const { sortKey, sortDir, toggleSort } = useTableSort<SortKey>('createdAt', 'desc', ['candidateName', 'status']);
 
   // Create-offer modal
   const [showCreate, setShowCreate] = useState(false);
@@ -173,13 +185,18 @@ export function OffersPage() {
     downloadCsv(`onboarding-handoff-${new Date().toISOString().slice(0, 10)}.csv`, headers, rows);
   };
 
-  const filteredOffers = offers.filter((offer) => {
-    const matchesSearch =
-      offer.candidateName.toLowerCase().includes(searchTerm.toLowerCase()) ||
-      offer.jobTitle.toLowerCase().includes(searchTerm.toLowerCase());
-    const matchesStatus = statusFilter === 'all' || offer.status === statusFilter;
-    return matchesSearch && matchesStatus;
-  });
+  const filteredOffers = sortRows(
+    offers.filter((offer) => {
+      const matchesSearch =
+        offer.candidateName.toLowerCase().includes(searchTerm.toLowerCase()) ||
+        offer.jobTitle.toLowerCase().includes(searchTerm.toLowerCase());
+      const matchesStatus = statusFilter === 'all' || offer.status === statusFilter;
+      return matchesSearch && matchesStatus;
+    }),
+    SORT_COLUMNS,
+    sortKey,
+    sortDir
+  );
 
   return (
     <div className="p-8 max-w-7xl mx-auto space-y-6">
@@ -236,10 +253,10 @@ export function OffersPage() {
           <table className="w-full">
             <thead className="bg-gray-50/80 border-b border-gray-100">
               <tr>
-                <th className="px-6 py-4 text-left text-xs font-semibold text-gray-500 uppercase tracking-wider">Candidate / Job</th>
+                <SortableHeader label="Candidate / Job" sortKey="candidateName" activeKey={sortKey} dir={sortDir} onSort={toggleSort} />
                 <th className="px-6 py-4 text-left text-xs font-semibold text-gray-500 uppercase tracking-wider">Compensation</th>
-                <th className="px-6 py-4 text-left text-xs font-semibold text-gray-500 uppercase tracking-wider">Timeline</th>
-                <th className="px-6 py-4 text-left text-xs font-semibold text-gray-500 uppercase tracking-wider">Status</th>
+                <SortableHeader label="Timeline" sortKey="createdAt" activeKey={sortKey} dir={sortDir} onSort={toggleSort} />
+                <SortableHeader label="Status" sortKey="status" activeKey={sortKey} dir={sortDir} onSort={toggleSort} />
                 <th className="px-6 py-4 text-right text-xs font-semibold text-gray-500 uppercase tracking-wider">Actions</th>
               </tr>
             </thead>

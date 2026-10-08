@@ -1,8 +1,10 @@
 ﻿import { useState, useMemo, useEffect } from 'react';
 import { toast } from 'sonner';
-import { Search, Filter, Download, Briefcase, Mail, Phone, MapPin, ChevronUp, ChevronDown } from 'lucide-react';
+import { Search, Filter, Download, Briefcase, Mail, Phone, MapPin } from 'lucide-react';
 import { Button } from '../../components/ui/button';
 import { StatusBadge } from '../../components/ats/StatusBadge';
+import { SortButton } from '../../components/ats/SortableHeader';
+import { sortRows, useTableSort, SortColumn } from '../../lib/tableSort';
 import { Application, getAllApplications } from '../../services/applicationService';
 import { downloadCsv } from '../../lib/exportCsv';
 
@@ -24,30 +26,13 @@ interface CandidateProfile {
 }
 
 type SortKey = 'candidateName' | 'prescreenScore' | 'appliedAt' | 'rating';
-type SortDir = 'asc' | 'desc';
 
-function sortCandidates(list: CandidateProfile[], key: SortKey, dir: SortDir): CandidateProfile[] {
-  const mul = dir === 'asc' ? 1 : -1;
-  return [...list].sort((a, b) => {
-    if (key === 'candidateName') return mul * a.name.localeCompare(b.name);
-    if (key === 'prescreenScore') {
-      if (a.prescreenScore == null && b.prescreenScore == null) return 0;
-      if (a.prescreenScore == null) return 1;
-      if (b.prescreenScore == null) return -1;
-      return mul * (a.prescreenScore - b.prescreenScore);
-    }
-    if (key === 'rating') {
-      if (a.panelRatingAvg == null && b.panelRatingAvg == null) return 0;
-      if (a.panelRatingAvg == null) return 1;
-      if (b.panelRatingAvg == null) return -1;
-      return mul * (a.panelRatingAvg - b.panelRatingAvg);
-    }
-    if (a.appliedAtMs == null && b.appliedAtMs == null) return 0;
-    if (a.appliedAtMs == null) return 1;
-    if (b.appliedAtMs == null) return -1;
-    return mul * (a.appliedAtMs - b.appliedAtMs);
-  });
-}
+const SORT_COLUMNS: Record<SortKey, SortColumn<CandidateProfile>> = {
+  candidateName: { getValue: (c) => c.name, type: 'string' },
+  prescreenScore: { getValue: (c) => c.prescreenScore },
+  rating: { getValue: (c) => c.panelRatingAvg },
+  appliedAt: { getValue: (c) => c.appliedAtMs },
+};
 
 const ACTIVE_STAGES = ['applied', 'longlisted', 'shortlisted', 'interview', 'offer'];
 
@@ -102,8 +87,7 @@ export function CandidatesPage({ onViewCandidate }: CandidatesPageProps) {
   const [isAddModalOpen, setIsAddModalOpen] = useState(false);
   const [candidates, setCandidates] = useState<CandidateProfile[]>([]);
   const [jobTitles, setJobTitles] = useState<string[]>([]);
-  const [sortKey, setSortKey] = useState<SortKey>('appliedAt');
-  const [sortDir, setSortDir] = useState<SortDir>('desc');
+  const { sortKey, sortDir, toggleSort } = useTableSort<SortKey>('appliedAt', 'desc', ['candidateName']);
   const [error, setError] = useState<string | null>(null);
 
   const load = () => {
@@ -146,7 +130,7 @@ export function CandidatesPage({ onViewCandidate }: CandidatesPageProps) {
   }, [candidates, searchTerm, poolFilter, jobFilter, stageFilter]);
 
   const sortedCandidates = useMemo(
-    () => sortCandidates(filteredCandidates, sortKey, sortDir),
+    () => sortRows(filteredCandidates, SORT_COLUMNS, sortKey, sortDir),
     [filteredCandidates, sortKey, sortDir]
   );
 
@@ -223,24 +207,11 @@ export function CandidatesPage({ onViewCandidate }: CandidatesPageProps) {
           </Button>
 
           <div className="flex items-center gap-2 ml-auto">
-            <select
-              value={sortKey}
-              onChange={(e) => setSortKey(e.target.value as SortKey)}
-              className="px-4 py-2 border border-gray-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-autumn-primary/20 focus:border-autumn-primary bg-white text-gray-700 font-medium"
-            >
-              <option value="candidateName">Name</option>
-              <option value="prescreenScore">Pre-screening score</option>
-              <option value="rating">Panel rating</option>
-              <option value="appliedAt">Date applied</option>
-            </select>
-            <Button
-              variant="outline"
-              className="rounded-xl"
-              title={sortDir === 'asc' ? 'Ascending' : 'Descending'}
-              onClick={() => setSortDir((d) => (d === 'asc' ? 'desc' : 'asc'))}
-            >
-              {sortDir === 'asc' ? <ChevronUp className="size-4" /> : <ChevronDown className="size-4" />}
-            </Button>
+            <span className="text-xs font-semibold text-gray-400 uppercase tracking-wider">Sort</span>
+            <SortButton label="Name" sortKey="candidateName" activeKey={sortKey} dir={sortDir} onSort={toggleSort} />
+            <SortButton label="Score" sortKey="prescreenScore" activeKey={sortKey} dir={sortDir} onSort={toggleSort} />
+            <SortButton label="Panel rating" sortKey="rating" activeKey={sortKey} dir={sortDir} onSort={toggleSort} />
+            <SortButton label="Date applied" sortKey="appliedAt" activeKey={sortKey} dir={sortDir} onSort={toggleSort} />
           </div>
         </div>
 

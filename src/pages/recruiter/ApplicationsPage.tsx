@@ -5,6 +5,8 @@ import { Search, Filter, Download, Archive, ArchiveRestore, X, FileSpreadsheet, 
 import { Button } from '../../components/ui/button';
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '../../components/ui/tooltip';
 import { StatusBadge } from '../../components/ats/StatusBadge';
+import { SortableHeader } from '../../components/ats/SortableHeader';
+import { sortRows, useTableSort, SortColumn } from '../../lib/tableSort';
 import { useAuth } from '../../context/AuthContext';
 import {
   Application,
@@ -42,6 +44,15 @@ const BULK_ACTIONS: { label: string; status: ApplicationStatus }[] = [
   { label: 'Reject Candidates', status: 'rejected' },
 ];
 
+type SortKey = 'candidateName' | 'appliedAt' | 'prescreenScore' | 'status';
+
+const SORT_COLUMNS: Record<SortKey, SortColumn<Application>> = {
+  candidateName: { getValue: (a) => a.candidateName, type: 'string' },
+  appliedAt: { getValue: (a) => a.appliedAt?.toMillis?.() ?? null },
+  prescreenScore: { getValue: (a) => a.prescreenScore },
+  status: { getValue: (a) => a.status, type: 'string' },
+};
+
 export function ApplicationsPage({ onViewCandidate }: ApplicationsPageProps) {
   const { user } = useAuth();
   const [searchParams, setSearchParams] = useSearchParams();
@@ -63,6 +74,7 @@ export function ApplicationsPage({ onViewCandidate }: ApplicationsPageProps) {
   const [bulkAction, setBulkAction] = useState('Bulk Actions');
   const [archiving, setArchiving] = useState(false);
   const [exportingXlsx, setExportingXlsx] = useState(false);
+  const { sortKey, sortDir, toggleSort } = useTableSort<SortKey>('appliedAt', 'desc', ['candidateName']);
 
   const updateParam = (key: string, value: string | null) => {
     setSearchParams((prev) => {
@@ -118,14 +130,19 @@ export function ApplicationsPage({ onViewCandidate }: ApplicationsPageProps) {
 
   const departments = Array.from(new Set(applications.map((a) => a.department).filter(Boolean)));
 
-  const filteredApplications = applications.filter((app) => {
-    const matchesSearch =
-      app.candidateName.toLowerCase().includes(searchTerm.toLowerCase()) ||
-      app.jobTitle.toLowerCase().includes(searchTerm.toLowerCase());
-    const matchesStatus = !statusFilter || app.status.toLowerCase() === statusFilter.toLowerCase();
-    const matchesDepartment = !departmentFilter || app.department === departmentFilter;
-    return matchesSearch && matchesStatus && matchesDepartment;
-  });
+  const filteredApplications = sortRows(
+    applications.filter((app) => {
+      const matchesSearch =
+        app.candidateName.toLowerCase().includes(searchTerm.toLowerCase()) ||
+        app.jobTitle.toLowerCase().includes(searchTerm.toLowerCase());
+      const matchesStatus = !statusFilter || app.status.toLowerCase() === statusFilter.toLowerCase();
+      const matchesDepartment = !departmentFilter || app.department === departmentFilter;
+      return matchesSearch && matchesStatus && matchesDepartment;
+    }),
+    SORT_COLUMNS,
+    sortKey,
+    sortDir
+  );
 
   const toggleSelection = (id: string) => {
     setSelectedApplications((prev) =>
@@ -383,21 +400,13 @@ export function ApplicationsPage({ onViewCandidate }: ApplicationsPageProps) {
                     className="size-4 rounded border-gray-300 text-autumn-primary focus:ring-autumn-primary"
                   />
                 </th>
-                <th className="px-6 py-4 text-left text-xs font-semibold text-gray-500 uppercase tracking-wider">
-                  Candidate
-                </th>
+                <SortableHeader label="Candidate" sortKey="candidateName" activeKey={sortKey} dir={sortDir} onSort={toggleSort} />
                 <th className="px-6 py-4 text-left text-xs font-semibold text-gray-500 uppercase tracking-wider">
                   Job Context
                 </th>
-                <th className="px-6 py-4 text-left text-xs font-semibold text-gray-500 uppercase tracking-wider">
-                  Applied
-                </th>
-                <th className="px-6 py-4 text-left text-xs font-semibold text-gray-500 uppercase tracking-wider">
-                  Screening Score
-                </th>
-                <th className="px-6 py-4 text-left text-xs font-semibold text-gray-500 uppercase tracking-wider">
-                  Stage
-                </th>
+                <SortableHeader label="Applied" sortKey="appliedAt" activeKey={sortKey} dir={sortDir} onSort={toggleSort} />
+                <SortableHeader label="Screening Score" sortKey="prescreenScore" activeKey={sortKey} dir={sortDir} onSort={toggleSort} />
+                <SortableHeader label="Stage" sortKey="status" activeKey={sortKey} dir={sortDir} onSort={toggleSort} />
                 <th className="px-6 py-4 text-right text-xs font-semibold text-gray-500 uppercase tracking-wider">
                   Actions
                 </th>

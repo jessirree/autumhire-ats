@@ -7,14 +7,14 @@ import {
     Eye,
     Search,
     Info,
-    ChevronUp,
-    ChevronDown,
 } from 'lucide-react';
 import { Button } from '../../components/ui/button';
 import { promptText } from '../../components/ui/confirm-dialog';
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '../../components/ui/tooltip';
 import { StatusBadge } from '../../components/ats/StatusBadge';
 import { DutyBanner } from '../../components/ats/DutyBanner';
+import { SortableHeader, SortIndicator } from '../../components/ats/SortableHeader';
+import { sortRows, useTableSort, SortColumn } from '../../lib/tableSort';
 import { useAuth } from '../../context/AuthContext';
 import {
     Application,
@@ -45,35 +45,13 @@ interface Candidate {
 }
 
 type SortKey = 'candidateName' | 'prescreenScore' | 'appliedAt' | 'rating';
-type SortDir = 'asc' | 'desc';
 
-function sortCandidateRows(list: Candidate[], key: SortKey, dir: SortDir): Candidate[] {
-    const mul = dir === 'asc' ? 1 : -1;
-    return [...list].sort((a, b) => {
-        if (key === 'candidateName') return mul * a.name.localeCompare(b.name);
-        if (key === 'prescreenScore') {
-            if (a.score == null && b.score == null) return 0;
-            if (a.score == null) return 1;
-            if (b.score == null) return -1;
-            return mul * (a.score - b.score);
-        }
-        if (key === 'rating') {
-            if (a.panelRatingAvg == null && b.panelRatingAvg == null) return 0;
-            if (a.panelRatingAvg == null) return 1;
-            if (b.panelRatingAvg == null) return -1;
-            return mul * (a.panelRatingAvg - b.panelRatingAvg);
-        }
-        if (a.appliedAtMs == null && b.appliedAtMs == null) return 0;
-        if (a.appliedAtMs == null) return 1;
-        if (b.appliedAtMs == null) return -1;
-        return mul * (a.appliedAtMs - b.appliedAtMs);
-    });
-}
-
-function SortIndicator({ active, dir }: { active: boolean; dir: SortDir }) {
-    if (!active) return null;
-    return dir === 'asc' ? <ChevronUp className="size-3.5 inline ml-1" /> : <ChevronDown className="size-3.5 inline ml-1" />;
-}
+const SORT_COLUMNS: Record<SortKey, SortColumn<Candidate>> = {
+    candidateName: { getValue: (c) => c.name, type: 'string' },
+    prescreenScore: { getValue: (c) => c.score },
+    rating: { getValue: (c) => c.panelRatingAvg },
+    appliedAt: { getValue: (c) => c.appliedAtMs },
+};
 
 function ratingColorClass(avg: number): string {
     if (avg < 1.7) return 'text-autumn-red';
@@ -181,19 +159,9 @@ export function ShortlistingPage({ onViewCandidate }: ShortlistingPageProps) {
     const [activeNoteId, setActiveNoteId] = useState<string | null>(null);
     const [criteriaByJobId, setCriteriaByJobId] = useState<Record<string, string>>({});
     const [openCriteriaId, setOpenCriteriaId] = useState<string | null>(null);
-    const [sortKey, setSortKey] = useState<SortKey>('appliedAt');
-    const [sortDir, setSortDir] = useState<SortDir>('desc');
+    const { sortKey, sortDir, toggleSort } = useTableSort<SortKey>('appliedAt', 'desc', ['candidateName']);
     const [statusFilter, setStatusFilter] = useState('');
     const [ratingsByAppId, setRatingsByAppId] = useState<Record<string, PanelRating[]>>({});
-
-    const toggleSort = (key: SortKey) => {
-        if (sortKey === key) {
-            setSortDir((d) => (d === 'asc' ? 'desc' : 'asc'));
-        } else {
-            setSortKey(key);
-            setSortDir(key === 'candidateName' ? 'asc' : 'desc');
-        }
-    };
 
     const load = () => {
         setLoading(true);
@@ -315,13 +283,14 @@ export function ShortlistingPage({ onViewCandidate }: ShortlistingPageProps) {
         }
     };
 
-    const visibleCandidates = sortCandidateRows(
+    const visibleCandidates = sortRows(
         candidates.filter(
             (c) =>
                 (c.name.toLowerCase().includes(searchTerm.toLowerCase()) ||
                     c.role.toLowerCase().includes(searchTerm.toLowerCase())) &&
                 (!statusFilter || c.status === statusFilter)
         ),
+        SORT_COLUMNS,
         sortKey,
         sortDir
     );
@@ -368,28 +337,10 @@ export function ShortlistingPage({ onViewCandidate }: ShortlistingPageProps) {
                     <table className="w-full">
                         <thead className="bg-gray-50 border-b border-gray-200">
                             <tr>
-                                <th
-                                    className="px-6 py-4 text-left text-xs font-semibold text-gray-500 uppercase tracking-wider cursor-pointer select-none hover:text-gray-700"
-                                    onClick={() => toggleSort('candidateName')}
-                                >
-                                    Candidate
-                                    <SortIndicator active={sortKey === 'candidateName'} dir={sortDir} />
-                                </th>
+                                <SortableHeader label="Candidate" sortKey="candidateName" activeKey={sortKey} dir={sortDir} onSort={toggleSort} />
                                 <th className="px-6 py-4 text-left text-xs font-semibold text-gray-500 uppercase tracking-wider">Role</th>
-                                <th
-                                    className="px-6 py-4 text-left text-xs font-semibold text-gray-500 uppercase tracking-wider cursor-pointer select-none hover:text-gray-700"
-                                    onClick={() => toggleSort('prescreenScore')}
-                                >
-                                    Score
-                                    <SortIndicator active={sortKey === 'prescreenScore'} dir={sortDir} />
-                                </th>
-                                <th
-                                    className="px-6 py-4 text-left text-xs font-semibold text-gray-500 uppercase tracking-wider cursor-pointer select-none hover:text-gray-700"
-                                    onClick={() => toggleSort('rating')}
-                                >
-                                    Panel Rating
-                                    <SortIndicator active={sortKey === 'rating'} dir={sortDir} />
-                                </th>
+                                <SortableHeader label="Score" sortKey="prescreenScore" activeKey={sortKey} dir={sortDir} onSort={toggleSort} />
+                                <SortableHeader label="Panel Rating" sortKey="rating" activeKey={sortKey} dir={sortDir} onSort={toggleSort} />
                                 <th className="px-6 py-4 text-left text-xs font-semibold text-gray-500 uppercase tracking-wider">Location</th>
                                 <th className="px-6 py-4 text-left text-xs font-semibold text-gray-500 uppercase tracking-wider">Status</th>
                                 <th className="px-6 py-4 text-left text-xs font-semibold text-gray-500 uppercase tracking-wider">Notes</th>

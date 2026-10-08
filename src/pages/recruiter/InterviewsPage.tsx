@@ -9,6 +9,8 @@ import { printInterviewReport } from '../../lib/printInterviewReport';
 import { db } from '../../lib/firebase';
 import { useAuth } from '../../context/AuthContext';
 import { DutyBanner } from '../../components/ats/DutyBanner';
+import { SortableHeader } from '../../components/ats/SortableHeader';
+import { sortRows, useTableSort, SortColumn } from '../../lib/tableSort';
 import { Application, getAllApplications } from '../../services/applicationService';
 import {
   Interview,
@@ -25,6 +27,14 @@ interface Staff {
   name: string;
 }
 
+type SortKey = 'candidateName' | 'scheduledAt' | 'status';
+
+const SORT_COLUMNS: Record<SortKey, SortColumn<Interview>> = {
+  candidateName: { getValue: (i) => i.candidateName, type: 'string' },
+  scheduledAt: { getValue: (i) => new Date(i.scheduledAt).getTime() },
+  status: { getValue: (i) => i.status, type: 'string' },
+};
+
 export function InterviewsPage() {
   const { user } = useAuth();
   const location = useLocation();
@@ -33,6 +43,8 @@ export function InterviewsPage() {
   const [statusFilter, setStatusFilter] = useState('all');
   const [interviews, setInterviews] = useState<Interview[]>([]);
   const [loading, setLoading] = useState(true);
+  // Default matches the page's previous fixed order: soonest/most-recent first.
+  const { sortKey, sortDir, toggleSort } = useTableSort<SortKey>('scheduledAt', 'desc', ['candidateName', 'status']);
 
   // Scheduling modal state
   const [showSchedule, setShowSchedule] = useState(false);
@@ -158,13 +170,18 @@ export function InterviewsPage() {
     load();
   };
 
-  const filteredInterviews = interviews.filter((interview) => {
-    const matchesSearch =
-      interview.candidateName.toLowerCase().includes(searchTerm.toLowerCase()) ||
-      interview.jobTitle.toLowerCase().includes(searchTerm.toLowerCase());
-    const matchesStatus = statusFilter === 'all' || interview.status === statusFilter;
-    return matchesSearch && matchesStatus;
-  });
+  const filteredInterviews = sortRows(
+    interviews.filter((interview) => {
+      const matchesSearch =
+        interview.candidateName.toLowerCase().includes(searchTerm.toLowerCase()) ||
+        interview.jobTitle.toLowerCase().includes(searchTerm.toLowerCase());
+      const matchesStatus = statusFilter === 'all' || interview.status === statusFilter;
+      return matchesSearch && matchesStatus;
+    }),
+    SORT_COLUMNS,
+    sortKey,
+    sortDir
+  );
 
   return (
     <div className="p-8 max-w-7xl mx-auto space-y-6">
@@ -219,11 +236,11 @@ export function InterviewsPage() {
           <table className="w-full">
             <thead className="bg-gray-50/80 border-b border-gray-100">
               <tr>
-                <th className="px-6 py-4 text-left text-xs font-semibold text-gray-500 uppercase tracking-wider">Candidate / Job</th>
-                <th className="px-6 py-4 text-left text-xs font-semibold text-gray-500 uppercase tracking-wider">Date & Time</th>
+                <SortableHeader label="Candidate / Job" sortKey="candidateName" activeKey={sortKey} dir={sortDir} onSort={toggleSort} />
+                <SortableHeader label="Date & Time" sortKey="scheduledAt" activeKey={sortKey} dir={sortDir} onSort={toggleSort} />
                 <th className="px-6 py-4 text-left text-xs font-semibold text-gray-500 uppercase tracking-wider">Format</th>
                 <th className="px-6 py-4 text-left text-xs font-semibold text-gray-500 uppercase tracking-wider">Panel</th>
-                <th className="px-6 py-4 text-left text-xs font-semibold text-gray-500 uppercase tracking-wider">Status & Score</th>
+                <SortableHeader label="Status & Score" sortKey="status" activeKey={sortKey} dir={sortDir} onSort={toggleSort} />
                 <th className="px-6 py-4 text-right text-xs font-semibold text-gray-500 uppercase tracking-wider">Actions</th>
               </tr>
             </thead>

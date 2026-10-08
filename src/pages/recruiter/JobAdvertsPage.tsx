@@ -42,6 +42,8 @@ import {
 } from "../../services/applicationService";
 import { useAuth } from "../../context/AuthContext";
 import { DownloadCvsButton } from "../../components/ats/DownloadCvsButton";
+import { SortableHeader } from "../../components/ats/SortableHeader";
+import { sortRows, useTableSort, SortColumn } from "../../lib/tableSort";
 
 interface JobAdvertsPageProps {
   onViewApplications: (jobId: string) => void;
@@ -73,6 +75,8 @@ function statsForJob(
   };
 }
 
+type SortKey = "title" | "status" | "closingDate" | "totalApplications";
+
 export function JobAdvertsPage({
   onViewApplications,
   onCreateAdvert,
@@ -81,6 +85,7 @@ export function JobAdvertsPage({
   const { user } = useAuth();
   const [searchTerm, setSearchTerm] = useState("");
   const [statusFilter, setStatusFilter] = useState("all");
+  const { sortKey, sortDir, toggleSort } = useTableSort<SortKey>("title", "asc", ["title", "status"]);
   const [jobs, setJobs] = useState<Job[]>([]);
   const [applications, setApplications] = useState<Application[]>([]);
   const [loading, setLoading] = useState(true);
@@ -179,15 +184,32 @@ export function JobAdvertsPage({
     load();
   };
 
-  const filteredAdverts = jobs.filter((job) => {
-    const matchesSearch =
-      job.title.toLowerCase().includes(searchTerm.toLowerCase()) ||
-      job.referenceNumber.toLowerCase().includes(searchTerm.toLowerCase());
-    const matchesStatus =
-      statusFilter === "all" ||
-      job.status.toLowerCase() === statusFilter.toLowerCase();
-    return matchesSearch && matchesStatus;
-  });
+  // Pipeline totals are computed per job for the stats cells anyway; reused
+  // here so sorting by application count doesn't redo that work per compare.
+  const totalsByJobId = new Map(jobs.map((j) => [j.id, statsForJob(j.id, applications).total]));
+
+  const SORT_COLUMNS: Record<SortKey, SortColumn<Job>> = {
+    title: { getValue: (j) => j.title, type: "string" },
+    status: { getValue: (j) => j.status, type: "string" },
+    // YYYY-MM-DD sorts correctly as a plain string compare — no need to parse it.
+    closingDate: { getValue: (j) => j.closingDate || null, type: "string" },
+    totalApplications: { getValue: (j) => totalsByJobId.get(j.id) ?? 0 },
+  };
+
+  const filteredAdverts = sortRows(
+    jobs.filter((job) => {
+      const matchesSearch =
+        job.title.toLowerCase().includes(searchTerm.toLowerCase()) ||
+        job.referenceNumber.toLowerCase().includes(searchTerm.toLowerCase());
+      const matchesStatus =
+        statusFilter === "all" ||
+        job.status.toLowerCase() === statusFilter.toLowerCase();
+      return matchesSearch && matchesStatus;
+    }),
+    SORT_COLUMNS,
+    sortKey,
+    sortDir
+  );
 
   const toggleSelect = (id: string) =>
     setSelected((prev) =>
@@ -332,21 +354,13 @@ export function JobAdvertsPage({
                     aria-label="Select all adverts"
                   />
                 </th>
-                <th className="px-6 py-4 text-left text-xs font-semibold text-gray-500 uppercase tracking-wider">
-                  Job Details
-                </th>
-                <th className="px-6 py-4 text-left text-xs font-semibold text-gray-500 uppercase tracking-wider">
-                  Pipeline Stats
-                </th>
+                <SortableHeader label="Job Details" sortKey="title" activeKey={sortKey} dir={sortDir} onSort={toggleSort} />
+                <SortableHeader label="Pipeline Stats" sortKey="totalApplications" activeKey={sortKey} dir={sortDir} onSort={toggleSort} />
                 <th className="px-6 py-4 text-left text-xs font-semibold text-gray-500 uppercase tracking-wider">
                   Hiring Team
                 </th>
-                <th className="px-6 py-4 text-left text-xs font-semibold text-gray-500 uppercase tracking-wider">
-                  Status
-                </th>
-                <th className="px-6 py-4 text-left text-xs font-semibold text-gray-500 uppercase tracking-wider">
-                  Closing Date
-                </th>
+                <SortableHeader label="Status" sortKey="status" activeKey={sortKey} dir={sortDir} onSort={toggleSort} />
+                <SortableHeader label="Closing Date" sortKey="closingDate" activeKey={sortKey} dir={sortDir} onSort={toggleSort} />
                 <th className="px-6 py-4 text-right text-xs font-semibold text-gray-500 uppercase tracking-wider">
                   Actions
                 </th>
