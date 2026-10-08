@@ -16,6 +16,7 @@ import {
   getCandidateProfile,
   updateCandidateProfile,
   uploadProfileCv,
+  deleteField,
 } from '../../services/profileService';
 import { Skill, getSkills } from '../../services/skillService';
 import { SkillPicker } from '../../components/ats/SkillPicker';
@@ -215,10 +216,19 @@ export function CandidateDashboard({
         city: profile.city,
         country: profile.country,
         // Always sent (even empty) so removing every skill actually clears
-        // it rather than being silently ignored on save.
+        // it rather than being silently ignored on save. yearsOfExperience
+        // and highestEducation use deleteField() for the same reason when
+        // blank: omitting the key means "leave alone" to updateDoc, not
+        // "clear it", so a candidate clearing either field would see it
+        // reappear on reload. Do NOT change these back to a conditional
+        // spread (`...(x ? {x} : {})`) — that's the right shape for a
+        // create/backfill (see H4's backfillProfileFromApplication), where
+        // "absent" correctly means "don't touch it", but wrong here, where
+        // the user is editing an existing document and an empty field is a
+        // deliberate clear.
         skillIds,
-        ...(yearsOfExperience.trim() !== '' && !Number.isNaN(years) ? { yearsOfExperience: years } : {}),
-        ...(highestEducation ? { highestEducation } : {}),
+        yearsOfExperience: yearsOfExperience.trim() !== '' && !Number.isNaN(years) ? years : deleteField(),
+        highestEducation: highestEducation ? highestEducation : deleteField(),
       });
       toast.success('Profile saved.');
     } catch (err: any) {
