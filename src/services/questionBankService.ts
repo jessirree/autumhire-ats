@@ -11,6 +11,14 @@ export interface QuestionChoice {
   points: number;
 }
 
+/**
+ * Candidate-matching spec §4: which capability-profile field a question's
+ * answer duplicates. An explicit, authored mapping — never inferred from
+ * question text — so ApplicationForm knows to prefill it from the
+ * candidate's profile rather than asking twice.
+ */
+export type ProfileFieldMapping = 'yearsOfExperience' | 'highestEducation';
+
 export interface BankQuestion {
   id: string;
   text: string;
@@ -20,6 +28,7 @@ export interface BankQuestion {
   options?: string[];
   /** Per-choice scoring for 'Yes/No' (labels always 'Yes'/'No') and 'Multiple Choice'. */
   choices?: QuestionChoice[];
+  profileField?: ProfileFieldMapping;
 }
 
 const QUESTION_BANK_COLLECTION = collection(db, 'QuestionBank');
@@ -58,6 +67,7 @@ export async function getQuestionBank(): Promise<BankQuestion[]> {
         score: questionData.score ?? 0,
         ...(Array.isArray(questionData.options) ? { options: questionData.options as string[] } : {}),
         ...(choices.length > 0 ? { choices } : {}),
+        ...(questionData.profileField ? { profileField: questionData.profileField as ProfileFieldMapping } : {}),
       });
     }
 
@@ -92,7 +102,11 @@ export async function saveQuestionBank(
       ? Math.max(0, ...finalChoices.map((c) => c.points))
       : q.score;
 
-    // Save the question document
+    // Save the question document. This is a full-document set(), not a
+    // merging update() — omitting profileField here correctly clears it
+    // (unlike updateJob/updateCandidateProfile's partial merges, where
+    // omitting a key means "leave alone" and a deleteField() is needed
+    // instead).
     const questionDocRef = doc(QUESTION_BANK_COLLECTION, q.id);
     batch.set(questionDocRef, {
       text: q.text,
@@ -100,6 +114,7 @@ export async function saveQuestionBank(
       required: q.required,
       score,
       ...(q.options ? { options: q.options } : {}),
+      ...(q.profileField ? { profileField: q.profileField } : {}),
       updatedAt: serverTimestamp(),
       updatedBy: by.name,
     });
@@ -137,6 +152,7 @@ export function bankToJobQuestion(q: BankQuestion): {
   expectedAnswer?: string;
   score?: number;
   choices?: QuestionChoice[];
+  profileField?: ProfileFieldMapping;
 } {
   const typeMap: Record<BankQuestionType, 'text' | 'checkbox' | 'dropdown' | 'number' | 'file'> = {
     'Short Text': 'text',
@@ -153,5 +169,6 @@ export function bankToJobQuestion(q: BankQuestion): {
     instructions: '',
     ...(q.choices?.length ? { choices: q.choices } : {}),
     ...(q.score ? { score: q.score } : {}),
+    ...(q.profileField ? { profileField: q.profileField } : {}),
   };
 }

@@ -11,14 +11,22 @@ import {
   serverTimestamp,
   runTransaction,
   writeBatch,
+  deleteField,
   Timestamp,
+  type FieldValue,
 } from 'firebase/firestore';
 import { db } from '../lib/firebase';
 import { logAudit } from './auditService';
 import { getRequisitionById } from './requisitionService';
-import type { QuestionChoice } from './questionBankService';
+import type { QuestionChoice, ProfileFieldMapping } from './questionBankService';
+import type { EducationLevel } from '../lib/education';
 
-export type { QuestionChoice };
+export type { QuestionChoice, ProfileFieldMapping };
+
+// Re-exported so CreateJob.tsx can call updateJob with { field: deleteField() }
+// without importing firebase/firestore itself (CLAUDE.md: components never
+// import firebase/firestore directly — services own all Firestore access).
+export { deleteField };
 
 export type JobStatus =
   | 'Draft'
@@ -40,6 +48,8 @@ export interface ScreeningQuestion {
   score?: number;
   /** Per-choice scoring for 'checkbox' (Yes/No) and 'dropdown' (Multiple Choice) questions. */
   choices?: QuestionChoice[];
+  /** Candidate-matching spec §4 — see ProfileFieldMapping. */
+  profileField?: ProfileFieldMapping;
 }
 
 export interface TeamMember {
@@ -85,6 +95,31 @@ export interface Job {
   source?: string;
   /** Total recruitment cost for this vacancy (advertising, agency, etc.) — feeds cost reports. */
   recruitmentCost?: number;
+  /**
+   * Candidate-matching spec §2.3 job requirements. All optional — a job
+   * with none of these set is legitimate and simply produces no match
+   * score (step 4). Published on the advert: spec §3.3 is explicit that
+   * requirements are public and only the match itself is private, so
+   * JobDetail.tsx showing these is intended, not a leak — do not restrict
+   * read access to them later under the assumption they need protecting.
+   */
+  minYearsExperience?: number;
+  minEducation?: EducationLevel;
+  /** Ids into Skills — resolve to current names on read (skillService.getSkills), same taxonomy-integrity reasoning as the candidate profile's skillIds. */
+  requiredSkillIds?: string[];
+  /**
+   * Names denormalized from Skills at save time, parallel to
+   * requiredSkillIds. Exists only because the public job advert
+   * (JobDetail.tsx) is readable by a signed-out visitor, who cannot read
+   * the Skills collection (its rule requires isActive(), i.e. signed in) —
+   * this is what that page renders instead of resolving ids live. Can go
+   * stale if a skill is renamed after being required, same as every other
+   * denormalized name in this codebase (jobTitle, candidateName,
+   * panelistName); staff-facing screens should still resolve the live name
+   * from requiredSkillIds.
+   */
+  requiredSkillNames?: string[];
+  workAuthorizationRequired?: boolean;
   postedAt?: Timestamp | null;
   createdAt?: Timestamp | null;
   updatedAt?: Timestamp | null;
@@ -96,6 +131,18 @@ export type JobInput = Omit<
   Job,
   'id' | 'referenceNumber' | 'postedAt' | 'createdAt' | 'updatedAt'
 >;
+
+/**
+ * updateJob performs a partial merge via updateDoc(), where an omitted key
+ * means "leave this field alone" — not "clear it". A caller that wants to
+ * clear an optional field (e.g. a recruiter who sets, then removes, a
+ * minimum years requirement) must say so explicitly with deleteField(),
+ * the same shape CandidateDashboard/profileService use for the identical
+ * problem on the Users document.
+ */
+export type JobInputUpdate = {
+  [K in keyof JobInput]?: JobInput[K] | FieldValue;
+};
 
 const JOBS = 'Jobs';
 
@@ -204,7 +251,7 @@ export async function createJob(
 
 export async function updateJob(
   id: string,
-  updates: Partial<JobInput>,
+  updates: JobInputUpdate,
   updatedBy: { id: string; name: string }
 ): Promise<void> {
   const payload: any = { ...updates, updatedAt: serverTimestamp() };
