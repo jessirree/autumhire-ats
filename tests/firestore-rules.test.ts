@@ -669,8 +669,16 @@ describe('Skills', () => {
     await assertSucceeds(getDocs(collection(db, 'Skills')));
   });
 
-  it('a candidate may NOT read the Skills collection', async () => {
+  it('a candidate may read the Skills collection (the profile typeahead needs it)', async () => {
     const db = testEnv.authenticatedContext(CANDIDATE).firestore();
+    await assertSucceeds(getDocs(collection(db, 'Skills')));
+  });
+
+  it('a deactivated user may NOT read the Skills collection', async () => {
+    await testEnv.withSecurityRulesDisabled(async (ctx) => {
+      await updateDoc(doc(ctx.firestore(), 'Users', CANDIDATE2), { status: 'inactive' });
+    });
+    const db = testEnv.authenticatedContext(CANDIDATE2).firestore();
     await assertFails(getDocs(collection(db, 'Skills')));
   });
 

@@ -228,12 +228,17 @@ service cloud.firestore {
     }
 
     // Skills taxonomy (candidate-matching spec §2.1) — admin-managed, same
-    // shape as QuestionBank. As written, this is staff read / admin write
-    // only; the candidate-facing typeahead pickers in step 2 (profile
-    // skills) need their own read access and are not yet covered here —
-    // flagged to the user rather than silently widened.
+    // shape as QuestionBank, but read by candidates too: step 2's profile
+    // typeahead and step 3's job-requirements picker both need it. isStaff()
+    // is isActive() plus a role check, so `isStaff() || isActive()` would be
+    // a redundant tautology — isActive() alone already covers both staff and
+    // candidates. Deactivated skills are NOT filtered here: a rule permits or
+    // denies a whole document, it doesn't filter query results, so that
+    // belongs in the query (getSkills(includeInactive)) instead — the
+    // candidate typeahead asks for active skills, the admin screen asks for
+    // all of them.
     match /Skills/{skillId} {
-      allow read: if isStaff();
+      allow read: if isActive();
       allow write: if isAdmin();
     }
 
