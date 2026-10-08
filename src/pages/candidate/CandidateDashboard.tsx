@@ -63,7 +63,7 @@ export function CandidateDashboard({
         const results = await Promise.allSettled(
           relevant.map(async (a) => [a.id, await getBioData(a.id)] as const)
         );
-        const entries: [string, BioData | null][] = [];
+        const entries: (readonly [string, BioData | null])[] = [];
         let failures = 0;
         for (const r of results) {
           if (r.status === 'fulfilled') entries.push(r.value);
