@@ -23,6 +23,34 @@ interface CandidateProfile {
   prescreenScore: number;
   appliedAtMs: number | null;
   panelRatingAvg: number | null;
+  /** D: what Applications shows per-row, Candidates doesn't — these three are what make the pages genuinely different. */
+  applicationCount: number;
+  furthestStageLabel: string;
+}
+
+// Pipeline depth, not alphabetical — used to find the furthest point any of
+// a candidate's applications has reached across their full statusHistory,
+// not just their current status, so a later rejection doesn't erase an
+// earlier interview from "how far did this person get".
+const STAGE_RANK: Record<string, number> = {
+  applied: 0,
+  longlisted: 1,
+  shortlisted: 2,
+  interview: 3,
+  offer: 4,
+  hired: 5,
+};
+const STAGE_LABELS = ['Applied', 'Longlisted', 'Shortlisted', 'Interview', 'Offer', 'Hired'];
+
+function furthestStageLabel(apps: Application[]): string {
+  let maxRank = 0;
+  for (const app of apps) {
+    for (const entry of app.statusHistory ?? []) {
+      const rank = STAGE_RANK[entry.status];
+      if (rank !== undefined && rank > maxRank) maxRank = rank;
+    }
+  }
+  return STAGE_LABELS[maxRank];
 }
 
 type SortKey = 'candidateName' | 'prescreenScore' | 'appliedAt' | 'rating';
@@ -61,6 +89,8 @@ function buildProfiles(applications: Application[]): CandidateProfile[] {
       prescreenScore: latest.prescreenScore,
       appliedAtMs: latest.appliedAt?.toMillis?.() ?? null,
       panelRatingAvg: latest.panelRatingAvg ?? null,
+      applicationCount: apps.length,
+      furthestStageLabel: furthestStageLabel(apps),
     };
   });
 }
@@ -84,6 +114,7 @@ export function CandidatesPage({ onViewCandidate }: CandidatesPageProps) {
   const [poolFilter, setPoolFilter] = useState('all');
   const [jobFilter, setJobFilter] = useState('all');
   const [stageFilter, setStageFilter] = useState('all');
+  const [repeatOnly, setRepeatOnly] = useState(false);
   const [isAddModalOpen, setIsAddModalOpen] = useState(false);
   const [candidates, setCandidates] = useState<CandidateProfile[]>([]);
   const [jobTitles, setJobTitles] = useState<string[]>([]);
@@ -124,10 +155,12 @@ export function CandidatesPage({ onViewCandidate }: CandidatesPageProps) {
       if (stageFilter !== 'all') {
         matchesStage = candidate.activeApplications.some(app => app.stage.toLowerCase() === stageFilter.toLowerCase());
       }
-      
-      return matchesSearch && matchesPool && matchesJob && matchesStage;
+
+      const matchesRepeat = !repeatOnly || candidate.applicationCount > 1;
+
+      return matchesSearch && matchesPool && matchesJob && matchesStage && matchesRepeat;
     });
-  }, [candidates, searchTerm, poolFilter, jobFilter, stageFilter]);
+  }, [candidates, searchTerm, poolFilter, jobFilter, stageFilter, repeatOnly]);
 
   const sortedCandidates = useMemo(
     () => sortRows(filteredCandidates, SORT_COLUMNS, sortKey, sortDir),
@@ -201,6 +234,16 @@ export function CandidatesPage({ onViewCandidate }: CandidatesPageProps) {
             <option value="rejected">Rejected</option>
           </select>
           
+          <label className="flex items-center gap-2 px-4 py-2 border border-gray-200 rounded-xl bg-white text-gray-700 font-medium cursor-pointer select-none">
+            <input
+              type="checkbox"
+              checked={repeatOnly}
+              onChange={(e) => setRepeatOnly(e.target.checked)}
+              className="size-4 rounded border-gray-300 text-autumn-primary focus:ring-autumn-primary"
+            />
+            Repeat applicants only
+          </label>
+
           <Button variant="outline" className="rounded-xl">
             <Filter className="size-4 mr-2" />
             More Filters
@@ -219,8 +262,10 @@ export function CandidatesPage({ onViewCandidate }: CandidatesPageProps) {
           {sortedCandidates.map((candidate) => (
             <div key={candidate.id} className="bg-white rounded-xl border border-gray-200 shadow-sm hover:shadow-md transition-shadow overflow-hidden flex flex-col group">
               <div className="p-5 border-b border-gray-100 relative">
-                <div className="absolute top-4 right-4 text-xs font-semibold text-gray-500">
-                  {candidate.lastContact}
+                <div className="absolute top-4 right-4 text-xs text-gray-500 text-right">
+                  <span className="font-semibold">Last applied</span>
+                  <br />
+                  {candidate.lastContact || '—'}
                 </div>
                 <div className="size-14 bg-gradient-to-br from-orange-100 to-amber-100 text-autumn-charcoal rounded-full flex items-center justify-center font-bold text-xl mb-4 shadow-sm border border-orange-200">
                   {candidate.name.charAt(0)}
@@ -230,12 +275,22 @@ export function CandidatesPage({ onViewCandidate }: CandidatesPageProps) {
                   <Briefcase className="size-3.5" />
                   <span className="line-clamp-1">{candidate.currentRole}</span>
                 </p>
-                
-                {candidate.inTalentPool && (
-                  <span className="inline-flex mt-3 items-center gap-1 px-2.5 py-1 text-xs font-medium rounded-md bg-blue-50 text-blue-700 border border-blue-100">
-                    Talent Pool
+
+                <div className="flex items-center gap-2 mt-3 flex-wrap">
+                  {candidate.applicationCount > 1 && (
+                    <span className="inline-flex items-center gap-1 px-2.5 py-1 text-xs font-medium rounded-md bg-purple-50 text-purple-700 border border-purple-100">
+                      {candidate.applicationCount} applications
+                    </span>
+                  )}
+                  <span className="inline-flex items-center gap-1 px-2.5 py-1 text-xs font-medium rounded-md bg-gray-50 text-gray-600 border border-gray-200">
+                    Furthest: {candidate.furthestStageLabel}
                   </span>
-                )}
+                  {candidate.inTalentPool && (
+                    <span className="inline-flex items-center gap-1 px-2.5 py-1 text-xs font-medium rounded-md bg-blue-50 text-blue-700 border border-blue-100">
+                      Talent Pool
+                    </span>
+                  )}
+                </div>
               </div>
               
               <div className="p-5 flex-1 flex flex-col gap-3 text-sm">
