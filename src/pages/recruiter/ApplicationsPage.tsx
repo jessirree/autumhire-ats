@@ -1,9 +1,12 @@
 ﻿import { useState, useEffect } from 'react';
 import { useSearchParams } from 'react-router-dom';
 import { toast } from 'sonner';
-import { Search, Filter, Download, Archive, ArchiveRestore, X } from 'lucide-react';
+import { Search, Filter, Download, Archive, ArchiveRestore, X, FileSpreadsheet, Loader2 } from 'lucide-react';
 import { Button } from '../../components/ui/button';
+import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '../../components/ui/tooltip';
 import { StatusBadge } from '../../components/ats/StatusBadge';
+import { SortableHeader } from '../../components/ats/SortableHeader';
+import { sortRows, useTableSort, SortColumn } from '../../lib/tableSort';
 import { useAuth } from '../../context/AuthContext';
 import {
   Application,
@@ -15,10 +18,13 @@ import {
 } from '../../services/applicationService';
 import { Job, getJobById } from '../../services/jobService';
 import { downloadCsv } from '../../lib/exportCsv';
+import { exportApplicationsXlsx } from '../../lib/exportApplicationsXlsx';
+import { logAudit } from '../../services/auditService';
 import { DownloadCvsButton } from '../../components/ats/DownloadCvsButton';
 
 interface ApplicationsPageProps {
-  onViewCandidate: (id: string) => void;
+  /** `returnQuery` is this page's current query string, so "Back to Applications" can restore it. */
+  onViewCandidate: (id: string, returnQuery: string) => void;
 }
 
 function exportToCSV(applications: Application[]) {
@@ -38,29 +44,53 @@ const BULK_ACTIONS: { label: string; status: ApplicationStatus }[] = [
   { label: 'Reject Candidates', status: 'rejected' },
 ];
 
+type SortKey = 'candidateName' | 'appliedAt' | 'prescreenScore' | 'status';
+
+const SORT_COLUMNS: Record<SortKey, SortColumn<Application>> = {
+  candidateName: { getValue: (a) => a.candidateName, type: 'string' },
+  appliedAt: { getValue: (a) => a.appliedAt?.toMillis?.() ?? null },
+  prescreenScore: { getValue: (a) => a.prescreenScore },
+  status: { getValue: (a) => a.status, type: 'string' },
+};
+
 export function ApplicationsPage({ onViewCandidate }: ApplicationsPageProps) {
   const { user } = useAuth();
   const [searchParams, setSearchParams] = useSearchParams();
   const jobFilterId = searchParams.get('job');
+  // B: these four used to be component state and died the moment the user
+  // opened a candidate. The job filter already lived in the URL (?job=) and
+  // survived a reload — same pattern, same reason, applied to the rest so a
+  // filtered view is a URL a recruiter can bookmark or send on, not just
+  // something that happens to survive this one filter.
+  const searchTerm = searchParams.get('q') ?? '';
+  const statusFilter = searchParams.get('status') ?? '';
+  const departmentFilter = searchParams.get('department') ?? '';
+  const showArchived = searchParams.get('archived') === '1';
   const [filterJob, setFilterJob] = useState<Job | null>(null);
   const [applications, setApplications] = useState<Application[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
-  const [searchTerm, setSearchTerm] = useState('');
-  const [statusFilter, setStatusFilter] = useState('');
-  const [departmentFilter, setDepartmentFilter] = useState('');
   const [selectedApplications, setSelectedApplications] = useState<string[]>([]);
   const [bulkAction, setBulkAction] = useState('Bulk Actions');
-  const [showArchived, setShowArchived] = useState(false);
   const [archiving, setArchiving] = useState(false);
+  const [exportingXlsx, setExportingXlsx] = useState(false);
+  const { sortKey, sortDir, toggleSort } = useTableSort<SortKey>('appliedAt', 'desc', ['candidateName']);
 
-  const clearJobFilter = () => {
+  const updateParam = (key: string, value: string | null) => {
     setSearchParams((prev) => {
       const next = new URLSearchParams(prev);
-      next.delete('job');
+      if (value) next.set(key, value);
+      else next.delete(key);
       return next;
     });
   };
+
+  const setSearchTerm = (v: string) => updateParam('q', v || null);
+  const setStatusFilter = (v: string) => updateParam('status', v || null);
+  const setDepartmentFilter = (v: string) => updateParam('department', v || null);
+  const setShowArchived = (v: boolean) => updateParam('archived', v ? '1' : null);
+
+  const clearJobFilter = () => updateParam('job', null);
 
   const load = () => {
     setLoading(true);
@@ -100,14 +130,19 @@ export function ApplicationsPage({ onViewCandidate }: ApplicationsPageProps) {
 
   const departments = Array.from(new Set(applications.map((a) => a.department).filter(Boolean)));
 
-  const filteredApplications = applications.filter((app) => {
-    const matchesSearch =
-      app.candidateName.toLowerCase().includes(searchTerm.toLowerCase()) ||
-      app.jobTitle.toLowerCase().includes(searchTerm.toLowerCase());
-    const matchesStatus = !statusFilter || app.status.toLowerCase() === statusFilter.toLowerCase();
-    const matchesDepartment = !departmentFilter || app.department === departmentFilter;
-    return matchesSearch && matchesStatus && matchesDepartment;
-  });
+  const filteredApplications = sortRows(
+    applications.filter((app) => {
+      const matchesSearch =
+        app.candidateName.toLowerCase().includes(searchTerm.toLowerCase()) ||
+        app.jobTitle.toLowerCase().includes(searchTerm.toLowerCase());
+      const matchesStatus = !statusFilter || app.status.toLowerCase() === statusFilter.toLowerCase();
+      const matchesDepartment = !departmentFilter || app.department === departmentFilter;
+      return matchesSearch && matchesStatus && matchesDepartment;
+    }),
+    SORT_COLUMNS,
+    sortKey,
+    sortDir
+  );
 
   const toggleSelection = (id: string) => {
     setSelectedApplications((prev) =>
@@ -138,6 +173,25 @@ export function ApplicationsPage({ onViewCandidate }: ApplicationsPageProps) {
     }
   };
 
+  const handleExportXlsx = async () => {
+    if (!user || !filterJob) return;
+    setExportingXlsx(true);
+    try {
+      await exportApplicationsXlsx(filterJob, applications);
+      await logAudit(
+        user,
+        'update',
+        'Job',
+        filterJob.id,
+        `Exported ${applications.length} application(s) to Excel for "${filterJob.title}"`
+      );
+    } catch (err: any) {
+      toast.error(err?.message || 'Failed to export to Excel.');
+    } finally {
+      setExportingXlsx(false);
+    }
+  };
+
   const handleArchiveSelected = async (archived: boolean) => {
     if (!user || selectedApplications.length === 0) return;
     setArchiving(true);
@@ -155,6 +209,20 @@ export function ApplicationsPage({ onViewCandidate }: ApplicationsPageProps) {
     }
   };
 
+  // Shared by both per-job exports below: Excel needs the job's own
+  // screening questions for its column matrix, same as the CV zip needs a
+  // single job's worth of files — neither makes sense across every job.
+  const jobFilterDisabledReason = !jobFilterId
+    ? 'Filter to a specific job first — downloading CVs across every job is not supported.'
+    : !filterJob
+      ? 'This job could not be found.'
+      : undefined;
+  const xlsxDisabledReason = !jobFilterId
+    ? 'Filter to a specific job first — exporting to Excel across every job is not supported.'
+    : !filterJob
+      ? 'This job could not be found.'
+      : undefined;
+
   return (
     <div className="p-8 max-w-7xl mx-auto space-y-6">
       <div className="flex justify-between items-center bg-white p-6 rounded-2xl border border-gray-100 shadow-sm">
@@ -166,7 +234,7 @@ export function ApplicationsPage({ onViewCandidate }: ApplicationsPageProps) {
           <Button
             variant="outline"
             className={`gap-2 rounded-xl ${showArchived ? 'bg-orange-50 text-autumn-primary border-autumn-primary/40' : ''}`}
-            onClick={() => setShowArchived((v) => !v)}
+            onClick={() => setShowArchived(!showArchived)}
           >
             {showArchived ? <ArchiveRestore className="size-4" /> : <Archive className="size-4" />}
             {showArchived ? 'Viewing Archived' : 'Show Archived'}
@@ -183,14 +251,33 @@ export function ApplicationsPage({ onViewCandidate }: ApplicationsPageProps) {
                 : { id: jobFilterId ?? '', referenceNumber: '', title: '' }
             }
             applications={applications}
-            disabledReason={
-              !jobFilterId
-                ? 'Filter to a specific job first — downloading CVs across every job is not supported.'
-                : !filterJob
-                  ? 'This job could not be found.'
-                  : undefined
-            }
+            disabledReason={jobFilterDisabledReason}
           />
+          <TooltipProvider delayDuration={200}>
+            {xlsxDisabledReason ? (
+              <Tooltip>
+                <TooltipTrigger asChild>
+                  <span className="inline-block">
+                    <Button variant="outline" className="gap-2 rounded-xl" disabled>
+                      <FileSpreadsheet className="size-4" />
+                      Export to Excel
+                    </Button>
+                  </span>
+                </TooltipTrigger>
+                <TooltipContent>{xlsxDisabledReason}</TooltipContent>
+              </Tooltip>
+            ) : (
+              <Button
+                variant="outline"
+                className="gap-2 rounded-xl"
+                disabled={exportingXlsx}
+                onClick={handleExportXlsx}
+              >
+                {exportingXlsx ? <Loader2 className="size-4 animate-spin" /> : <FileSpreadsheet className="size-4" />}
+                Export to Excel
+              </Button>
+            )}
+          </TooltipProvider>
         </div>
       </div>
 
@@ -313,21 +400,13 @@ export function ApplicationsPage({ onViewCandidate }: ApplicationsPageProps) {
                     className="size-4 rounded border-gray-300 text-autumn-primary focus:ring-autumn-primary"
                   />
                 </th>
-                <th className="px-6 py-4 text-left text-xs font-semibold text-gray-500 uppercase tracking-wider">
-                  Candidate
-                </th>
+                <SortableHeader label="Candidate" sortKey="candidateName" activeKey={sortKey} dir={sortDir} onSort={toggleSort} />
                 <th className="px-6 py-4 text-left text-xs font-semibold text-gray-500 uppercase tracking-wider">
                   Job Context
                 </th>
-                <th className="px-6 py-4 text-left text-xs font-semibold text-gray-500 uppercase tracking-wider">
-                  Applied
-                </th>
-                <th className="px-6 py-4 text-left text-xs font-semibold text-gray-500 uppercase tracking-wider">
-                  Screening Score
-                </th>
-                <th className="px-6 py-4 text-left text-xs font-semibold text-gray-500 uppercase tracking-wider">
-                  Stage
-                </th>
+                <SortableHeader label="Applied" sortKey="appliedAt" activeKey={sortKey} dir={sortDir} onSort={toggleSort} />
+                <SortableHeader label="Screening Score" sortKey="prescreenScore" activeKey={sortKey} dir={sortDir} onSort={toggleSort} />
+                <SortableHeader label="Stage" sortKey="status" activeKey={sortKey} dir={sortDir} onSort={toggleSort} />
                 <th className="px-6 py-4 text-right text-xs font-semibold text-gray-500 uppercase tracking-wider">
                   Actions
                 </th>
@@ -385,7 +464,7 @@ export function ApplicationsPage({ onViewCandidate }: ApplicationsPageProps) {
                       <Button
                         variant="outline"
                         size="sm"
-                        onClick={() => onViewCandidate(app.id)}
+                        onClick={() => onViewCandidate(app.id, searchParams.toString())}
                         className="h-8 border-gray-200 hover:bg-gray-50 hover:text-autumn-primary"
                       >
                         View

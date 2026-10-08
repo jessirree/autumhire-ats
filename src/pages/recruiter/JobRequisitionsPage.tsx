@@ -17,6 +17,8 @@ import {
 import { BankQuestion, getQuestionBank } from '../../services/questionBankService';
 import { RichTextEditor } from '../../components/ui/rich-text-editor';
 import { sanitizeHtml } from '../../lib/sanitizeHtml';
+import { SortButton } from '../../components/ats/SortableHeader';
+import { sortRows, useTableSort, SortColumn } from '../../lib/tableSort';
 
 interface JobRequisitionsPageProps {
   onCreateRequisition: () => void;
@@ -30,6 +32,19 @@ const STATUS_BADGE: Record<string, string> = {
   approved: 'bg-green-100 text-green-800 border-green-200',
   rejected: 'bg-red-100 text-red-800 border-red-200',
   published: 'bg-gray-100 text-gray-700 border-gray-200',
+};
+
+type SortKey = 'positionTitle' | 'priority' | 'status' | 'createdAt';
+
+// Priority sorts by actual urgency, not alphabetically — "high" and "low"
+// sorting next to each other by letter would be meaningless here.
+const PRIORITY_RANK: Record<RequisitionPriority, number> = { low: 1, medium: 2, high: 3, urgent: 4 };
+
+const SORT_COLUMNS: Record<SortKey, SortColumn<Requisition>> = {
+  positionTitle: { getValue: (r) => r.positionTitle, type: 'string' },
+  priority: { getValue: (r) => PRIORITY_RANK[r.priority] ?? 0 },
+  status: { getValue: (r) => r.status, type: 'string' },
+  createdAt: { getValue: (r) => r.createdAt?.toMillis?.() ?? null },
 };
 
 export function JobRequisitionsPage({ onCreateRequisition, onPublish }: JobRequisitionsPageProps) {
@@ -46,6 +61,8 @@ export function JobRequisitionsPage({ onCreateRequisition, onPublish }: JobRequi
     jobDescription: '',
   });
   const [saving, setSaving] = useState(false);
+  // Default matches getRequisitions()'s own query ordering: newest first.
+  const { sortKey, sortDir, toggleSort } = useTableSort<SortKey>('createdAt', 'desc', ['positionTitle', 'status']);
 
   const load = () => {
     setLoading(true);
@@ -115,6 +132,16 @@ export function JobRequisitionsPage({ onCreateRequisition, onPublish }: JobRequi
         </Button>
       </div>
 
+      {requisitions.length > 0 && (
+        <div className="flex items-center gap-2">
+          <span className="text-xs font-semibold text-gray-400 uppercase tracking-wider">Sort</span>
+          <SortButton label="Position" sortKey="positionTitle" activeKey={sortKey} dir={sortDir} onSort={toggleSort} />
+          <SortButton label="Priority" sortKey="priority" activeKey={sortKey} dir={sortDir} onSort={toggleSort} />
+          <SortButton label="Status" sortKey="status" activeKey={sortKey} dir={sortDir} onSort={toggleSort} />
+          <SortButton label="Date raised" sortKey="createdAt" activeKey={sortKey} dir={sortDir} onSort={toggleSort} />
+        </div>
+      )}
+
       <div className="space-y-4">
         {loading && <p className="text-gray-500 text-center py-8">Loading requisitions…</p>}
         {!loading && requisitions.length === 0 && (
@@ -122,7 +149,7 @@ export function JobRequisitionsPage({ onCreateRequisition, onPublish }: JobRequi
             No requisitions yet.
           </div>
         )}
-        {requisitions.map((req) => {
+        {sortRows(requisitions, SORT_COLUMNS, sortKey, sortDir).map((req) => {
           const pr = PRIORITY_STYLES[req.priority] ?? PRIORITY_STYLES.medium;
           return (
             <div key={req.id} className={`bg-white rounded-xl border border-gray-100 shadow-sm p-5 ${pr.row}`}>
