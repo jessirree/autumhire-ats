@@ -22,6 +22,7 @@ import { downloadCsv } from '../../lib/exportCsv';
 import { exportApplicationsXlsx } from '../../lib/exportApplicationsXlsx';
 import { logAudit } from '../../services/auditService';
 import { useAuth } from '../../context/AuthContext';
+import { BestMatchReport } from './BestMatchReport';
 
 const CHART_COLORS = ['#3b82f6', '#8b5cf6', '#10b981', '#f59e0b', '#ef4444', '#6b7280'];
 
@@ -239,6 +240,9 @@ export function ReportsPage() {
           Export Report
         </Button>
       </div>
+
+      {/* Row 5.8: best-match report, scoped to one job's applicants */}
+      <BestMatchReport jobs={jobs} applications={allApplications} />
 
       {/* Per-job Excel export: candidates + their screening answers */}
       <div className="bg-white rounded-lg border border-gray-200 p-6">
