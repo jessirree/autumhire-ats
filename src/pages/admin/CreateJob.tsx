@@ -21,6 +21,7 @@ import {
   ChevronDown,
   Eye,
   Download,
+  AlertTriangle,
 } from "lucide-react";
 import { useSearchParams } from "react-router-dom";
 import { collection, getDocs } from "firebase/firestore";
@@ -38,9 +39,12 @@ import { useAuth } from "../../context/AuthContext";
 import {
   Job,
   JobInput,
+  JobInputUpdate,
   JobStatus,
+  RequirementMapping,
   createJob,
   updateJob,
+  deleteField,
   getJobById,
   getJobs,
 } from "../../services/jobService";
@@ -57,6 +61,9 @@ import {
 } from "../../services/requisitionService";
 import { regenerateJobsFeed } from "../../services/feedService";
 import { notifyJobAlertSubscribers } from "../../services/jobAlertService";
+import { Skill, getSkills } from "../../services/skillService";
+import { SkillPicker } from "../../components/ats/SkillPicker";
+import { EDUCATION_LEVELS, EDUCATION_LABELS, EducationLevel } from "../../lib/education";
 
 interface JobDetails {
   jobTitle: string;
@@ -74,6 +81,12 @@ interface JobDetails {
   currency: string;
   description: string;
   tags: string;
+  // Candidate-matching spec §2.3 — sits with the job specification, not
+  // buried in Settings & Publication, per the brief for this step.
+  minYearsExperience: string;
+  minEducation: EducationLevel | "";
+  requiredSkillIds: string[];
+  workAuthorizationRequired: boolean;
 }
 
 interface JobSettings {
@@ -99,6 +112,8 @@ interface Question {
   score?: number;
   /** Per-choice points for checkbox (Yes/No) and dropdown questions. */
   choices?: QuestionChoice[];
+  /** Candidate-matching spec §4 — which requirement this question's answer satisfies, if any. */
+  requirementField?: RequirementMapping;
 }
 
 interface StaffMember {
@@ -125,6 +140,10 @@ const initialJobDetails: JobDetails = {
   currency: "USD",
   description: "",
   tags: "",
+  minYearsExperience: "",
+  minEducation: "",
+  requiredSkillIds: [],
+  workAuthorizationRequired: false,
 };
 
 const initialJobSettings: JobSettings = {
@@ -200,6 +219,11 @@ function jobToFormState(job: Job): {
       currency: job.currency || "USD",
       description: job.description || "",
       tags: job.tags || "",
+      minYearsExperience:
+        job.minYearsExperience != null ? String(job.minYearsExperience) : "",
+      minEducation: job.minEducation || "",
+      requiredSkillIds: job.requiredSkillIds || [],
+      workAuthorizationRequired: job.workAuthorizationRequired ?? false,
     },
     settings: {
       isFeatured: job.isFeatured,
@@ -221,6 +245,7 @@ function jobToFormState(job: Job): {
       expectedAnswer: q.expectedAnswer,
       score: q.score,
       choices: q.choices,
+      requirementField: q.requirementField,
     })),
     team: job.hiringTeam || [],
     coordinatorId: job.coordinatorId || "",
@@ -274,6 +299,7 @@ export function CreateJob({
   const [showPreview, setShowPreview] = useState(false);
   const [workflows, setWorkflows] = useState<Workflow[]>([]);
   const [questionBank, setQuestionBank] = useState<BankQuestion[]>([]);
+  const [allSkills, setAllSkills] = useState<Skill[]>([]);
   const [saving, setSaving] = useState(false);
   const [requisitionJobDescription, setRequisitionJobDescription] = useState<
     { name: string; url: string } | null
@@ -333,6 +359,9 @@ export function CreateJob({
         setWorkflows(workflowList);
         getQuestionBank()
           .then(setQuestionBank)
+          .catch(() => {});
+        getSkills(true)
+          .then(setAllSkills)
           .catch(() => {});
         setStaffMembers(
           usersSnap.docs
@@ -418,60 +447,125 @@ export function CreateJob({
     return () => clearTimeout(timer);
   }, [draftKey, jobDetails, jobSettings, questions, hiringTeam, hiringCoordinatorId]);
 
-  const buildJobInput = (status: JobStatus): JobInput => ({
-    title: jobDetails.jobTitle.trim() || "Untitled Job",
-    department: jobDetails.department.trim(),
-    location: jobDetails.location.trim(),
-    jobType: jobDetails.jobType,
-    remoteType: jobDetails.remoteType,
-    category: jobDetails.category,
-    tags: jobDetails.tags,
-    currency: jobDetails.currency,
-    salaryMin: jobDetails.salaryMin,
-    salaryMax: jobDetails.salaryMax,
-    description: jobDetails.description,
-    status,
-    advertType: jobDetails.showOnCareerSite ? "external" : "internal",
-    isConfidential: jobDetails.isConfidential,
-    showOnCareerSite: jobDetails.showOnCareerSite,
-    isFeatured: jobSettings.isFeatured,
-    requireResume: jobSettings.requireResume,
-    requireCoverLetter: jobSettings.requireCoverLetter,
-    allowOtherDocuments: jobSettings.allowOtherDocuments,
-    shortlistingCriteria: jobSettings.shortlistingCriteria.trim(),
-    closingDate: jobSettings.closingDate,
-    // Strip undefined fields — Firestore rejects undefined values.
-    questions: questions.map((q) => ({
-      id: q.id,
-      text: q.text,
-      type: q.type,
-      mandatory: q.mandatory,
-      instructions: q.instructions,
-      ...(q.score !== undefined && !Number.isNaN(q.score)
-        ? { score: q.score }
-        : {}),
-      ...(q.expectedAnswer ? { expectedAnswer: q.expectedAnswer } : {}),
-      ...(q.choices?.length
-        ? {
-            choices: q.choices.map((c) => ({
-              label: c.label,
-              points: c.points,
-            })),
-          }
-        : {}),
-    })),
-    hiringTeam,
-    coordinatorId: hiringCoordinatorId,
-    ...(jobDetails.requisitionId &&
-    jobDetails.requisitionId !== "Auto-generated on save"
-      ? { requisitionId: jobDetails.requisitionId }
-      : {}),
-    hiringWorkflow: jobSettings.hiringWorkflow,
-    ...(jobSettings.recruitmentCost.trim() &&
-    !Number.isNaN(Number(jobSettings.recruitmentCost))
-      ? { recruitmentCost: Number(jobSettings.recruitmentCost) }
-      : {}),
+  // Single source of truth for every optional top-level field that can be
+  // SET, then later CLEARED, by a recruiter editing an existing job —
+  // undefined here means "currently blank". buildJobInput (create-safe)
+  // omits a blank field; buildJobUpdateInput (update-safe) sends
+  // deleteField() for it instead. Keeping both read from the same values
+  // means the "is this blank" condition is only ever written once.
+  const resolveClearableFields = () => ({
+    requisitionId:
+      jobDetails.requisitionId &&
+      jobDetails.requisitionId !== "Auto-generated on save"
+        ? jobDetails.requisitionId
+        : undefined,
+    recruitmentCost:
+      jobSettings.recruitmentCost.trim() &&
+      !Number.isNaN(Number(jobSettings.recruitmentCost))
+        ? Number(jobSettings.recruitmentCost)
+        : undefined,
+    minYearsExperience:
+      jobDetails.minYearsExperience.trim() !== "" &&
+      !Number.isNaN(Number(jobDetails.minYearsExperience))
+        ? Number(jobDetails.minYearsExperience)
+        : undefined,
+    minEducation: jobDetails.minEducation || undefined,
   });
+
+  const buildJobInput = (status: JobStatus): JobInput => {
+    const clearable = resolveClearableFields();
+    return {
+      title: jobDetails.jobTitle.trim() || "Untitled Job",
+      department: jobDetails.department.trim(),
+      location: jobDetails.location.trim(),
+      jobType: jobDetails.jobType,
+      remoteType: jobDetails.remoteType,
+      category: jobDetails.category,
+      tags: jobDetails.tags,
+      currency: jobDetails.currency,
+      salaryMin: jobDetails.salaryMin,
+      salaryMax: jobDetails.salaryMax,
+      description: jobDetails.description,
+      status,
+      advertType: jobDetails.showOnCareerSite ? "external" : "internal",
+      isConfidential: jobDetails.isConfidential,
+      showOnCareerSite: jobDetails.showOnCareerSite,
+      isFeatured: jobSettings.isFeatured,
+      requireResume: jobSettings.requireResume,
+      requireCoverLetter: jobSettings.requireCoverLetter,
+      allowOtherDocuments: jobSettings.allowOtherDocuments,
+      shortlistingCriteria: jobSettings.shortlistingCriteria.trim(),
+      closingDate: jobSettings.closingDate,
+      // Strip undefined fields — Firestore rejects undefined values.
+      questions: questions.map((q) => ({
+        id: q.id,
+        text: q.text,
+        type: q.type,
+        mandatory: q.mandatory,
+        instructions: q.instructions,
+        ...(q.score !== undefined && !Number.isNaN(q.score)
+          ? { score: q.score }
+          : {}),
+        ...(q.expectedAnswer ? { expectedAnswer: q.expectedAnswer } : {}),
+        ...(q.choices?.length
+          ? {
+              choices: q.choices.map((c) => ({
+                label: c.label,
+                points: c.points,
+              })),
+            }
+          : {}),
+        ...(q.requirementField ? { requirementField: q.requirementField } : {}),
+      })),
+      hiringTeam,
+      coordinatorId: hiringCoordinatorId,
+      hiringWorkflow: jobSettings.hiringWorkflow,
+      // Candidate-matching spec §2.3. requiredSkillIds/requiredSkillNames and
+      // workAuthorizationRequired are always included, even empty/false —
+      // same reasoning as the candidate profile's skillIds (Step 2): an
+      // array or boolean has a real "empty" value, so there's no "omitted
+      // vs blank" ambiguity to begin with, unlike the scalar fields below.
+      requiredSkillIds: jobDetails.requiredSkillIds,
+      requiredSkillNames: jobDetails.requiredSkillIds
+        .map((id) => allSkills.find((s) => s.id === id)?.name)
+        .filter((name): name is string => !!name),
+      workAuthorizationRequired: jobDetails.workAuthorizationRequired,
+      ...(clearable.requisitionId !== undefined
+        ? { requisitionId: clearable.requisitionId }
+        : {}),
+      ...(clearable.recruitmentCost !== undefined
+        ? { recruitmentCost: clearable.recruitmentCost }
+        : {}),
+      ...(clearable.minYearsExperience !== undefined
+        ? { minYearsExperience: clearable.minYearsExperience }
+        : {}),
+      ...(clearable.minEducation !== undefined
+        ? { minEducation: clearable.minEducation }
+        : {}),
+    };
+  };
+
+  /**
+   * THE TRAP: buildJobInput's omission of a blank optional field is correct
+   * for createJob's plain setDoc() (an omitted key there just means "never
+   * set"), but updateJob performs a partial merge via updateDoc(), where an
+   * omitted key means "leave this field alone" — not "clear it". A
+   * recruiter who sets a minimum of 5 years, saves, then clears it and
+   * saves again would find the 5 still there on reload if this used
+   * buildJobInput's output directly. Only used for the editJobId path; do
+   * NOT feed this to createJob — a deleteField() sentinel in a brand-new
+   * document's setDoc() throws.
+   */
+  const buildJobUpdateInput = (status: JobStatus): JobInputUpdate => {
+    const clearable = resolveClearableFields();
+    return {
+      ...buildJobInput(status),
+      requisitionId: clearable.requisitionId ?? deleteField(),
+      recruitmentCost: clearable.recruitmentCost ?? deleteField(),
+      minYearsExperience: clearable.minYearsExperience ?? deleteField(),
+      minEducation: clearable.minEducation ?? deleteField(),
+    };
+  };
 
   const handleSave = async (isDraft: boolean = false) => {
     if (!user) {
@@ -512,7 +606,7 @@ export function CreateJob({
     setSaving(true);
     try {
       if (editJobId) {
-        await updateJob(editJobId, buildJobInput(effectiveStatus), user);
+        await updateJob(editJobId, buildJobUpdateInput(effectiveStatus), user);
       } else {
         const created = await createJob(buildJobInput(effectiveStatus), user);
         if (fromRequisitionId && effectiveStatus === "Active") {
@@ -1150,6 +1244,89 @@ export function CreateJob({
               </div>
             </div>
 
+            {/* Candidate Requirements (candidate-matching spec §2.3) — sits
+                with the job specification, not Settings & Publication. All
+                four are optional: a job with none of these produces no
+                match score, which is a legitimate state, not an error. */}
+            <div className="bg-white rounded-xl shadow-sm border border-gray-100 p-8 transition-shadow hover:shadow-md">
+              <h2 className="text-xl font-bold text-gray-900 mb-2 pb-4 border-b border-gray-100">
+                Candidate Requirements
+              </h2>
+              <p className="text-gray-500 mb-6">
+                Optional. Published on the advert — a candidate is entitled to see what a role
+                requires. These feed the match score shown to recruiters in Step 4; they never
+                block an application.
+              </p>
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-6 mb-6">
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-1">
+                    Minimum years of experience
+                  </label>
+                  <input
+                    type="number"
+                    min={0}
+                    className="w-full p-3 border border-gray-200 rounded-lg focus:ring-2 focus:ring-[var(--pumpkin-orange)]/20 focus:border-[var(--pumpkin-orange)] outline-none transition-all"
+                    placeholder="e.g. 3"
+                    value={jobDetails.minYearsExperience}
+                    onChange={(e) => handleChange("minYearsExperience", e.target.value)}
+                  />
+                </div>
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-1">
+                    Minimum education
+                  </label>
+                  <select
+                    className="w-full p-3 border border-gray-200 rounded-lg focus:ring-2 focus:ring-[var(--pumpkin-orange)]/20 focus:border-[var(--pumpkin-orange)] outline-none transition-all"
+                    value={jobDetails.minEducation}
+                    onChange={(e) => handleChange("minEducation", e.target.value as EducationLevel | "")}
+                  >
+                    <option value="">No minimum</option>
+                    {EDUCATION_LEVELS.map((level) => (
+                      <option key={level} value={level}>{EDUCATION_LABELS[level]}</option>
+                    ))}
+                  </select>
+                </div>
+              </div>
+              <div className="mb-6">
+                <label className="block text-sm font-medium text-gray-700 mb-1">
+                  Required skills
+                </label>
+                <SkillPicker
+                  allSkills={allSkills}
+                  selectedIds={jobDetails.requiredSkillIds}
+                  onChange={(ids) => handleChange("requiredSkillIds", ids)}
+                  placeholder="Add a required skill…"
+                />
+              </div>
+              <div className="flex items-center gap-3 p-4 bg-blue-50/50 rounded-lg border border-blue-100 transition-colors hover:bg-blue-50">
+                <input
+                  type="checkbox"
+                  id="workAuthRequired"
+                  className="w-4 h-4 text-[var(--pumpkin-orange)] rounded border-gray-300 focus:ring-[var(--pumpkin-orange)]"
+                  checked={jobDetails.workAuthorizationRequired}
+                  onChange={(e) => handleChange("workAuthorizationRequired", e.target.checked)}
+                />
+                <label htmlFor="workAuthRequired" className="text-sm text-gray-700 cursor-pointer select-none w-full">
+                  <span className="font-semibold block text-gray-900">Work authorisation required</span>
+                  <span className="text-gray-500">
+                    An unmet requirement flags the candidate for a recruiter to review — it never
+                    removes them from the longlist.
+                  </span>
+                </label>
+              </div>
+              {jobDetails.workAuthorizationRequired &&
+                !questions.some((q) => q.requirementField === "workAuthorization") && (
+                  <div className="mt-4 flex items-start gap-3 p-4 bg-amber-50 border border-amber-200 rounded-lg text-sm text-amber-800">
+                    <AlertTriangle className="size-4 shrink-0 mt-0.5" />
+                    <span>
+                      Work authorisation is required, but no screening question is linked to it yet
+                      (Step 3 — set a question's "Links to requirement" to Work Authorisation).
+                      Without that link, every candidate comes back unassessed on this criterion.
+                    </span>
+                  </div>
+                )}
+            </div>
+
             <div className="flex justify-end gap-3 pb-8">
               <Button
                 variant="outline"
@@ -1406,6 +1583,16 @@ export function CreateJob({
                               : `${question.score} pts${question.expectedAnswer ? ` • expects ${question.expectedAnswer}` : ""}`}
                           </span>
                         )}
+                        {question.requirementField && (
+                          <span className="bg-purple-50 text-purple-600 px-2 py-1 rounded text-xs uppercase font-medium">
+                            Links to{" "}
+                            {question.requirementField === "yearsOfExperience"
+                              ? "Years of Experience"
+                              : question.requirementField === "highestEducation"
+                                ? "Highest Education"
+                                : "Work Authorisation"}
+                          </span>
+                        )}
                       </div>
                       {question.instructions && (
                         <p className="text-sm text-gray-500 bg-gray-50 p-3 rounded-lg border border-gray-100 mt-2">
@@ -1555,6 +1742,34 @@ export function CreateJob({
                   >
                     Mandatory question
                   </label>
+                </div>
+
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-1">
+                    Links to requirement
+                  </label>
+                  <select
+                    className="w-full p-3 border border-gray-200 rounded-lg focus:ring-2 focus:ring-[var(--pumpkin-orange)]/20 focus:border-[var(--pumpkin-orange)] outline-none transition-all"
+                    value={currentQuestion.requirementField ?? ""}
+                    onChange={(e) =>
+                      setCurrentQuestion((prev) => ({
+                        ...prev,
+                        requirementField: e.target.value
+                          ? (e.target.value as RequirementMapping)
+                          : undefined,
+                      }))
+                    }
+                  >
+                    <option value="">None</option>
+                    <option value="yearsOfExperience">Years of Experience</option>
+                    <option value="highestEducation">Highest Education</option>
+                    <option value="workAuthorization">Work Authorisation</option>
+                  </select>
+                  <p className="text-xs text-gray-500 mt-1">
+                    Candidate-matching spec §4: Years/Education prefill this answer from the
+                    candidate's profile. Work Authorisation has no profile source — it marks this
+                    question as the one the match score reads to check the requirement below.
+                  </p>
                 </div>
 
                 {currentQuestion.type !== "checkbox" &&

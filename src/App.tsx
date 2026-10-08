@@ -59,6 +59,7 @@ import { UserManagement } from "./pages/admin/UserManagement";
 import { PositionsPage } from "./pages/admin/PositionsPage";
 import { TemplateManagement } from "./pages/admin/TemplateManagement";
 import { PrescreeningBuilder } from "./pages/admin/PrescreeningBuilder";
+import { SkillsPage } from "./pages/admin/SkillsPage";
 import { ReportsPage } from "./pages/admin/ReportsPage";
 import { WorkflowConfiguration } from "./pages/admin/WorkflowConfiguration";
 import { SystemSettings } from "./pages/admin/SystemSettings";
@@ -369,6 +370,7 @@ function AppRoutes() {
         />
         <Route path="templates" element={<TemplateManagement />} />
         <Route path="screening" element={<PrescreeningBuilder />} />
+        <Route path="skills" element={<SkillsPage />} />
         <Route path="workflow" element={<WorkflowConfiguration />} />
         <Route path="reports" element={<ReportsPage />} />
         <Route path="settings" element={<SystemSettings />} />

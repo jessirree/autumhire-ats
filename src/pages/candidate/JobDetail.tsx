@@ -1,8 +1,9 @@
 import { useEffect, useState } from 'react';
-import { ArrowLeft, MapPin, Briefcase, Clock, DollarSign, Calendar, AlertCircle } from 'lucide-react';
+import { ArrowLeft, MapPin, Briefcase, Clock, DollarSign, Calendar, AlertCircle, GraduationCap, ShieldCheck } from 'lucide-react';
 import { Button } from '../../components/ui/button';
 import { Job, getJobById, isJobOpen } from '../../services/jobService';
 import { sanitizeHtml } from '../../lib/sanitizeHtml';
+import { EDUCATION_LABELS } from '../../lib/education';
 
 interface JobDetailProps {
   jobId: string;
@@ -53,6 +54,16 @@ export function JobDetail({ jobId, onBack, onApply }: JobDetailProps) {
       : 'Competitive';
 
   const tags = (job.tags || '').split(',').map((t) => t.trim()).filter(Boolean);
+
+  // Candidate-matching spec §2.3/§3.3: requirements are deliberately public
+  // — a candidate is entitled to see what a role requires, only the match
+  // itself (step 4) is private. Do not gate this section behind auth or a
+  // staff-only read.
+  const hasRequirements =
+    job.minYearsExperience != null ||
+    !!job.minEducation ||
+    (job.requiredSkillNames?.length ?? 0) > 0 ||
+    job.workAuthorizationRequired;
 
   return (
     <div className="min-h-screen bg-gray-50">
@@ -121,6 +132,44 @@ export function JobDetail({ jobId, onBack, onApply }: JobDetailProps) {
                     </span>
                   ))}
                 </div>
+              </section>
+            </>
+          )}
+
+          {hasRequirements && (
+            <>
+              <div className="border-t border-gray-200" />
+              <section>
+                <h2 className="text-xl font-semibold mb-4">Requirements</h2>
+                <div className="flex flex-wrap items-center gap-6 text-gray-600 mb-4">
+                  {job.minYearsExperience != null && (
+                    <span className="flex items-center gap-2">
+                      <Briefcase className="size-5" />
+                      {job.minYearsExperience}+ years of experience
+                    </span>
+                  )}
+                  {job.minEducation && (
+                    <span className="flex items-center gap-2">
+                      <GraduationCap className="size-5" />
+                      {EDUCATION_LABELS[job.minEducation]} or higher
+                    </span>
+                  )}
+                  {job.workAuthorizationRequired && (
+                    <span className="flex items-center gap-2">
+                      <ShieldCheck className="size-5" />
+                      Work authorisation required
+                    </span>
+                  )}
+                </div>
+                {(job.requiredSkillNames?.length ?? 0) > 0 && (
+                  <div className="flex flex-wrap gap-2">
+                    {job.requiredSkillNames!.map((name, index) => (
+                      <span key={index} className="px-3 py-1 bg-gray-100 rounded-full text-sm text-gray-700">
+                        {name}
+                      </span>
+                    ))}
+                  </div>
+                )}
               </section>
             </>
           )}

@@ -662,6 +662,88 @@ describe('Interviews/{id}/scores (G6 — panel score subcollection)', () => {
   });
 });
 
+// ── Skills taxonomy (candidate-matching spec §2.1, step 1) ──────────────
+describe('Skills', () => {
+  it('staff may read the Skills collection', async () => {
+    const db = testEnv.authenticatedContext(RECRUITER).firestore();
+    await assertSucceeds(getDocs(collection(db, 'Skills')));
+  });
+
+  it('a candidate may read the Skills collection (the profile typeahead needs it)', async () => {
+    const db = testEnv.authenticatedContext(CANDIDATE).firestore();
+    await assertSucceeds(getDocs(collection(db, 'Skills')));
+  });
+
+  it('a deactivated user may NOT read the Skills collection', async () => {
+    await testEnv.withSecurityRulesDisabled(async (ctx) => {
+      await updateDoc(doc(ctx.firestore(), 'Users', CANDIDATE2), { status: 'inactive' });
+    });
+    const db = testEnv.authenticatedContext(CANDIDATE2).firestore();
+    await assertFails(getDocs(collection(db, 'Skills')));
+  });
+
+  it('an admin may create a skill', async () => {
+    const db = testEnv.authenticatedContext(ADMIN).firestore();
+    await assertSucceeds(addDoc(collection(db, 'Skills'), { name: 'JavaScript', active: true }));
+  });
+
+  it('a non-admin staff member may NOT create a skill', async () => {
+    const db = testEnv.authenticatedContext(RECRUITER).firestore();
+    await assertFails(addDoc(collection(db, 'Skills'), { name: 'JavaScript', active: true }));
+  });
+
+  it('an admin may deactivate a skill', async () => {
+    let skillId = '';
+    await testEnv.withSecurityRulesDisabled(async (ctx) => {
+      const ref = await addDoc(collection(ctx.firestore(), 'Skills'), { name: 'Python', active: true });
+      skillId = ref.id;
+    });
+    const db = testEnv.authenticatedContext(ADMIN).firestore();
+    await assertSucceeds(updateDoc(doc(db, 'Skills', skillId), { active: false }));
+  });
+
+  it('a non-admin staff member may NOT update a skill', async () => {
+    let skillId = '';
+    await testEnv.withSecurityRulesDisabled(async (ctx) => {
+      const ref = await addDoc(collection(ctx.firestore(), 'Skills'), { name: 'Python', active: true });
+      skillId = ref.id;
+    });
+    const db = testEnv.authenticatedContext(RECRUITER).firestore();
+    await assertFails(updateDoc(doc(db, 'Skills', skillId), { active: false }));
+  });
+});
+
+// ── Match scoring import discipline (candidate-matching spec §3.4) ──────
+// Compute-on-read means there is no stored matchScore document for a rule
+// to protect — the inputs (public job requirements, the candidate's own
+// profile) are each independently readable by the candidate anyway, so
+// the real control is architectural: nobody imports src/lib/matching from
+// a candidate-facing file. A rule can't enforce that; this sweep can, the
+// same way the coverage sweep below enforces a different convention by
+// scanning src/ instead of trusting a comment.
+describe('Match scoring import discipline', () => {
+  it('no candidate-facing file imports the match scoring module', () => {
+    const files = execSync('git ls-files src', { encoding: 'utf8' })
+      .split('\n')
+      .filter((f) => /\.(ts|tsx)$/.test(f) && f.trim().length > 0);
+
+    // Everything under src/pages/candidate/ — which already covers
+    // JobBoard.tsx, JobDetail.tsx and ApplicationForm.tsx by name, plus
+    // whatever the next candidate page turns out to be called.
+    const candidateFacing = files.filter((f) => f.startsWith('src/pages/candidate/'));
+
+    const offenders = candidateFacing.filter((f) => {
+      const text = readFileSync(f, 'utf8');
+      return /from\s+['"][^'"]*\/matching['"]/.test(text);
+    });
+
+    expect(
+      offenders,
+      `Candidate-facing files importing the match scoring module: ${offenders.join(', ') || '(none)'}`
+    ).toEqual([]);
+  });
+});
+
 // ── Sweep: the control that stops instance seven ────────────────────────
 describe('Rule coverage sweep', () => {
   it('every top-level collection written anywhere in src/ has a match block in firestore.rules', () => {

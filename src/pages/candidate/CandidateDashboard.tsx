@@ -16,7 +16,11 @@ import {
   getCandidateProfile,
   updateCandidateProfile,
   uploadProfileCv,
+  deleteField,
 } from '../../services/profileService';
+import { Skill, getSkills } from '../../services/skillService';
+import { SkillPicker } from '../../components/ats/SkillPicker';
+import { EDUCATION_LEVELS, EDUCATION_LABELS, EducationLevel } from '../../lib/education';
 
 interface CandidateDashboardProps {
   onLogout: () => void;
@@ -140,6 +144,13 @@ export function CandidateDashboard({
   });
   const [dateOfBirth, setDateOfBirth] = useState('');
   const [savedCv, setSavedCv] = useState<{ url?: string; name?: string }>({});
+  // Candidate-matching spec §2.2 capability profile. yearsOfExperience is
+  // kept as a string while editing (native number input), parsed on save —
+  // stored as a number, never a band, so step 4's gradient keeps precision.
+  const [skillIds, setSkillIds] = useState<string[]>([]);
+  const [yearsOfExperience, setYearsOfExperience] = useState('');
+  const [highestEducation, setHighestEducation] = useState<EducationLevel | ''>('');
+  const [allSkills, setAllSkills] = useState<Skill[]>([]);
   const [savingProfile, setSavingProfile] = useState(false);
   const [uploadingCv, setUploadingCv] = useState(false);
   // A form that cannot distinguish "empty profile" from "failed to load"
@@ -168,6 +179,9 @@ export function CandidateDashboard({
         }));
         setDateOfBirth(p.dateOfBirth || '');
         setSavedCv({ url: p.cvUrl, name: p.cvFileName });
+        setSkillIds(p.skillIds ?? []);
+        setYearsOfExperience(p.yearsOfExperience != null ? String(p.yearsOfExperience) : '');
+        setHighestEducation(p.highestEducation ?? '');
         setProfileLoadState('ready');
       })
       .catch((err) => {
@@ -179,10 +193,20 @@ export function CandidateDashboard({
   // Load the persisted profile from Firestore.
   useEffect(loadProfile, [user]);
 
+  // The Skills taxonomy, loaded once (spec §7: a few hundred small docs,
+  // read once and cacheable). Includes inactive skills so a selection made
+  // before a deactivation still resolves to a name — see SkillPicker.
+  useEffect(() => {
+    getSkills(true)
+      .then(setAllSkills)
+      .catch((err) => console.error('Failed to load skills taxonomy', err));
+  }, []);
+
   const handleSaveProfile = async () => {
     if (!user || profileLoadState !== 'ready') return;
     setSavingProfile(true);
     try {
+      const years = Number(yearsOfExperience);
       await updateCandidateProfile(user.id, {
         name: `${profile.firstName} ${profile.lastName}`.trim(),
         phone: profile.phone,
@@ -191,6 +215,20 @@ export function CandidateDashboard({
         nationality: profile.nationality,
         city: profile.city,
         country: profile.country,
+        // Always sent (even empty) so removing every skill actually clears
+        // it rather than being silently ignored on save. yearsOfExperience
+        // and highestEducation use deleteField() for the same reason when
+        // blank: omitting the key means "leave alone" to updateDoc, not
+        // "clear it", so a candidate clearing either field would see it
+        // reappear on reload. Do NOT change these back to a conditional
+        // spread (`...(x ? {x} : {})`) — that's the right shape for a
+        // create/backfill (see H4's backfillProfileFromApplication), where
+        // "absent" correctly means "don't touch it", but wrong here, where
+        // the user is editing an existing document and an empty field is a
+        // deliberate clear.
+        skillIds,
+        yearsOfExperience: yearsOfExperience.trim() !== '' && !Number.isNaN(years) ? years : deleteField(),
+        highestEducation: highestEducation ? highestEducation : deleteField(),
       });
       toast.success('Profile saved.');
     } catch (err: any) {
@@ -596,6 +634,51 @@ export function CandidateDashboard({
                       </div>
                     </div>
                   </div>
+
+                  <div className="border-t border-border pt-8">
+                    <h3 className="text-lg font-bold text-autumn-charcoal mb-1">Capability Profile</h3>
+                    <p className="text-sm text-gray-500 mb-4">
+                      Filled once, reused across every application — this is what helps us match you
+                      to the right roles.
+                    </p>
+                    {skillIds.length === 0 && !yearsOfExperience && !highestEducation && (
+                      <div className="bg-orange-50/50 border border-orange-100 rounded-lg p-4 mb-4 text-sm text-autumn-charcoal">
+                        You haven't added your skills, experience or education yet — complete this
+                        section so recruiters can see how your background fits a role's requirements.
+                      </div>
+                    )}
+                    <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                      <div className="md:col-span-2">
+                        <label className="text-sm text-gray-500 block mb-1">Skills</label>
+                        <SkillPicker allSkills={allSkills} selectedIds={skillIds} onChange={setSkillIds} />
+                      </div>
+                      <div>
+                        <label className="text-sm text-gray-500 block mb-1">Years of Experience</label>
+                        <input
+                          type="number"
+                          min={0}
+                          value={yearsOfExperience}
+                          onChange={(e) => setYearsOfExperience(e.target.value)}
+                          className="w-full p-2 border border-border rounded-lg"
+                          placeholder="e.g. 4"
+                        />
+                      </div>
+                      <div>
+                        <label className="text-sm text-gray-500 block mb-1">Highest Education</label>
+                        <select
+                          value={highestEducation}
+                          onChange={(e) => setHighestEducation(e.target.value as EducationLevel | '')}
+                          className="w-full p-2 border border-border rounded-lg bg-white"
+                        >
+                          <option value="">Select…</option>
+                          {EDUCATION_LEVELS.map((level) => (
+                            <option key={level} value={level}>{EDUCATION_LABELS[level]}</option>
+                          ))}
+                        </select>
+                      </div>
+                    </div>
+                  </div>
+
                   <div className="flex justify-end pt-6 border-t border-border sticky bottom-0 bg-card">
                     <Button
                       className="bg-autumn-primary hover:bg-autumn-dark text-white px-8"

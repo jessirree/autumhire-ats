@@ -14,7 +14,7 @@ import {
 import { Button } from '../../components/ui/button';
 import { StatusBadge } from '../../components/ats/StatusBadge';
 import { useAuth } from '../../context/AuthContext';
-import { getQuestionBank, saveQuestionBank, BankQuestion, QuestionChoice, BankQuestionType } from '../../services/questionBankService';
+import { getQuestionBank, saveQuestionBank, BankQuestion, QuestionChoice, BankQuestionType, RequirementMapping } from '../../services/questionBankService';
 
 // --- Types ---
 export type QuestionType = BankQuestionType;
@@ -117,6 +117,16 @@ const QuestionItem = ({ question, index, moveQuestion, onEdit, onDelete, isSelec
                         <h4 className="font-medium text-gray-900">{question.text || 'New Question'}</h4>
                         <div className="flex gap-2">
                             {question.required && <StatusBadge status="Required" size="sm" />}
+                            {question.requirementField && (
+                                <span className="text-xs font-medium px-2 py-0.5 rounded bg-purple-50 text-purple-600">
+                                    Links to{' '}
+                                    {question.requirementField === 'yearsOfExperience'
+                                        ? 'Experience'
+                                        : question.requirementField === 'highestEducation'
+                                            ? 'Education'
+                                            : 'Work Auth'}
+                                </span>
+                            )}
                             <span className="text-xs font-medium px-2 py-0.5 rounded bg-gray-100 text-gray-600">
                                 {(question.type === 'Yes/No' || question.type === 'Multiple Choice') && question.choices && question.choices.length > 0
                                     ? `${Math.max(0, ...question.choices.map(c => c.points))} pts max`
@@ -330,6 +340,29 @@ export function PrescreeningBuilder() {
                                             className="rounded border-gray-300 text-[var(--pumpkin-orange)] focus:ring-[var(--pumpkin-orange)]"
                                         />
                                         <label htmlFor="required-toggle" className="text-sm font-medium text-gray-700">Required Question</label>
+                                    </div>
+
+                                    <div>
+                                        <label className="block text-sm font-medium text-gray-700 mb-1">Links to requirement</label>
+                                        <select
+                                            className="w-full px-3 py-2 border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-[var(--pumpkin-orange)]/20 focus:border-[var(--pumpkin-orange)]"
+                                            value={selectedQuestion.requirementField ?? ''}
+                                            onChange={(e) =>
+                                                handleUpdateQuestion(selectedQuestion.id, {
+                                                    requirementField: e.target.value ? (e.target.value as RequirementMapping) : undefined,
+                                                })
+                                            }
+                                        >
+                                            <option value="">None</option>
+                                            <option value="yearsOfExperience">Years of Experience</option>
+                                            <option value="highestEducation">Highest Education</option>
+                                            <option value="workAuthorization">Work Authorisation</option>
+                                        </select>
+                                        <p className="text-xs text-gray-500 mt-1">
+                                            Candidate-matching spec §4: Years/Education prefill this answer from the
+                                            candidate's profile. Work Authorisation has no profile source — it marks
+                                            this question as the one the match score reads.
+                                        </p>
                                     </div>
 
                                     {/* Yes/No Choices */}

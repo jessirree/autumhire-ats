@@ -1,12 +1,13 @@
-﻿import { useState, useEffect } from 'react';
+﻿import { useState, useEffect, useMemo } from 'react';
 import { useSearchParams } from 'react-router-dom';
 import { toast } from 'sonner';
-import { Search, Filter, Download, Archive, ArchiveRestore, X, FileSpreadsheet, Loader2 } from 'lucide-react';
+import { Search, Filter, Download, Archive, ArchiveRestore, X, FileSpreadsheet, Loader2, AlertTriangle } from 'lucide-react';
 import { Button } from '../../components/ui/button';
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '../../components/ui/tooltip';
 import { StatusBadge } from '../../components/ats/StatusBadge';
 import { SortableHeader } from '../../components/ats/SortableHeader';
 import { sortRows, useTableSort, SortColumn } from '../../lib/tableSort';
+import { computeMatch, MatchResult } from '../../lib/matching';
 import { useAuth } from '../../context/AuthContext';
 import {
   Application,
@@ -17,6 +18,7 @@ import {
   setApplicationsArchived,
 } from '../../services/applicationService';
 import { Job, getJobById } from '../../services/jobService';
+import { CandidateProfile, getCandidateProfile } from '../../services/profileService';
 import { downloadCsv } from '../../lib/exportCsv';
 import { exportApplicationsXlsx } from '../../lib/exportApplicationsXlsx';
 import { logAudit } from '../../services/auditService';
@@ -44,14 +46,7 @@ const BULK_ACTIONS: { label: string; status: ApplicationStatus }[] = [
   { label: 'Reject Candidates', status: 'rejected' },
 ];
 
-type SortKey = 'candidateName' | 'appliedAt' | 'prescreenScore' | 'status';
-
-const SORT_COLUMNS: Record<SortKey, SortColumn<Application>> = {
-  candidateName: { getValue: (a) => a.candidateName, type: 'string' },
-  appliedAt: { getValue: (a) => a.appliedAt?.toMillis?.() ?? null },
-  prescreenScore: { getValue: (a) => a.prescreenScore },
-  status: { getValue: (a) => a.status, type: 'string' },
-};
+type SortKey = 'candidateName' | 'appliedAt' | 'prescreenScore' | 'status' | 'matchScore' | 'matchFlag';
 
 export function ApplicationsPage({ onViewCandidate }: ApplicationsPageProps) {
   const { user } = useAuth();
@@ -68,6 +63,13 @@ export function ApplicationsPage({ onViewCandidate }: ApplicationsPageProps) {
   const showArchived = searchParams.get('archived') === '1';
   const [filterJob, setFilterJob] = useState<Job | null>(null);
   const [applications, setApplications] = useState<Application[]>([]);
+  // Candidate-matching spec §2.4: a row's match score/flag needs that
+  // application's Job (requirements + linked questions) and the
+  // candidate's current capability profile — neither is denormalized onto
+  // Application, so both are fetched in load() below, deduped and in
+  // parallel across however many jobs/candidates are in view.
+  const [jobsById, setJobsById] = useState<Record<string, Job>>({});
+  const [profilesByCandidateId, setProfilesByCandidateId] = useState<Record<string, CandidateProfile>>({});
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [selectedApplications, setSelectedApplications] = useState<string[]>([]);
@@ -99,15 +101,30 @@ export function ApplicationsPage({ onViewCandidate }: ApplicationsPageProps) {
       jobFilterId ? getApplicationsForJob(jobFilterId) : getAllApplications(showArchived),
       jobFilterId ? getJobById(jobFilterId) : Promise.resolve(null),
     ])
-      .then(([apps, job]) => {
-        setApplications(
-          jobFilterId
-            ? apps.filter((a) => (showArchived ? a.archived : !a.archived))
-            : showArchived
-              ? apps.filter((a) => a.archived)
-              : apps
-        );
+      .then(async ([apps, job]) => {
+        const visibleApps = jobFilterId
+          ? apps.filter((a) => (showArchived ? a.archived : !a.archived))
+          : showArchived
+            ? apps.filter((a) => a.archived)
+            : apps;
+        setApplications(visibleApps);
         setFilterJob(job);
+
+        // Fetched together with the applications themselves, before
+        // setLoading(false), so the table never renders with match cells
+        // that pop in a moment later.
+        const uniqueJobIds = [...new Set(visibleApps.map((a) => a.jobId))];
+        const uniqueCandidateIds = [...new Set(visibleApps.map((a) => a.candidateId))];
+        const [jobs, profiles] = await Promise.all([
+          Promise.all(uniqueJobIds.map((id) => (job && id === job.id ? Promise.resolve(job) : getJobById(id)))),
+          Promise.all(uniqueCandidateIds.map((id) => getCandidateProfile(id))),
+        ]);
+        setJobsById(
+          Object.fromEntries(
+            uniqueJobIds.map((id, i) => [id, jobs[i]] as const).filter((entry): entry is [string, Job] => !!entry[1])
+          )
+        );
+        setProfilesByCandidateId(Object.fromEntries(uniqueCandidateIds.map((id, i) => [id, profiles[i]])));
       })
       .catch((err: any) => {
         console.error('Failed to load applications', err);
@@ -129,6 +146,46 @@ export function ApplicationsPage({ onViewCandidate }: ApplicationsPageProps) {
   }, [searchTerm, statusFilter, departmentFilter]);
 
   const departments = Array.from(new Set(applications.map((a) => a.department).filter(Boolean)));
+
+  // Computed once per render from already-loaded data (candidate-matching
+  // spec §7: arithmetic over data the page already loads) — not stored
+  // anywhere, see src/lib/matching.ts's own header comment for why.
+  const matchByAppId = useMemo(() => {
+    const map: Record<string, MatchResult> = {};
+    for (const app of applications) {
+      const job = jobsById[app.jobId];
+      if (!job) continue;
+      map[app.id] = computeMatch(
+        {
+          minYearsExperience: job.minYearsExperience,
+          minEducation: job.minEducation,
+          requiredSkillIds: job.requiredSkillIds,
+          workAuthorizationRequired: job.workAuthorizationRequired,
+        },
+        profilesByCandidateId[app.candidateId] ?? {},
+        job.questions ?? [],
+        app.answers ?? []
+      );
+    }
+    return map;
+  }, [applications, jobsById, profilesByCandidateId]);
+
+  const SORT_COLUMNS: Record<SortKey, SortColumn<Application>> = useMemo(
+    () => ({
+      candidateName: { getValue: (a) => a.candidateName, type: 'string' },
+      appliedAt: { getValue: (a) => a.appliedAt?.toMillis?.() ?? null },
+      prescreenScore: { getValue: (a) => a.prescreenScore },
+      status: { getValue: (a) => a.status, type: 'string' },
+      // Null (not assessed) sorts last in both directions — tableSort's
+      // existing convention, not something added for this column.
+      matchScore: { getValue: (a) => matchByAppId[a.id]?.score ?? undefined },
+      // 1 = flagged, 0 = met, undefined (not required/not assessed) sorts
+      // last — descending brings "everyone failing work authorisation" to
+      // the top in one click (spec §3.5).
+      matchFlag: { getValue: (a) => (matchByAppId[a.id]?.hardCriterion.status === 'unmet' ? 1 : matchByAppId[a.id]?.hardCriterion.status === 'met' ? 0 : undefined) },
+    }),
+    [matchByAppId]
+  );
 
   const filteredApplications = sortRows(
     applications.filter((app) => {
@@ -406,6 +463,8 @@ export function ApplicationsPage({ onViewCandidate }: ApplicationsPageProps) {
                 </th>
                 <SortableHeader label="Applied" sortKey="appliedAt" activeKey={sortKey} dir={sortDir} onSort={toggleSort} />
                 <SortableHeader label="Screening Score" sortKey="prescreenScore" activeKey={sortKey} dir={sortDir} onSort={toggleSort} />
+                <SortableHeader label="Match Score" sortKey="matchScore" activeKey={sortKey} dir={sortDir} onSort={toggleSort} />
+                <SortableHeader label="Work Auth" sortKey="matchFlag" activeKey={sortKey} dir={sortDir} onSort={toggleSort} />
                 <SortableHeader label="Stage" sortKey="status" activeKey={sortKey} dir={sortDir} onSort={toggleSort} />
                 <th className="px-6 py-4 text-right text-xs font-semibold text-gray-500 uppercase tracking-wider">
                   Actions
@@ -457,6 +516,34 @@ export function ApplicationsPage({ onViewCandidate }: ApplicationsPageProps) {
                     </div>
                   </td>
                   <td className="px-6 py-4 whitespace-nowrap">
+                    {matchByAppId[app.id]?.score == null ? (
+                      <span className="text-xs text-gray-400 italic">Not assessed</span>
+                    ) : (
+                      <div className="flex items-center gap-2">
+                        <span className="text-sm font-bold text-gray-700 w-8">{matchByAppId[app.id]!.score}</span>
+                        <div className="w-20 h-2 bg-gray-100 rounded-full overflow-hidden">
+                          <div
+                            className={`h-full rounded-full ${matchByAppId[app.id]!.score! > 80 ? 'bg-green-500' : matchByAppId[app.id]!.score! > 40 ? 'bg-amber-400' : 'bg-red-400'}`}
+                            style={{ width: `${Math.min(matchByAppId[app.id]!.score!, 100)}%` }}
+                          />
+                        </div>
+                      </div>
+                    )}
+                  </td>
+                  <td className="px-6 py-4 whitespace-nowrap">
+                    {matchByAppId[app.id]?.hardCriterion.status === 'unmet' ? (
+                      <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-medium bg-red-50 text-red-700 border border-red-200">
+                        <AlertTriangle className="size-3" /> Flagged
+                      </span>
+                    ) : matchByAppId[app.id]?.hardCriterion.status === 'met' ? (
+                      <span className="text-xs text-green-600">OK</span>
+                    ) : matchByAppId[app.id]?.hardCriterion.status === 'not-assessed' ? (
+                      <span className="text-xs text-gray-400 italic">Not assessed</span>
+                    ) : (
+                      <span className="text-xs text-gray-300">—</span>
+                    )}
+                  </td>
+                  <td className="px-6 py-4 whitespace-nowrap">
                     <StatusBadge status={app.status} size="sm" />
                   </td>
                   <td className="px-6 py-4 whitespace-nowrap">
@@ -487,12 +574,12 @@ export function ApplicationsPage({ onViewCandidate }: ApplicationsPageProps) {
               ))}
               {loading && (
                 <tr>
-                  <td colSpan={7} className="px-6 py-12 text-center text-gray-500">Loading applications…</td>
+                  <td colSpan={9} className="px-6 py-12 text-center text-gray-500">Loading applications…</td>
                 </tr>
               )}
               {!loading && error && (
                 <tr>
-                  <td colSpan={7} className="px-6 py-12 text-center">
+                  <td colSpan={9} className="px-6 py-12 text-center">
                     <p className="text-red-600 font-medium mb-3">{error}</p>
                     <Button variant="outline" size="sm" onClick={load}>Retry</Button>
                   </td>
@@ -500,7 +587,7 @@ export function ApplicationsPage({ onViewCandidate }: ApplicationsPageProps) {
               )}
               {!loading && !error && filteredApplications.length === 0 && (
                 <tr>
-                  <td colSpan={7} className="px-6 py-12 text-center text-gray-500">
+                  <td colSpan={9} className="px-6 py-12 text-center text-gray-500">
                     <div className="size-12 bg-gray-50 rounded-full flex items-center justify-center mx-auto mb-3">
                       <Search className="size-6 text-gray-400" />
                     </div>

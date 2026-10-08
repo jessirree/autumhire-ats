@@ -11,6 +11,20 @@ export interface QuestionChoice {
   points: number;
 }
 
+/**
+ * Candidate-matching spec §4: which candidate-matching requirement a
+ * question's answer satisfies. An explicit, authored mapping — never
+ * inferred from question text. Named for what it actually links to (a
+ * requirement), not "profile field" — 'workAuthorization' has no profile
+ * field at all (work authorisation is deliberately NOT part of the
+ * reusable capability profile; it's location-specific, not a stable
+ * biographical fact, so it can only ever be resolved from the application
+ * answer this links to). 'yearsOfExperience'/'highestEducation' are the
+ * two that happen to also be profile-backed and support ApplicationForm's
+ * prefill; 'workAuthorization' has no prefill source — see ApplicationForm.
+ */
+export type RequirementMapping = 'yearsOfExperience' | 'highestEducation' | 'workAuthorization';
+
 export interface BankQuestion {
   id: string;
   text: string;
@@ -20,6 +34,7 @@ export interface BankQuestion {
   options?: string[];
   /** Per-choice scoring for 'Yes/No' (labels always 'Yes'/'No') and 'Multiple Choice'. */
   choices?: QuestionChoice[];
+  requirementField?: RequirementMapping;
 }
 
 const QUESTION_BANK_COLLECTION = collection(db, 'QuestionBank');
@@ -58,6 +73,7 @@ export async function getQuestionBank(): Promise<BankQuestion[]> {
         score: questionData.score ?? 0,
         ...(Array.isArray(questionData.options) ? { options: questionData.options as string[] } : {}),
         ...(choices.length > 0 ? { choices } : {}),
+        ...(questionData.requirementField ? { requirementField: questionData.requirementField as RequirementMapping } : {}),
       });
     }
 
@@ -77,7 +93,7 @@ export async function saveQuestionBank(
   // Save each question and its choices subcollection
   for (const q of questions) {
     const isChoiceType = q.type === 'Yes/No' || q.type === 'Multiple Choice';
-    
+
     // Prepare choices for this question
     let finalChoices = q.choices || [];
     if (isChoiceType && finalChoices.length === 0) {
@@ -92,7 +108,11 @@ export async function saveQuestionBank(
       ? Math.max(0, ...finalChoices.map((c) => c.points))
       : q.score;
 
-    // Save the question document
+    // Save the question document. This is a full-document set(), not a
+    // merging update() — omitting requirementField here correctly clears it
+    // (unlike updateJob/updateCandidateProfile's partial merges, where
+    // omitting a key means "leave alone" and a deleteField() is needed
+    // instead).
     const questionDocRef = doc(QUESTION_BANK_COLLECTION, q.id);
     batch.set(questionDocRef, {
       text: q.text,
@@ -100,6 +120,7 @@ export async function saveQuestionBank(
       required: q.required,
       score,
       ...(q.options ? { options: q.options } : {}),
+      ...(q.requirementField ? { requirementField: q.requirementField } : {}),
       updatedAt: serverTimestamp(),
       updatedBy: by.name,
     });
@@ -137,6 +158,7 @@ export function bankToJobQuestion(q: BankQuestion): {
   expectedAnswer?: string;
   score?: number;
   choices?: QuestionChoice[];
+  requirementField?: RequirementMapping;
 } {
   const typeMap: Record<BankQuestionType, 'text' | 'checkbox' | 'dropdown' | 'number' | 'file'> = {
     'Short Text': 'text',
@@ -153,5 +175,6 @@ export function bankToJobQuestion(q: BankQuestion): {
     instructions: '',
     ...(q.choices?.length ? { choices: q.choices } : {}),
     ...(q.score ? { score: q.score } : {}),
+    ...(q.requirementField ? { requirementField: q.requirementField } : {}),
   };
 }
