@@ -1,3 +1,4 @@
+import type { Row, SheetOptions } from 'write-excel-file/browser';
 import type { Application } from '../services/applicationService';
 import type { Job } from '../services/jobService';
 
@@ -23,7 +24,12 @@ export async function exportApplicationsXlsx(job: Job, applications: Application
 
   const questions = job.questions ?? [];
 
-  const headerRow = [
+  // Explicitly typed rather than inferred: a plain array literal here lets
+  // TypeScript infer a different shape per row (the header's fontWeight vs a
+  // data row's wrap/type/format), which made it pick the wrong writeXlsxFile
+  // overload entirely and report a confusing "columns needs a cell property"
+  // error that had nothing to do with the actual rows.
+  const headerRow: Row = [
     { value: 'Candidate', fontWeight: 'bold' as const },
     { value: 'Email', fontWeight: 'bold' as const },
     { value: 'Phone', fontWeight: 'bold' as const },
@@ -34,23 +40,25 @@ export async function exportApplicationsXlsx(job: Job, applications: Application
     ...questions.map((q) => ({ value: truncate(q.text, 60), fontWeight: 'bold' as const })),
   ];
 
-  const dataRows = applications.map((a) => [
+  const dataRows: Row[] = applications.map((a): Row => [
     { value: a.candidateName },
     { value: a.email },
-    { value: a.phone || null },
+    // Cell's `value` property is `Value | undefined`, not `| null` — a bare
+    // `null` (no wrapping object) is its own valid Cell variant instead.
+    a.phone || null,
     a.appliedAt?.toDate
       ? { value: a.appliedAt.toDate(), type: Date, format: 'yyyy-mm-dd' }
-      : { value: null },
+      : null,
     { value: a.status },
     { value: a.prescreenScore, type: Number },
-    a.panelRatingAvg != null ? { value: a.panelRatingAvg, type: Number } : { value: null },
+    a.panelRatingAvg != null ? { value: a.panelRatingAvg, type: Number } : null,
     ...questions.map((q) => {
       const answer = a.answers.find((x) => x.questionId === q.id)?.answer;
-      return { value: answer || null, wrap: true };
+      return { value: answer || undefined, wrap: true };
     }),
   ]);
 
-  const columns = [
+  const columns: NonNullable<SheetOptions<unknown>['columns']> = [
     { width: 22 },
     { width: 26 },
     { width: 15 },

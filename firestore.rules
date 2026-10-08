@@ -138,10 +138,36 @@ service cloud.firestore {
     }
 
     match /Interviews/{interviewId} {
+      // The candidate read below is deliberately scoped to the parent
+      // document only. Before G6, panel scores lived in a `scores` array on
+      // this same document, which meant a candidate reading their own
+      // Interview — allowed here so they can see their schedule — also
+      // received the full panel scores array over the API, even though no
+      // UI screen ever rendered it. A subcollection is never returned by a
+      // read of its parent, so moving scores there (below) closes that
+      // exposure structurally, not just by omission in the UI. Do not move
+      // scores back onto this document to "simplify" later — that reopens
+      // exactly this hole.
       allow read: if isStaff()
         || (isActive() && resource.data.candidateId == request.auth.uid);
       allow create, update: if isStaff();
       allow delete: if isAdmin();
+
+      // Panel scores (0-100). Same shape as Applications/{id}/ratings: the
+      // document id is the panelist's uid, so a panelist can only ever write
+      // their own score, and the second reason to be a subcollection rather
+      // than a transaction on the parent array is the read-exposure note
+      // above.
+      match /scores/{panelistId} {
+        allow read: if isStaff();
+        allow create, update: if isStaff()
+          && request.auth.uid == panelistId
+          && request.resource.data.panelistId == panelistId
+          && request.resource.data.score is number
+          && request.resource.data.score >= 0
+          && request.resource.data.score <= 100;
+        allow delete: if isStaff() && request.auth.uid == panelistId;
+      }
     }
 
     match /Offers/{offerId} {
