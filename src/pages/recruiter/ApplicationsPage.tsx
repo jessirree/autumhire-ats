@@ -1,8 +1,9 @@
 ﻿import { useState, useEffect } from 'react';
 import { useSearchParams } from 'react-router-dom';
 import { toast } from 'sonner';
-import { Search, Filter, Download, Archive, ArchiveRestore, X } from 'lucide-react';
+import { Search, Filter, Download, Archive, ArchiveRestore, X, FileSpreadsheet, Loader2 } from 'lucide-react';
 import { Button } from '../../components/ui/button';
+import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '../../components/ui/tooltip';
 import { StatusBadge } from '../../components/ats/StatusBadge';
 import { useAuth } from '../../context/AuthContext';
 import {
@@ -15,6 +16,8 @@ import {
 } from '../../services/applicationService';
 import { Job, getJobById } from '../../services/jobService';
 import { downloadCsv } from '../../lib/exportCsv';
+import { exportApplicationsXlsx } from '../../lib/exportApplicationsXlsx';
+import { logAudit } from '../../services/auditService';
 import { DownloadCvsButton } from '../../components/ats/DownloadCvsButton';
 
 interface ApplicationsPageProps {
@@ -53,6 +56,7 @@ export function ApplicationsPage({ onViewCandidate }: ApplicationsPageProps) {
   const [bulkAction, setBulkAction] = useState('Bulk Actions');
   const [showArchived, setShowArchived] = useState(false);
   const [archiving, setArchiving] = useState(false);
+  const [exportingXlsx, setExportingXlsx] = useState(false);
 
   const clearJobFilter = () => {
     setSearchParams((prev) => {
@@ -138,6 +142,25 @@ export function ApplicationsPage({ onViewCandidate }: ApplicationsPageProps) {
     }
   };
 
+  const handleExportXlsx = async () => {
+    if (!user || !filterJob) return;
+    setExportingXlsx(true);
+    try {
+      await exportApplicationsXlsx(filterJob, applications);
+      await logAudit(
+        user,
+        'update',
+        'Job',
+        filterJob.id,
+        `Exported ${applications.length} application(s) to Excel for "${filterJob.title}"`
+      );
+    } catch (err: any) {
+      toast.error(err?.message || 'Failed to export to Excel.');
+    } finally {
+      setExportingXlsx(false);
+    }
+  };
+
   const handleArchiveSelected = async (archived: boolean) => {
     if (!user || selectedApplications.length === 0) return;
     setArchiving(true);
@@ -154,6 +177,20 @@ export function ApplicationsPage({ onViewCandidate }: ApplicationsPageProps) {
       setArchiving(false);
     }
   };
+
+  // Shared by both per-job exports below: Excel needs the job's own
+  // screening questions for its column matrix, same as the CV zip needs a
+  // single job's worth of files — neither makes sense across every job.
+  const jobFilterDisabledReason = !jobFilterId
+    ? 'Filter to a specific job first — downloading CVs across every job is not supported.'
+    : !filterJob
+      ? 'This job could not be found.'
+      : undefined;
+  const xlsxDisabledReason = !jobFilterId
+    ? 'Filter to a specific job first — exporting to Excel across every job is not supported.'
+    : !filterJob
+      ? 'This job could not be found.'
+      : undefined;
 
   return (
     <div className="p-8 max-w-7xl mx-auto space-y-6">
@@ -183,14 +220,33 @@ export function ApplicationsPage({ onViewCandidate }: ApplicationsPageProps) {
                 : { id: jobFilterId ?? '', referenceNumber: '', title: '' }
             }
             applications={applications}
-            disabledReason={
-              !jobFilterId
-                ? 'Filter to a specific job first — downloading CVs across every job is not supported.'
-                : !filterJob
-                  ? 'This job could not be found.'
-                  : undefined
-            }
+            disabledReason={jobFilterDisabledReason}
           />
+          <TooltipProvider delayDuration={200}>
+            {xlsxDisabledReason ? (
+              <Tooltip>
+                <TooltipTrigger asChild>
+                  <span className="inline-block">
+                    <Button variant="outline" className="gap-2 rounded-xl" disabled>
+                      <FileSpreadsheet className="size-4" />
+                      Export to Excel
+                    </Button>
+                  </span>
+                </TooltipTrigger>
+                <TooltipContent>{xlsxDisabledReason}</TooltipContent>
+              </Tooltip>
+            ) : (
+              <Button
+                variant="outline"
+                className="gap-2 rounded-xl"
+                disabled={exportingXlsx}
+                onClick={handleExportXlsx}
+              >
+                {exportingXlsx ? <Loader2 className="size-4 animate-spin" /> : <FileSpreadsheet className="size-4" />}
+                Export to Excel
+              </Button>
+            )}
+          </TooltipProvider>
         </div>
       </div>
 
