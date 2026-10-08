@@ -572,6 +572,96 @@ describe('Offers (candidate response notification moved to a Cloud Function)', (
   });
 });
 
+// ── Interviews/{id}/scores — G6, the identical ratings race, in a new place ──
+describe('Interviews/{id}/scores (G6 — panel score subcollection)', () => {
+  const INTERVIEW = 'INTERVIEW-TEST-01';
+
+  const panelScore = (panelistId: string, score: unknown) => ({
+    panelistId,
+    panelistName: 'Panel',
+    score,
+  });
+
+  const seedInterview = () =>
+    testEnv.withSecurityRulesDisabled(async (ctx) => {
+      await setDoc(doc(ctx.firestore(), 'Interviews', INTERVIEW), {
+        applicationId: APP,
+        jobId: 'JOB-TEST-9001',
+        jobTitle: 'Research Data Analyst',
+        candidateId: CANDIDATE,
+        candidateName: 'Asha Wanjiru',
+        candidateEmail: 'asha@example.com',
+        scheduledAt: new Date().toISOString(),
+        panel: [{ id: PANEL1, name: 'Panel One' }, { id: PANEL2, name: 'Panel Two' }],
+        questions: [],
+        scores: [],
+        status: 'scheduled',
+      });
+    });
+
+  it('a panellist may write their own score', async () => {
+    await seedInterview();
+    const db = testEnv.authenticatedContext(PANEL1).firestore();
+    await assertSucceeds(
+      setDoc(doc(db, 'Interviews', INTERVIEW, 'scores', PANEL1), panelScore(PANEL1, 85))
+    );
+  });
+
+  // The identical race recordPanelScore used to lose: two panellists each
+  // writing the whole array from their own stale copy, second write wins. A
+  // panellist-id-keyed document makes that impossible by construction.
+  it('a panellist may NOT write at another panellist id', async () => {
+    const db = testEnv.authenticatedContext(PANEL1).firestore();
+    await assertFails(
+      setDoc(doc(db, 'Interviews', INTERVIEW, 'scores', PANEL2), panelScore(PANEL2, 85))
+    );
+  });
+
+  it('the document id and the panelistId field must agree', async () => {
+    const db = testEnv.authenticatedContext(PANEL1).firestore();
+    await assertFails(
+      setDoc(doc(db, 'Interviews', INTERVIEW, 'scores', PANEL1), panelScore(PANEL2, 85))
+    );
+  });
+
+  it('rejects a score below 0', async () => {
+    const db = testEnv.authenticatedContext(PANEL1).firestore();
+    await assertFails(
+      setDoc(doc(db, 'Interviews', INTERVIEW, 'scores', PANEL1), panelScore(PANEL1, -1))
+    );
+  });
+
+  it('rejects a score above 100', async () => {
+    const db = testEnv.authenticatedContext(PANEL1).firestore();
+    await assertFails(
+      setDoc(doc(db, 'Interviews', INTERVIEW, 'scores', PANEL1), panelScore(PANEL1, 101))
+    );
+  });
+
+  it('rejects a score that is a string', async () => {
+    const db = testEnv.authenticatedContext(PANEL1).firestore();
+    await assertFails(
+      setDoc(doc(db, 'Interviews', INTERVIEW, 'scores', PANEL1), panelScore(PANEL1, '85'))
+    );
+  });
+
+  // The second reason to prefer a subcollection over a transaction on the
+  // parent array: it is never returned by a read of the parent document, so
+  // the candidate's own-Interview read (allowed, for their schedule) cannot
+  // also hand them the panel's scores the way the old array field did.
+  it('a candidate may NOT read the scores subcollection of their own interview', async () => {
+    await seedInterview();
+    const db = testEnv.authenticatedContext(CANDIDATE).firestore();
+    await assertFails(getDocs(collection(db, 'Interviews', INTERVIEW, 'scores')));
+  });
+
+  it('a candidate may still read the parent Interview document itself', async () => {
+    await seedInterview();
+    const db = testEnv.authenticatedContext(CANDIDATE).firestore();
+    await assertSucceeds(getDoc(doc(db, 'Interviews', INTERVIEW)));
+  });
+});
+
 // ── Sweep: the control that stops instance seven ────────────────────────
 describe('Rule coverage sweep', () => {
   it('every top-level collection written anywhere in src/ has a match block in firestore.rules', () => {
