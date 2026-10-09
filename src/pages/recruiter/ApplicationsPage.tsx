@@ -1,7 +1,7 @@
 ﻿import { useState, useEffect, useMemo } from 'react';
 import { useSearchParams } from 'react-router-dom';
 import { toast } from 'sonner';
-import { Search, Filter, Download, Archive, ArchiveRestore, X, FileSpreadsheet, Loader2, AlertTriangle } from 'lucide-react';
+import { Search, Download, Archive, ArchiveRestore, X, FileSpreadsheet, Loader2, AlertTriangle } from 'lucide-react';
 import { Button } from '../../components/ui/button';
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '../../components/ui/tooltip';
 import { StatusBadge } from '../../components/ats/StatusBadge';
@@ -395,11 +395,6 @@ export function ApplicationsPage({ onViewCandidate }: ApplicationsPageProps) {
                 <option key={d} value={d}>{d}</option>
               ))}
             </select>
-
-            <Button variant="outline" className="rounded-xl">
-              <Filter className="size-4 mr-2" />
-              More Filters
-            </Button>
           </div>
         </div>
 

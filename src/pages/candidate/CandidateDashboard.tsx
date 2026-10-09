@@ -650,7 +650,12 @@ export function CandidateDashboard({
                     <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
                       <div className="md:col-span-2">
                         <label className="text-sm text-gray-500 block mb-1">Skills</label>
-                        <SkillPicker allSkills={allSkills} selectedIds={skillIds} onChange={setSkillIds} />
+                        <SkillPicker
+                          allSkills={allSkills}
+                          selectedIds={skillIds}
+                          onChange={setSkillIds}
+                          showInactiveLabel={false}
+                        />
                       </div>
                       <div>
                         <label className="text-sm text-gray-500 block mb-1">Years of Experience</label>

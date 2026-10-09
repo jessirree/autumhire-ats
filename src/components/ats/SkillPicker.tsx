@@ -13,6 +13,15 @@ interface SkillPickerProps {
   onChange: (ids: string[]) => void;
   disabled?: boolean;
   placeholder?: string;
+  /**
+   * Whether to mark a deactivated skill as such. True (the default) on
+   * staff screens — a recruiter picking required skills is choosing from
+   * an internal taxonomy, where "this one is being retired" is useful
+   * information. False on the candidate's own profile: deactivation is
+   * taxonomy lifecycle the candidate has no way to act on and no reason
+   * to be told about — to them it's just one of their skills.
+   */
+  showInactiveLabel?: boolean;
 }
 
 /**
@@ -24,7 +33,14 @@ interface SkillPickerProps {
  * showing its name instead of silently dropping off the profile; the search
  * popover only offers active skills as new choices.
  */
-export function SkillPicker({ allSkills, selectedIds, onChange, disabled, placeholder }: SkillPickerProps) {
+export function SkillPicker({
+  allSkills,
+  selectedIds,
+  onChange,
+  disabled,
+  placeholder,
+  showInactiveLabel = true,
+}: SkillPickerProps) {
   const [open, setOpen] = useState(false);
 
   const byId = useMemo(() => new Map(allSkills.map((s) => [s.id, s])), [allSkills]);
@@ -42,9 +58,9 @@ export function SkillPicker({ allSkills, selectedIds, onChange, disabled, placeh
     <div className="space-y-2">
       <div className="flex flex-wrap gap-2">
         {selected.map((skill) => (
-          <Badge key={skill.id} variant={skill.active ? 'secondary' : 'outline'} className="gap-1">
+          <Badge key={skill.id} variant={!showInactiveLabel || skill.active ? 'secondary' : 'outline'} className="gap-1">
             {skill.name}
-            {!skill.active && <span className="text-muted-foreground">(inactive)</span>}
+            {showInactiveLabel && !skill.active && <span className="text-muted-foreground">(inactive)</span>}
             {!disabled && (
               <button
                 type="button"
