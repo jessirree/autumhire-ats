@@ -9,6 +9,7 @@ import { CandidateHeader } from '../../components/ats/CandidateHeader';
 import { ApplicationForm } from './ApplicationForm';
 import { Job as FirestoreJob, getPublicJobs } from '../../services/jobService';
 import { sanitizeHtml, stripHtml } from '../../lib/sanitizeHtml';
+import { JobRequirementsSection, JobKeywordsSection } from '../../components/ats/JobRequirementsSection';
 
 // Display shape used by the board, derived from the Firestore Job.
 interface Job {
@@ -22,7 +23,6 @@ interface Job {
   posted: string;
   deadline?: string;
   description: string;
-  requirements: string[];
   experienceLevel?: string;
   raw: FirestoreJob;
 }
@@ -42,10 +42,6 @@ function toDisplayJob(job: FirestoreJob): Job {
     posted: job.postedAt?.toDate ? job.postedAt.toDate().toLocaleDateString() : '',
     deadline: job.closingDate,
     description: job.description || '',
-    requirements: (job.tags || '')
-      .split(',')
-      .map((t) => t.trim())
-      .filter(Boolean),
     experienceLevel: job.category || '',
     raw: job,
   };
@@ -420,17 +416,8 @@ export function JobBoard({
                     />
                   </section>
 
-                  <section>
-                    <h3 className="text-lg font-bold text-gray-900 mb-4">Requirements</h3>
-                    <ul className="space-y-2">
-                      {activeJob.requirements.map((req, i) => (
-                        <li key={i} className="flex gap-3 text-gray-600">
-                          <div className="min-w-[6px] h-[6px] rounded-full bg-[var(--pumpkin-orange)] mt-2" />
-                          <span>{req}</span>
-                        </li>
-                      ))}
-                    </ul>
-                  </section>
+                  <JobKeywordsSection tags={activeJob.raw.tags} />
+                  <JobRequirementsSection job={activeJob.raw} />
                 </div>
               </div>
             </div>

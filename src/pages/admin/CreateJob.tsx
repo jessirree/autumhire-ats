@@ -63,6 +63,7 @@ import { regenerateJobsFeed } from "../../services/feedService";
 import { notifyJobAlertSubscribers } from "../../services/jobAlertService";
 import { Skill, getSkills } from "../../services/skillService";
 import { SkillPicker } from "../../components/ats/SkillPicker";
+import { JobRequirementsSection, JobKeywordsSection, hasPublishedRequirements } from "../../components/ats/JobRequirementsSection";
 import { EDUCATION_LEVELS, EDUCATION_LABELS, EducationLevel } from "../../lib/education";
 
 interface JobDetails {
@@ -808,6 +809,23 @@ export function CreateJob({
     admin: "Admin",
     recruiter: "Recruiter",
     "hiring-manager": "Hiring Manager",
+  };
+
+  // For the Job Post Preview below, resolved live from already-loaded,
+  // staff-only allSkills — unlike JobBoard/JobDetail, this is not a
+  // signed-out candidate surface, so there's no isActive()-read problem in
+  // looking skill names up here rather than waiting for buildJobInput's
+  // own requiredSkillNames snapshot to exist on a saved document.
+  const previewRequirements = {
+    minYearsExperience:
+      jobDetails.minYearsExperience.trim() !== "" && !Number.isNaN(Number(jobDetails.minYearsExperience))
+        ? Number(jobDetails.minYearsExperience)
+        : undefined,
+    minEducation: jobDetails.minEducation || undefined,
+    requiredSkillNames: jobDetails.requiredSkillIds
+      .map((id) => allSkills.find((s) => s.id === id)?.name)
+      .filter((name): name is string => !!name),
+    workAuthorizationRequired: jobDetails.workAuthorizationRequired,
   };
 
   return (
@@ -2574,31 +2592,17 @@ export function CreateJob({
                   )}
                 </section>
 
-                {(jobDetails.tags || "")
-                  .split(",")
-                  .map((t) => t.trim())
-                  .filter(Boolean).length > 0 && (
+                {(jobDetails.tags || "").trim() && (
                   <>
                     <div className="border-t border-gray-200" />
-                    <section>
-                      <h2 className="text-xl font-semibold mb-4">
-                        Skills & Keywords
-                      </h2>
-                      <div className="flex flex-wrap gap-2">
-                        {(jobDetails.tags || "")
-                          .split(",")
-                          .map((t) => t.trim())
-                          .filter(Boolean)
-                          .map((tag, index) => (
-                            <span
-                              key={index}
-                              className="px-3 py-1 bg-gray-100 rounded-full text-sm text-gray-700"
-                            >
-                              {tag}
-                            </span>
-                          ))}
-                      </div>
-                    </section>
+                    <JobKeywordsSection tags={jobDetails.tags} />
+                  </>
+                )}
+
+                {hasPublishedRequirements(previewRequirements) && (
+                  <>
+                    <div className="border-t border-gray-200" />
+                    <JobRequirementsSection job={previewRequirements} />
                   </>
                 )}
 
