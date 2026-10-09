@@ -362,7 +362,10 @@ export function CreateJob({
           .catch(() => {});
         getSkills(true)
           .then(setAllSkills)
-          .catch(() => {});
+          .catch((err) => {
+            console.error("Failed to load skills taxonomy", err);
+            toast.error("Failed to load the skills list — the required-skills picker may be empty.");
+          });
         setStaffMembers(
           usersSnap.docs
             .map((d) => ({ id: d.id, ...(d.data() as any) }))

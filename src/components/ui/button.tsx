@@ -34,26 +34,32 @@ const buttonVariants = cva(
   },
 );
 
-function Button({
-  className,
-  variant,
-  size,
-  asChild = false,
-  ...props
-}: React.ComponentProps<"button"> &
-  VariantProps<typeof buttonVariants> & {
-    asChild?: boolean;
-  }) {
+// forwardRef, not a plain function component: this project is React 18.3.1,
+// where ref is not an ordinary prop — a function component can't receive
+// one. Without this, <PopoverTrigger asChild><Button/></PopoverTrigger>
+// (and anything else asChild-wrapping Button) clones Button via Radix's
+// Slot with a ref it silently drops, so Radix never gets a DOM node to
+// anchor positioning to and the popover/menu/etc. never renders. Keep this
+// additive — asChild/Slot behaviour and the variant API are unchanged.
+const Button = React.forwardRef<
+  HTMLButtonElement,
+  React.ComponentProps<"button"> &
+    VariantProps<typeof buttonVariants> & {
+      asChild?: boolean;
+    }
+>(({ className, variant, size, asChild = false, ...props }, ref) => {
   const Comp = asChild ? Slot : "button";
 
   return (
     <Comp
+      ref={ref}
       data-slot="button"
       className={cn(buttonVariants({ variant, size, className }))}
       {...props}
     />
   );
-}
+});
+Button.displayName = "Button";
 
 export { Button, buttonVariants };
 
