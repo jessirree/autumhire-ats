@@ -22,7 +22,14 @@
   --foreground:        #2C3E50;
   --primary:           #C75B39;
   --primary-foreground:#FFFFFF;
-  --accent:            #C75B39;
+  /* Subtle hover/selected tint for menu-style shadcn components (Command,
+     Select, DropdownMenu, ContextMenu, ...) — NOT the strong CTA color.
+     Same pair of values already used for the sidebar's active-row state
+     below; was wrongly set equal to --primary, which is why the first real
+     consumer (Command, via SkillPicker) rendered a solid brand-orange bar
+     instead of a gentle highlight. */
+  --accent:            #FDF5F2;
+  --accent-foreground: #C75B39;
   --muted:             #F5F0EB;
   --muted-foreground:  #7C7269;
   --card:              #FFFFFF;
@@ -32,6 +39,13 @@
   --input:             #E5DDD5;
   --ring:              #C75B39;
   --primary-text:      #2C3E50;
+  /* Floating-panel surface (Popover, Command, and anything else that pops
+     over the page) — same values as the card surface recipe used
+     everywhere else, since this product has no separate "floating" look.
+     Was entirely undefined, which is why the popover panel had no
+     background at all and page content behind it showed through. */
+  --popover:           #FFFFFF;
+  --popover-foreground:#2C3E50;
 
   /* Sidebar tokens */
   --sidebar:                  #FFFFFF;
@@ -56,6 +70,9 @@
   --color-primary:           var(--primary);
   --color-primary-foreground:var(--primary-foreground);
   --color-accent:            var(--accent);
+  --color-accent-foreground: var(--accent-foreground);
+  --color-popover:           var(--popover);
+  --color-popover-foreground:var(--popover-foreground);
   --color-muted:             var(--muted);
   --color-muted-foreground:  var(--muted-foreground);
   --color-card:              var(--card);
