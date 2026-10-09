@@ -21,6 +21,7 @@ import {
   cancelInterview,
   averageScore,
 } from '../../services/interviewService';
+import { Template, getTemplates } from '../../services/templateService';
 
 interface Staff {
   id: string;
@@ -50,6 +51,12 @@ export function InterviewsPage() {
   const [showSchedule, setShowSchedule] = useState(false);
   const [candidates, setCandidates] = useState<Application[]>([]);
   const [staff, setStaff] = useState<Staff[]>([]);
+  // G7/row 7.2: Interview templates could be authored but never loaded
+  // anywhere — half of "upload questions and templates" was dead. One
+  // picker, one fill of the questions textarea; no merge with whatever is
+  // already typed, by design.
+  const [interviewTemplates, setInterviewTemplates] = useState<Template[]>([]);
+  const [selectedTemplateId, setSelectedTemplateId] = useState('');
   const [form, setForm] = useState({
     applicationId: '',
     scheduledAt: '',
@@ -95,10 +102,12 @@ export function InterviewsPage() {
 
   const openScheduler = async () => {
     setShowSchedule(true);
+    setSelectedTemplateId('');
     try {
-      const [apps, usersSnap] = await Promise.all([
+      const [apps, usersSnap, templates] = await Promise.all([
         getAllApplications(),
         getDocs(collection(db, 'Users')),
+        getTemplates(),
       ]);
       setCandidates(apps.filter((a) => ['shortlisted', 'interview'].includes(a.status)));
       setStaff(
@@ -107,9 +116,18 @@ export function InterviewsPage() {
           .filter((u) => u.role !== 'candidate')
           .map((u) => ({ id: u.id, name: u.name || u.email }))
       );
+      setInterviewTemplates(templates.filter((t) => t.category === 'Interview' && t.status === 'Active'));
     } catch (err) {
       console.error(err);
     }
+  };
+
+  const handleLoadTemplate = (templateId: string) => {
+    setSelectedTemplateId(templateId);
+    const template = interviewTemplates.find((t) => t.id === templateId);
+    if (!template) return;
+    // One picker, one fill — replaces whatever is in the field, no merge.
+    setForm((prev) => ({ ...prev, questions: template.content }));
   };
 
   const handleSchedule = async () => {
@@ -441,7 +459,21 @@ export function InterviewsPage() {
                 </div>
               </div>
               <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">Interview questions (one per line)</label>
+                <div className="flex items-center justify-between mb-1">
+                  <label className="block text-sm font-medium text-gray-700">Interview questions (one per line)</label>
+                  {interviewTemplates.length > 0 && (
+                    <select
+                      value={selectedTemplateId}
+                      onChange={(e) => handleLoadTemplate(e.target.value)}
+                      className="text-xs px-2 py-1 border border-gray-200 rounded-lg outline-none bg-gray-50 text-gray-600"
+                    >
+                      <option value="">Load from template…</option>
+                      {interviewTemplates.map((t) => (
+                        <option key={t.id} value={t.id}>{t.name}</option>
+                      ))}
+                    </select>
+                  )}
+                </div>
                 <textarea
                   value={form.questions}
                   onChange={(e) => setForm({ ...form, questions: e.target.value })}
