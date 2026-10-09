@@ -1221,11 +1221,20 @@ export function CreateJob({
                     value={jobDetails.currency}
                     onChange={(e) => handleChange("currency", e.target.value)}
                   >
-                    <option>KES (Ksh)</option>
-                    <option>USD ($)</option>
-                    <option>EUR (â‚¬)</option>
-                    <option>GBP (Â£)</option>
-                    <option>CAD ($)</option>
+                    {/* Explicit values, not implicit option-text ones: jobDetails.currency
+                        defaults to the bare "USD", which matched none of this select's
+                        un-valued options ("USD ($)" etc.) — an unmatched controlled <select>
+                        falls back to showing its first option, so this silently displayed
+                        "KES (Ksh)" as selected while the real state stayed "USD" the whole
+                        time. The recruiter saving without ever touching this field got
+                        exactly the bug reported: everything downstream correctly read
+                        jobDetails.currency, it just had the wrong value, invisibly. Also
+                        fixes the mojibake on the EUR/GBP symbols (â‚¬ / Â£). */}
+                    <option value="KES">KES (Ksh)</option>
+                    <option value="USD">USD ($)</option>
+                    <option value="EUR">EUR (€)</option>
+                    <option value="GBP">GBP (£)</option>
+                    <option value="CAD">CAD ($)</option>
                   </select>
                 </div>
 
