@@ -64,7 +64,15 @@ export function RichTextEditor({ value, onChange, placeholder, className }: Rich
   useEffect(() => {
     if (!editor) return;
     if (value !== editor.getHTML()) {
-      editor.commands.setContent(value || '', false);
+      // Tiptap v3's setContent takes an options object, not a positional
+      // boolean (v2's signature) — the bare `false` this was passing
+      // wasn't disabling the update event, it was just an invalid options
+      // value that `emitUpdate` read as absent, defaulting to its own
+      // `true`. That meant every external value sync re-fired onUpdate ->
+      // onChange with tiptap's own re-serialized HTML, which can differ
+      // slightly from what was passed in (attribute order, etc.) — a
+      // field could appear to "change itself" on load with nothing typed.
+      editor.commands.setContent(value || '', { emitUpdate: false });
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [value, editor]);
