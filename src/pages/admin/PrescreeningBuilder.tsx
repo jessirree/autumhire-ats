@@ -14,7 +14,7 @@ import {
 import { Button } from '../../components/ui/button';
 import { StatusBadge } from '../../components/ats/StatusBadge';
 import { useAuth } from '../../context/AuthContext';
-import { getQuestionBank, saveQuestionBank, BankQuestion, QuestionChoice, BankQuestionType, RequirementMapping } from '../../services/questionBankService';
+import { getQuestionBank, saveQuestionBank, BankQuestion, BankQuestionType, RequirementMapping } from '../../services/questionBankService';
 
 // --- Types ---
 export type QuestionType = BankQuestionType;

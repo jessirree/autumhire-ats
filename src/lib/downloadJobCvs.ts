@@ -26,11 +26,16 @@ export interface DownloadJobCvsResult {
 }
 
 /**
- * Fetches every candidate's CV for a job, renames each to
- * {referenceNumber}_{Candidate_Name}_CV.pdf, and triggers a zip download.
- * Skips (never fails) a candidate with no CV or a failed fetch. Aborts with
- * a thrown error if the running total passes MAX_TOTAL_BYTES — the caller
- * should surface that message as-is.
+ * Fetches every candidate's CV, cover letter and other supporting documents
+ * (G1) for a job, renames each to {referenceNumber}_{Candidate_Name}_CV.pdf /
+ * _CoverLetter.pdf / _Doc{n}.pdf, and triggers a single zip download.
+ * A candidate is only skipped (never failed) when NOTHING could be added for
+ * them — no documents on file, or every fetch for them failed; a candidate
+ * with some but not all of their documents still counts as zipped, just
+ * thinner, same as the single-document download elsewhere in the product
+ * silently working with whatever exists. Aborts with a thrown error if the
+ * running total passes MAX_TOTAL_BYTES — the caller should surface that
+ * message as-is.
  */
 export async function downloadJobCvs(
   job: { id: string; referenceNumber: string; title: string },
@@ -51,25 +56,46 @@ export async function downloadJobCvs(
   const processOne = async (app: Application) => {
     const displayName = app.candidateName || app.candidateId;
     try {
-      if (!app.cvUrl) {
-        skipped.push({ name: displayName, reason: 'No CV on file' });
+      const files: { suffix: string; url: string }[] = [];
+      if (app.cvUrl) files.push({ suffix: 'CV', url: app.cvUrl });
+      if (app.coverLetterUrl) files.push({ suffix: 'CoverLetter', url: app.coverLetterUrl });
+      (app.otherDocsUrls ?? []).forEach((docFile, i) => {
+        files.push({ suffix: `Doc${i + 1}`, url: docFile.url });
+      });
+
+      if (files.length === 0) {
+        skipped.push({ name: displayName, reason: 'No documents on file' });
         return;
       }
-      const res = await fetch(app.cvUrl);
-      if (!res.ok) {
-        skipped.push({ name: displayName, reason: `Download failed (HTTP ${res.status})` });
-        return;
+
+      let addedAny = false;
+      for (const file of files) {
+        if (aborted) break;
+        try {
+          const res = await fetch(file.url);
+          if (!res.ok) continue; // this one document failed; still try the candidate's others
+          const blob = await res.blob();
+          totalBytes += blob.size;
+          if (totalBytes > MAX_TOTAL_BYTES) {
+            tooLarge = true;
+            aborted = true;
+            break;
+          }
+          const base = `${sanitizeFilenamePart(job.referenceNumber)}_${sanitizeFilenamePart(displayName)}_${file.suffix}.pdf`;
+          zip.file(makeNameUnique(base, usedNames), blob);
+          addedAny = true;
+        } catch {
+          // this one document failed; still try the candidate's others
+        }
       }
-      const blob = await res.blob();
-      totalBytes += blob.size;
-      if (totalBytes > MAX_TOTAL_BYTES) {
-        tooLarge = true;
-        aborted = true;
-        return;
+      if (!addedAny && !aborted) {
+        skipped.push({ name: displayName, reason: 'Download failed' });
       }
-      const base = `${sanitizeFilenamePart(job.referenceNumber)}_${sanitizeFilenamePart(displayName)}_CV.pdf`;
-      zip.file(makeNameUnique(base, usedNames), blob);
     } catch {
+      // Belt-and-suspenders: the per-file fetch/blob calls above already
+      // have their own try/catch, but building `files` or iterating them
+      // is still inside this outer try — a surprise here must still skip
+      // just this one candidate, never reject the whole batch.
       skipped.push({ name: displayName, reason: 'Download failed' });
     } finally {
       done += 1;
@@ -98,7 +124,7 @@ export async function downloadJobCvs(
   const zipped = total - skipped.length;
   if (zipped > 0) {
     const content = await zip.generateAsync({ type: 'blob' });
-    downloadBlob(content, `${job.referenceNumber}-CVs-${new Date().toISOString().slice(0, 10)}.zip`);
+    downloadBlob(content, `${job.referenceNumber}-documents-${new Date().toISOString().slice(0, 10)}.zip`);
   }
 
   return { zipped, skipped };

@@ -311,6 +311,18 @@ export function CreateJob({
     "Standard Pre-screening Questions",
   );
 
+  // These two exist specifically to answer the matching requirements of the
+  // same name (candidate-matching spec §4) — they arrive linked so the
+  // common case (a job that never touches its default questions) still
+  // gets assessed, with no extra effort from the recruiter.
+  //
+  // Safe either way when a job sets no corresponding requirement, for two
+  // different reasons: computeMatch only even looks at the work-auth
+  // question's answer when workAuthorizationRequired is true (matching.ts's
+  // resolveWorkAuthorization is never called otherwise, so q2's link is
+  // simply never read); the years-of-experience link never feeds the score
+  // at all — it only drives ApplicationForm's prefill from the candidate's
+  // profile, which is harmless whether or not the job sets a minimum.
   const initialQuestions: Question[] = [
     {
       id: "q1",
@@ -318,6 +330,7 @@ export function CreateJob({
       type: "dropdown",
       mandatory: true,
       instructions: "Please select from the options provided.",
+      requirementField: "yearsOfExperience",
     },
     {
       id: "q2",
@@ -325,6 +338,7 @@ export function CreateJob({
       type: "checkbox",
       mandatory: true,
       instructions: "",
+      requirementField: "workAuthorization",
     },
   ];
 
@@ -756,6 +770,20 @@ export function CreateJob({
 
   const handleDeleteQuestion = (id: string) => {
     setQuestions((prev) => prev.filter((q) => q.id !== id));
+  };
+
+  // A recruiter must be able to link an already-added question (including
+  // one pulled in from the bank, or either of the two defaults below) to a
+  // requirement without deleting and recreating it — the "Links to
+  // requirement" select on the Add New Question form only ever reaches a
+  // not-yet-added draft.
+  const handleSetQuestionRequirementField = (
+    id: string,
+    requirementField: RequirementMapping | undefined,
+  ) => {
+    setQuestions((prev) =>
+      prev.map((q) => (q.id === id ? { ...q, requirementField } : q)),
+    );
   };
 
   // Hiring Team Handlers
@@ -1586,16 +1614,26 @@ export function CreateJob({
                               : `${question.score} pts${question.expectedAnswer ? ` • expects ${question.expectedAnswer}` : ""}`}
                           </span>
                         )}
-                        {question.requirementField && (
-                          <span className="bg-purple-50 text-purple-600 px-2 py-1 rounded text-xs uppercase font-medium">
-                            Links to{" "}
-                            {question.requirementField === "yearsOfExperience"
-                              ? "Years of Experience"
-                              : question.requirementField === "highestEducation"
-                                ? "Highest Education"
-                                : "Work Authorisation"}
-                          </span>
-                        )}
+                      </div>
+                      <div className="flex items-center gap-2 mb-2">
+                        <label className="text-xs text-gray-500">Links to requirement:</label>
+                        <select
+                          value={question.requirementField ?? ""}
+                          onChange={(e) =>
+                            handleSetQuestionRequirementField(
+                              question.id,
+                              e.target.value
+                                ? (e.target.value as RequirementMapping)
+                                : undefined,
+                            )
+                          }
+                          className="text-xs px-2 py-1 border border-gray-200 rounded bg-purple-50 text-purple-600 font-medium focus:outline-none focus:ring-1 focus:ring-[var(--pumpkin-orange)]"
+                        >
+                          <option value="">None</option>
+                          <option value="yearsOfExperience">Years of Experience</option>
+                          <option value="highestEducation">Highest Education</option>
+                          <option value="workAuthorization">Work Authorisation</option>
+                        </select>
                       </div>
                       {question.instructions && (
                         <p className="text-sm text-gray-500 bg-gray-50 p-3 rounded-lg border border-gray-100 mt-2">

@@ -20,12 +20,12 @@ interface DownloadCvsButtonProps {
   disabledReason?: string;
 }
 
-/** "Download all CVs" button + progress dialog + skipped-candidates report. */
+/** "Download all documents" button + progress dialog + skipped-candidates report. */
 export function DownloadCvsButton({
   job,
   applications,
   size = 'sm',
-  label = 'Download all CVs',
+  label = 'Download all documents',
   className,
   disabledReason,
 }: DownloadCvsButtonProps) {
@@ -45,10 +45,10 @@ export function DownloadCvsButton({
         'update',
         'Job',
         job.id,
-        `Downloaded ${result.zipped} CV(s) as a zip for "${job.title}" (${result.skipped.length} skipped)`
+        `Downloaded documents for ${result.zipped} candidate(s) as a zip for "${job.title}" (${result.skipped.length} skipped)`
       );
       toast.success(
-        `${result.zipped} CV${result.zipped === 1 ? '' : 's'} zipped${result.skipped.length ? `, ${result.skipped.length} skipped` : ''}.`
+        `Documents for ${result.zipped} candidate${result.zipped === 1 ? '' : 's'} zipped${result.skipped.length ? `, ${result.skipped.length} skipped` : ''}.`
       );
       if (result.skipped.length > 0) setSkipped(result.skipped);
     } catch (err: any) {

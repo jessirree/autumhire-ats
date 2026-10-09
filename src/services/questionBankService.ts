@@ -1,4 +1,4 @@
-import { doc, getDoc, setDoc, getDocs, collection, deleteDoc, serverTimestamp, writeBatch } from 'firebase/firestore';
+import { doc, getDocs, collection, serverTimestamp, writeBatch } from 'firebase/firestore';
 import { db } from '../lib/firebase';
 import { logAudit } from './auditService';
 
@@ -89,6 +89,22 @@ export async function saveQuestionBank(
   by: { id: string; name: string }
 ): Promise<void> {
   const batch = writeBatch(db);
+
+  // A question removed in the builder (PrescreeningBuilder's
+  // handleDeleteQuestion) only drops it from local state — this save is
+  // the only place that can actually remove it from Firestore. Without
+  // this, a "deleted" question's document (and its choices subcollection)
+  // just sits there and reappears the next time anyone reloads the bank,
+  // since nothing in this function ever touched a document for a question
+  // not present in the array it was handed.
+  const existingSnap = await getDocs(QUESTION_BANK_COLLECTION);
+  const keptIds = new Set(questions.map((q) => q.id));
+  for (const existingDoc of existingSnap.docs) {
+    if (keptIds.has(existingDoc.id)) continue;
+    batch.delete(existingDoc.ref);
+    const orphanedChoices = await getDocs(collection(db, 'QuestionBank', existingDoc.id, 'choices'));
+    orphanedChoices.docs.forEach((c) => batch.delete(c.ref));
+  }
 
   // Save each question and its choices subcollection
   for (const q of questions) {
