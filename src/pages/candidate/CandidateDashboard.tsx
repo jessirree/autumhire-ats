@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react';
 import { toast } from 'sonner';
-import { FileText, User, Search, Briefcase } from 'lucide-react';
+import { FileText, User, Search, Briefcase, Calendar, Clock, MapPin, Video, Phone } from 'lucide-react';
 import { Button } from '../../components/ui/button';
 import { confirm } from '../../components/ui/confirm-dialog';
 import { StatusBadge } from '../../components/ats/StatusBadge';
@@ -11,6 +11,7 @@ import { useAuth } from '../../context/AuthContext';
 import { Application, getApplicationsByCandidate } from '../../services/applicationService';
 import { BioData, getBioData, submitBioData } from '../../services/bioDataService';
 import { Offer, getOffersForCandidate, respondToOffer } from '../../services/offerService';
+import { CandidateInterviewView, getUpcomingInterviewsForCandidate } from '../../services/interviewService';
 import {
   CandidateProfile,
   getCandidateProfile,
@@ -47,6 +48,7 @@ export function CandidateDashboard({
   const [activeTab, setActiveTab] = useState<'applications' | 'profile'>('applications');
   const [myApplications, setMyApplications] = useState<Application[]>([]);
   const [myOffers, setMyOffers] = useState<Offer[]>([]);
+  const [myInterviews, setMyInterviews] = useState<CandidateInterviewView[]>([]);
   const [bioDataByAppId, setBioDataByAppId] = useState<Record<string, BioData | null>>({});
   const [bioDataForm, setBioDataForm] = useState<Record<string, { nationalId: string; postalAddress: string }>>({});
   const [editingBioDataId, setEditingBioDataId] = useState<string | null>(null);
@@ -83,6 +85,9 @@ export function CandidateDashboard({
         toast.error('Failed to load your applications. Please reload the page.');
       });
       getOffersForCandidate(user.id).then(setMyOffers).catch(() => {});
+      getUpcomingInterviewsForCandidate(user.id).then(setMyInterviews).catch(() => {
+        toast.error('Could not load your interview schedule. Reload to try again.');
+      });
     }
   };
 
@@ -330,6 +335,53 @@ export function CandidateDashboard({
                   </div>
                 </div>
               ))}
+            </div>
+          )}
+
+          {/* G5: upcoming interviews — date, time, mode, location/link,
+              duration, candidate instructions. No panel names, scores,
+              comments or interview questions appear anywhere in this
+              block or anywhere this data flows from — getUpcomingInterviewsForCandidate
+              never fetches that data in the first place (see
+              interviewService.ts), it isn't a filter applied here. With
+              the invitation email deferred, this card is the only way a
+              candidate learns they have an interview. */}
+          {myInterviews.length > 0 && (
+            <div className="mb-8 space-y-4">
+              {myInterviews.map((interview) => {
+                const scheduled = new Date(interview.scheduledAt);
+                const ModeIcon = interview.mode === 'video' ? Video : interview.mode === 'phone' ? Phone : MapPin;
+                const modeLabel = { 'in-person': 'In person', video: 'Video call', phone: 'Phone call' }[interview.mode];
+                return (
+                  <div key={interview.id} className="bg-purple-50 border border-purple-200 rounded-xl p-6">
+                    <h3 className="text-lg font-bold text-purple-900 mb-3">
+                      Interview scheduled — {interview.jobTitle}
+                    </h3>
+                    <div className="flex flex-wrap gap-5 text-sm text-purple-900 mb-2">
+                      <span className="flex items-center gap-1.5">
+                        <Calendar className="size-4" />
+                        {scheduled.toLocaleDateString(undefined, { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric' })}
+                      </span>
+                      <span className="flex items-center gap-1.5">
+                        <Clock className="size-4" />
+                        {scheduled.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })} ({interview.durationMinutes} mins)
+                      </span>
+                      <span className="flex items-center gap-1.5">
+                        <ModeIcon className="size-4" />
+                        {modeLabel}
+                      </span>
+                    </div>
+                    {interview.locationOrLink && (
+                      <p className="text-sm text-purple-800 mb-1">
+                        <strong>{interview.mode === 'in-person' ? 'Location' : 'Link'}:</strong> {interview.locationOrLink}
+                      </p>
+                    )}
+                    {interview.candidateInstructions && (
+                      <p className="text-sm text-purple-800 mt-2 whitespace-pre-wrap">{interview.candidateInstructions}</p>
+                    )}
+                  </div>
+                );
+              })}
             </div>
           )}
 

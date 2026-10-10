@@ -63,6 +63,7 @@ export function InterviewsPage() {
     durationMinutes: 60,
     mode: 'video' as Interview['mode'],
     locationOrLink: '',
+    candidateInstructions: '',
     panelIds: [] as string[],
     questions: '',
   });
@@ -146,13 +147,14 @@ export function InterviewsPage() {
           durationMinutes: form.durationMinutes,
           mode: form.mode,
           locationOrLink: form.locationOrLink,
+          candidateInstructions: form.candidateInstructions,
           panel: form.panelIds.map((id) => ({ id, name: staff.find((s) => s.id === id)?.name || id })),
           questions: form.questions.split('\n').map((q) => q.trim()).filter(Boolean),
         },
         user
       );
       setShowSchedule(false);
-      setForm({ applicationId: '', scheduledAt: '', durationMinutes: 60, mode: 'video', locationOrLink: '', panelIds: [], questions: '' });
+      setForm({ applicationId: '', scheduledAt: '', durationMinutes: 60, mode: 'video', locationOrLink: '', candidateInstructions: '', panelIds: [], questions: '' });
       load();
     } catch (err: any) {
       toast.error(err?.message || 'Failed to schedule interview.');
@@ -429,6 +431,17 @@ export function InterviewsPage() {
                     placeholder="Room A / meet.google.com/…"
                   />
                 </div>
+              </div>
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1">Candidate instructions (optional)</label>
+                <textarea
+                  value={form.candidateInstructions}
+                  onChange={(e) => setForm({ ...form, candidateInstructions: e.target.value })}
+                  className="w-full p-2.5 border border-gray-200 rounded-lg outline-none"
+                  rows={2}
+                  placeholder="Bring a photo ID, arrive 10 minutes early, ask for reception on the 3rd floor…"
+                />
+                <p className="text-xs text-gray-500 mt-1">Shown to the candidate on their dashboard and in the notification — not internal notes.</p>
               </div>
               <div>
                 <label className="block text-sm font-medium text-gray-700 mb-1">Panel members *</label>

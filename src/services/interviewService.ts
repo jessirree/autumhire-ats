@@ -39,6 +39,9 @@ export interface Interview {
   durationMinutes: number;
   mode: 'in-person' | 'video' | 'phone';
   locationOrLink?: string;
+  // Shown to the candidate verbatim (dashboard + notification body) —
+  // distinct from `notes`, which is staff-only post-interview writeup.
+  candidateInstructions?: string;
   panel: { id: string; name: string }[];
   questions: string[];
   scores: PanelScore[];
@@ -47,6 +50,29 @@ export interface Interview {
   notes?: string;
   createdAt?: Timestamp | null;
   updatedAt?: Timestamp | null;
+}
+
+/**
+ * G5: the fields a candidate is allowed to see, and nothing else — a type
+ * with no `panel`/`questions`/`scores`/`notes`/`result` fields at all, so
+ * there is no later field this view could accidentally render. The G6
+ * subcollection move already makes the scores leak structurally
+ * impossible (firestore.rules:161-170, scores read is isStaff()-only,
+ * never returned by a read of the parent either way), but this function
+ * never even calls resolveScores() to begin with — unlike
+ * getInterviewsForCandidate() above, which is staff-only precisely
+ * because it does call it, and that subcollection read would throw a
+ * permission-denied for a candidate session.
+ */
+export interface CandidateInterviewView {
+  id: string;
+  jobTitle: string;
+  scheduledAt: string;
+  durationMinutes: number;
+  mode: Interview['mode'];
+  locationOrLink?: string;
+  candidateInstructions?: string;
+  status: InterviewStatus;
 }
 
 const COL = 'Interviews';
@@ -90,6 +116,7 @@ export async function scheduleInterview(
     durationMinutes?: number;
     mode?: Interview['mode'];
     locationOrLink?: string;
+    candidateInstructions?: string;
     panel: { id: string; name: string }[];
     questions?: string[];
   },
@@ -107,6 +134,7 @@ export async function scheduleInterview(
     durationMinutes: input.durationMinutes ?? 60,
     mode: input.mode ?? 'in-person',
     locationOrLink: input.locationOrLink ?? '',
+    candidateInstructions: input.candidateInstructions ?? '',
     panel: input.panel,
     questions: input.questions ?? [],
     scores: [],
@@ -118,11 +146,22 @@ export async function scheduleInterview(
 
   // Move the application into the interview stage + tell the candidate.
   await updateApplicationStatus(application, 'interview', by, 'Interview scheduled', false);
+  // G5: the invitation email is deferred, so this notification body is the
+  // only channel a candidate has for this detail — it carries everything
+  // the dashboard card does (mode, duration, instructions), not just the
+  // date and location the pre-G5 body had.
+  const modeLabel = { 'in-person': 'In person', video: 'Video call', phone: 'Phone call' }[docData.mode as Interview['mode']];
+  const bodyParts = [
+    `You have been invited to an interview on ${new Date(input.scheduledAt).toLocaleString()}.`,
+    `${modeLabel}, ${docData.durationMinutes} minutes.`,
+  ];
+  if (input.locationOrLink) bodyParts.push(`Location/link: ${input.locationOrLink}.`);
+  if (input.candidateInstructions) bodyParts.push(input.candidateInstructions);
   await notify({
     userId: application.candidateId,
     email: application.email,
     title: `Interview invitation — ${application.jobTitle}`,
-    body: `You have been invited to an interview on ${new Date(input.scheduledAt).toLocaleString()}. ${input.locationOrLink ? `Location/link: ${input.locationOrLink}` : ''}`,
+    body: bodyParts.join(' '),
     type: 'interview',
     relatedId: docRef.id,
     createdById: by.id,
@@ -145,6 +184,38 @@ export async function getInterviewsForJob(jobId: string): Promise<Interview[]> {
 export async function getInterviewsForCandidate(candidateId: string): Promise<Interview[]> {
   const snap = await getDocs(query(collection(db, COL), where('candidateId', '==', candidateId)));
   return withResolvedScores(snap.docs.map((d) => toInterview(d.id, d.data())));
+}
+
+/**
+ * G5: the candidate dashboard's only interview read. Deliberately
+ * separate from getInterviewsForCandidate() above — that one calls
+ * withResolvedScores(), which queries the scores subcollection, which
+ * firestore.rules denies to a non-staff reader; calling it from a
+ * candidate session would reject the whole fetch with permission-denied,
+ * not just omit the scores. This function never touches that
+ * subcollection, and its return type has no field a panel score could
+ * even be assigned to.
+ */
+export async function getUpcomingInterviewsForCandidate(candidateId: string): Promise<CandidateInterviewView[]> {
+  const snap = await getDocs(
+    query(collection(db, COL), where('candidateId', '==', candidateId), where('status', '==', 'scheduled'))
+  );
+  return snap.docs
+    .map((d) => {
+      const data = d.data();
+      const view: CandidateInterviewView = {
+        id: d.id,
+        jobTitle: data.jobTitle,
+        scheduledAt: data.scheduledAt,
+        durationMinutes: data.durationMinutes,
+        mode: data.mode,
+        locationOrLink: data.locationOrLink || undefined,
+        candidateInstructions: data.candidateInstructions || undefined,
+        status: data.status,
+      };
+      return view;
+    })
+    .sort((a, b) => a.scheduledAt.localeCompare(b.scheduledAt));
 }
 
 /**
