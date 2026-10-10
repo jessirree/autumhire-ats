@@ -1,6 +1,6 @@
 ﻿import { useState, useMemo, useEffect } from 'react';
 import { toast } from 'sonner';
-import { Search, Filter, Download, Briefcase, Mail, Phone, MapPin } from 'lucide-react';
+import { Search, Download, Briefcase, Mail, Phone, MapPin } from 'lucide-react';
 import { Button } from '../../components/ui/button';
 import { StatusBadge } from '../../components/ats/StatusBadge';
 import { SortButton } from '../../components/ats/SortableHeader';
@@ -243,11 +243,6 @@ export function CandidatesPage({ onViewCandidate }: CandidatesPageProps) {
             />
             Repeat applicants only
           </label>
-
-          <Button variant="outline" className="rounded-xl">
-            <Filter className="size-4 mr-2" />
-            More Filters
-          </Button>
 
           <div className="flex items-center gap-2 ml-auto">
             <span className="text-xs font-semibold text-gray-400 uppercase tracking-wider">Sort</span>

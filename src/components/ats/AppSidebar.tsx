@@ -5,6 +5,7 @@ import {
   ClipboardList, UserCheck, GitBranch, Mail,
   CheckSquare, LogOut, Layers, Settings, Sparkles,
 } from 'lucide-react';
+import { BUILD_SHA, BUILD_TIME } from '../../lib/build';
 
 interface NavItem {
   id: string;
@@ -125,6 +126,9 @@ export function AppSidebar({ role, currentPage, onNavigate, userName, onLogout }
           <LogOut className="size-4" />
           Sign out
         </button>
+        <p className="mt-3 px-3 text-[10px] text-gray-400 truncate" title={`Built ${BUILD_TIME}`}>
+          {BUILD_SHA === 'unknown' ? 'build: unknown' : `build ${BUILD_SHA.slice(0, 7)}`}
+        </p>
       </div>
     </aside>
   );

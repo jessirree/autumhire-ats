@@ -49,6 +49,20 @@ service cloud.firestore {
       allow update: if isAdmin()
         || (request.auth.uid == userId
             && !('role' in request.resource.data.diff(resource.data).affectedKeys()));
+
+      // G2 (row 4.7) — one application per job. The real guarantee is
+      // this document's existence, not the client-side hasAppliedToJob()
+      // check applicationService.ts also does (that read-then-write is a
+      // race on its own; this is the atomic half). A second submission's
+      // guard write targets an already-existing document, which Firestore
+      // classifies as `update` regardless of which SDK method the client
+      // calls — denied here, which fails the whole batch atomically along
+      // with the Application create it was written alongside.
+      match /appliedJobs/{jobId} {
+        allow create: if request.auth.uid == userId;
+        allow read: if request.auth.uid == userId || isStaff();
+        allow update, delete: if false;
+      }
     }
 
     match /Positions/{positionId} {

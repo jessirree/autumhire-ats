@@ -745,6 +745,85 @@ describe('Match scoring import discipline', () => {
 });
 
 // ── Sweep: the control that stops instance seven ────────────────────────
+// ── Users/{uid}/appliedJobs — G2, one application per job (row 4.7) ──────
+describe('Users/{uid}/appliedJobs (G2 — duplicate application guard)', () => {
+  const JOB_ID = 'JOB-TEST-9001';
+
+  it('a candidate may create their own appliedJobs guard document', async () => {
+    const db = testEnv.authenticatedContext(CANDIDATE).firestore();
+    await assertSucceeds(
+      setDoc(doc(db, 'Users', CANDIDATE, 'appliedJobs', JOB_ID), {
+        applicationId: APP,
+        appliedAt: new Date(),
+      })
+    );
+  });
+
+  // The actual G2 guarantee: a second submission's guard write targets a
+  // document that already exists, which Firestore classifies as `update`
+  // regardless of which SDK method the client calls — denied by the same
+  // rule that allowed the first one.
+  it('a second application for the same job is denied (create became update)', async () => {
+    await testEnv.withSecurityRulesDisabled(async (ctx) => {
+      await setDoc(doc(ctx.firestore(), 'Users', CANDIDATE, 'appliedJobs', JOB_ID), {
+        applicationId: APP,
+        appliedAt: new Date(),
+      });
+    });
+    const db = testEnv.authenticatedContext(CANDIDATE).firestore();
+    await assertFails(
+      setDoc(doc(db, 'Users', CANDIDATE, 'appliedJobs', JOB_ID), {
+        applicationId: 'APP-TEST-DUPLICATE',
+        appliedAt: new Date(),
+      })
+    );
+  });
+
+  it('a candidate may NOT create a guard document under another candidate\'s uid', async () => {
+    const db = testEnv.authenticatedContext(CANDIDATE).firestore();
+    await assertFails(
+      setDoc(doc(db, 'Users', CANDIDATE2, 'appliedJobs', JOB_ID), {
+        applicationId: APP,
+        appliedAt: new Date(),
+      })
+    );
+  });
+
+  it('a candidate may read their own guard document', async () => {
+    await testEnv.withSecurityRulesDisabled(async (ctx) => {
+      await setDoc(doc(ctx.firestore(), 'Users', CANDIDATE, 'appliedJobs', JOB_ID), {
+        applicationId: APP,
+        appliedAt: new Date(),
+      });
+    });
+    const db = testEnv.authenticatedContext(CANDIDATE).firestore();
+    await assertSucceeds(getDoc(doc(db, 'Users', CANDIDATE, 'appliedJobs', JOB_ID)));
+  });
+
+  it('staff may read a candidate\'s guard document', async () => {
+    await testEnv.withSecurityRulesDisabled(async (ctx) => {
+      await setDoc(doc(ctx.firestore(), 'Users', CANDIDATE, 'appliedJobs', JOB_ID), {
+        applicationId: APP,
+        appliedAt: new Date(),
+      });
+    });
+    const db = testEnv.authenticatedContext(RECRUITER).firestore();
+    await assertSucceeds(getDoc(doc(db, 'Users', CANDIDATE, 'appliedJobs', JOB_ID)));
+  });
+
+  it('nobody may update or delete a guard document, not even the owning candidate', async () => {
+    await testEnv.withSecurityRulesDisabled(async (ctx) => {
+      await setDoc(doc(ctx.firestore(), 'Users', CANDIDATE, 'appliedJobs', JOB_ID), {
+        applicationId: APP,
+        appliedAt: new Date(),
+      });
+    });
+    const db = testEnv.authenticatedContext(CANDIDATE).firestore();
+    await assertFails(updateDoc(doc(db, 'Users', CANDIDATE, 'appliedJobs', JOB_ID), { applicationId: 'x' }));
+    await assertFails(deleteDoc(doc(db, 'Users', CANDIDATE, 'appliedJobs', JOB_ID)));
+  });
+});
+
 describe('Rule coverage sweep', () => {
   it('every top-level collection written anywhere in src/ has a match block in firestore.rules', () => {
     const rulesText = readFileSync('firestore.rules', 'utf8');

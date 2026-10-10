@@ -1,4 +1,4 @@
-﻿import { useState, useMemo, useEffect } from 'react';
+﻿import { Fragment, useState, useMemo, useEffect } from 'react';
 import { toast } from 'sonner';
 import { Search, AlertCircle, CheckCircle, XCircle, ChevronDown, ListOrdered } from 'lucide-react';
 import { Button } from '../../components/ui/button';
@@ -187,7 +187,7 @@ export function ScreeningPage() {
             </thead>
             <tbody className="divide-y divide-gray-100 bg-white">
               {filteredCandidates.map((result) => (
-                <optgroup key={`group-${result.id}`} className="contents">
+                <Fragment key={`group-${result.id}`}>
                   <tr className="hover:bg-orange-50/30 transition-colors group">
                     <td className="px-6 py-4">
                       <div className="flex flex-col">
@@ -288,7 +288,7 @@ export function ScreeningPage() {
                       </td>
                     </tr>
                   )}
-                </optgroup>
+                </Fragment>
               ))}
               {loading && (
                 <tr>

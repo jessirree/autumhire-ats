@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react';
 import { toast } from 'sonner';
-import { Search, Filter, Mail, DollarSign, Clock, FileCheck, Plus, X, CheckCircle2, XCircle, Download } from 'lucide-react';
+import { Search, Mail, DollarSign, Clock, FileCheck, Plus, X, CheckCircle2, XCircle, Download } from 'lucide-react';
 import { getApplicationById } from '../../services/applicationService';
 import { getJobById, getHiringManagerId } from '../../services/jobService';
 import { collection, getDocs } from 'firebase/firestore';
@@ -242,11 +242,6 @@ export function OffersPage() {
             <option value="accepted">Accepted</option>
             <option value="rejected">Declined</option>
           </select>
-
-          <Button variant="outline" className="rounded-xl">
-            <Filter className="size-4 mr-2" />
-            More Filters
-          </Button>
         </div>
 
         <div className="overflow-x-auto">
