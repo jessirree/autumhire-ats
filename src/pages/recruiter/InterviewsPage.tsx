@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react';
 import { useLocation, useNavigate } from 'react-router-dom';
 import { toast } from 'sonner';
-import { Search, Filter, CalendarPlus, UserCheck, Video, MapPin, Clock, X, Printer } from 'lucide-react';
+import { Search, CalendarPlus, UserCheck, Video, MapPin, Clock, X, Printer } from 'lucide-react';
 import { collection, getDocs } from 'firebase/firestore';
 import { Button } from '../../components/ui/button';
 import { confirm } from '../../components/ui/confirm-dialog';
@@ -247,11 +247,6 @@ export function InterviewsPage() {
             <option value="completed">Completed</option>
             <option value="cancelled">Cancelled</option>
           </select>
-
-          <Button variant="outline" className="rounded-xl">
-            <Filter className="size-4 mr-2" />
-            More Filters
-          </Button>
         </div>
 
         <div className="overflow-x-auto">
