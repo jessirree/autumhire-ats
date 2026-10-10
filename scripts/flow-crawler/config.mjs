@@ -118,6 +118,53 @@ export const PUBLIC_ROUTES = [
   { path: `/jobs/${JOB_ID}`, label: 'public job detail' },
 ];
 
+// Self-target maps for Stage 2's report-side suppression of "clicked a nav
+// control already pointing at the current page, correctly did nothing."
+// These are NOT hrefs — src/components/ats/AppSidebar.tsx renders plain
+// <button onClick={() => onNavigate(id)}> with no href attribute at all, so
+// there is nothing to resolve a link against. This is a direct transcription
+// of that file's NAV_ITEMS (label -> route path), kept in sync with it by
+// hand. Applied at report-render time (not capture time), so it also
+// retroactively covers records captured before this map existed.
+export const SIDEBAR_SELF_TARGETS = {
+  admin: {
+    'Dashboard': '/admin/dashboard', 'User Management': '/admin/users',
+    'Job Positions': '/admin/positions', 'Requisition Approvals': '/admin/requisition-approvals',
+    'Post New Job': '/admin/post-job', 'Email Templates': '/admin/templates',
+    'Pre-screening': '/admin/screening', 'Skills': '/admin/skills',
+    'Workflows': '/admin/workflow', 'Reports': '/admin/reports', 'System Settings': '/admin/settings',
+  },
+  recruiter: {
+    'Dashboard': '/recruiter/dashboard', 'Requisitions': '/recruiter/requisitions',
+    'Job Adverts': '/recruiter/adverts', 'Applications': '/recruiter/applications',
+    'Screening': '/recruiter/screening', 'Candidates': '/recruiter/candidates',
+    'Interviews': '/recruiter/interviews', 'Offers': '/recruiter/offers', 'Reports': '/recruiter/reports',
+  },
+  'hiring-manager': {
+    'Dashboard': '/hiring/dashboard', 'Requisitions': '/hiring/requisitions',
+    'Shortlisting': '/hiring/shortlisting', 'Interviews': '/hiring/interviews',
+    'Offer Approvals': '/hiring/approvals',
+  },
+};
+// '/admin' redirects straight to '/admin/dashboard' (same rendered page —
+// confirmed in Stage 1), so a sidebar self-target of '/admin/dashboard' is
+// treated as matching route '/admin' too — handled in isSelfTarget() below.
+
+// In-page default-active-tab self-cases, verified by reading the component
+// (not guessed): AdminDashboard.tsx is mounted with initialTab="jobs"
+// (App.tsx:354), so "Jobs Management" is the one tab that's a no-op on
+// first load of /admin or /admin/dashboard — every other tab on that page,
+// and every tab on every OTHER page (Templates, Users active/inactive,
+// etc.), has an unverified default and is deliberately left flagged rather
+// than guessed.
+export const EXTRA_SELF_TARGETS = {
+  '/admin': ['Jobs Management'],
+  '/admin/dashboard': ['Jobs Management'],
+  // HiringManagerDashboard.tsx:25 — activeTab defaults to 'requisitions'.
+  '/hiring': ['My Requisitions'],
+  '/hiring/dashboard': ['My Requisitions'],
+};
+
 // Accessible-name deny list for Stage 2, narrowed to destructive ACCOUNT
 // actions only (2026-10-10 review correction): Stage 2 now runs entirely
 // against the Firestore/Auth/Functions/Storage emulator suite (isolation
@@ -126,6 +173,24 @@ export const PUBLIC_ROUTES = [
 // approve/hire/offer/publish) are all safe to click — they only mutate
 // disposable emulator data. The only thing still worth not clicking is
 // whatever would end or destroy THIS crawl's own session/identity.
+// Each role's index route redirects straight to its own dashboard (Stage
+// 1: '/admin' -> '/admin/dashboard', '/recruiter' -> '/recruiter/dashboard',
+// '/hiring' -> '/hiring/dashboard' — same rendered page in every case), so
+// a sidebar self-target of ".../dashboard" counts as matching the bare
+// index route too.
+const INDEX_ROUTE_OF_DASHBOARD = { '/admin/dashboard': '/admin', '/recruiter/dashboard': '/recruiter', '/hiring/dashboard': '/hiring' };
+
+// True when clicking `name` from `route` (as `role`) is expected to do
+// nothing because it already points at the current page.
+export function isSelfTarget(role, route, name) {
+  const sidebarTarget = SIDEBAR_SELF_TARGETS[role]?.[name];
+  if (sidebarTarget) {
+    if (sidebarTarget === route) return true;
+    if (INDEX_ROUTE_OF_DASHBOARD[sidebarTarget] === route) return true;
+  }
+  return (EXTRA_SELF_TARGETS[route] || []).includes(name);
+}
+
 export const DENY_PATTERN = new RegExp(
   '\\b(' +
     ['sign\\s*out', 'log\\s*out', 'delete\\s+(my\\s+)?account', 'deactivate\\s+(my\\s+)?account'].join('|') +
