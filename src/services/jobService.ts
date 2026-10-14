@@ -50,6 +50,14 @@ export interface ScreeningQuestion {
   choices?: QuestionChoice[];
   /** Candidate-matching spec §4 — see RequirementMapping. */
   requirementField?: RequirementMapping;
+  /** Input range for 'number' questions, e.g. the default experience question's 0-60. */
+  min?: number;
+  max?: number;
+  /**
+   * Standard pre-screening question (education/experience, row 3.11+).
+   * Fixed wording and type, not editable or deletable by a recruiter.
+   */
+  locked?: boolean;
 }
 
 export interface TeamMember {
