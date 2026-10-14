@@ -3,7 +3,7 @@ import { ArrowLeft, MapPin, Briefcase, Clock, DollarSign, Calendar, AlertCircle 
 import { Button } from '../../components/ui/button';
 import { Job, getJobById, isJobOpen } from '../../services/jobService';
 import { sanitizeHtml } from '../../lib/sanitizeHtml';
-import { JobRequirementsSection, JobKeywordsSection, hasPublishedRequirements } from '../../components/ats/JobRequirementsSection';
+import { JobKeywordsSection } from '../../components/ats/JobRequirementsSection';
 
 interface JobDetailProps {
   jobId: string;
@@ -115,12 +115,6 @@ export function JobDetail({ jobId, onBack, onApply }: JobDetailProps) {
             </>
           )}
 
-          {hasPublishedRequirements(job) && (
-            <>
-              <div className="border-t border-gray-200" />
-              <JobRequirementsSection job={job} />
-            </>
-          )}
 
           {(job.questions?.length ?? 0) > 0 && (
             <>

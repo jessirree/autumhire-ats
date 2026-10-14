@@ -9,7 +9,7 @@ import { CandidateHeader } from '../../components/ats/CandidateHeader';
 import { ApplicationForm } from './ApplicationForm';
 import { Job as FirestoreJob, getPublicJobs } from '../../services/jobService';
 import { sanitizeHtml, stripHtml } from '../../lib/sanitizeHtml';
-import { JobRequirementsSection, JobKeywordsSection } from '../../components/ats/JobRequirementsSection';
+import { JobKeywordsSection } from '../../components/ats/JobRequirementsSection';
 
 // Display shape used by the board, derived from the Firestore Job.
 interface Job {
@@ -417,7 +417,6 @@ export function JobBoard({
                   </section>
 
                   <JobKeywordsSection tags={activeJob.raw.tags} />
-                  <JobRequirementsSection job={activeJob.raw} />
                 </div>
               </div>
             </div>
