@@ -8,7 +8,9 @@
     "build": "vite build",
     "dev": "vite",
     "test:rules": "firebase emulators:exec --only firestore \"vitest run tests/firestore-rules.test.ts\"",
-    "test:rules:watch": "firebase emulators:exec --only firestore \"vitest tests/firestore-rules.test.ts\""
+    "test:rules:watch": "firebase emulators:exec --only firestore \"vitest tests/firestore-rules.test.ts\"",
+    "test:flows": "firebase emulators:exec --only firestore,auth,functions \"node scripts/seed-test-users.cjs serviceAccountKey.json && playwright test\"",
+    "evidence:regenerate": "node scripts/regenerate-traceability-evidence.cjs"
   },
   "dependencies": {
     "@emotion/react": "11.14.0",

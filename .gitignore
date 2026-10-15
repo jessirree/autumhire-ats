@@ -7,3 +7,6 @@ dist
 serviceAccountKey*.json
 .claude/
 scripts/flow-crawler-output/
+test-results/
+playwright-report/
+tests/flows/results.jsonl
