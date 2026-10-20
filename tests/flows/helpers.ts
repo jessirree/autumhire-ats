@@ -7,7 +7,7 @@ import { getAuth, connectAuthEmulator, signInWithEmailAndPassword } from 'fireba
 import { getFirestore, connectFirestoreEmulator } from 'firebase/firestore';
 import type { Page } from '@playwright/test';
 
-export const BASE_URL = 'http://localhost:5173';
+export const BASE_URL = 'http://localhost:4173'; // vite preview (production build), not the dev server — see playwright.config.ts's webServer comment
 export const TEST_PASSWORD = 'TestPass123!';
 
 export const CREDS: Record<string, string> = {
@@ -16,6 +16,11 @@ export const CREDS: Record<string, string> = {
   'hiring-manager': 'hm@test.autumhire.local',
   hm: 'hm@test.autumhire.local',
   candidate1: 'candidate1@test.autumhire.local',
+  candidate2: 'candidate2@test.autumhire.local',
+  candidate3: 'candidate3@test.autumhire.local',
+  candidate4: 'candidate4@test.autumhire.local',
+  candidate5: 'candidate5@test.autumhire.local',
+  candidate6: 'candidate6@test.autumhire.local',
 };
 
 /**

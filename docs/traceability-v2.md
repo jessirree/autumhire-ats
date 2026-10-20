@@ -37,6 +37,8 @@
 - **JA-8** (RSS feed broadcast) — **BUILT UNVERIFIED.** Two real mechanisms: `feedService.ts`'s RSS XML feed (uploaded to Storage, a URL meant for RSS readers/automation tools) and a separate one-click LinkedIn/Twitter share-link dropdown per job. **F13's removed "LinkedIn Apply" control was a different, unscoped, never-signed feature** (one-click-apply on the candidate application form) — unrelated to this row. No signed requirement was deleted.
 - **FLEX-1** (Excel/photo/referee/attachment import) — **OPEN.** A repo-wide search found no import mechanism of any kind. `Application.referees` is a real field, but it is populated only by direct manual entry, never imported from anything — it answers a different need (REF-1/REF-2) and does not touch this requirement.
 
+**Playwright flow suite (`tests/flows/`, `pnpm test:flows`).** Manual clickthrough was never going to clear the 47 BUILT UNVERIFIED rows, so a scripted suite replaces it for the rows a browser can actually assert against the emulator — one named test per requirement ID. Three proved the pattern first (APP-7, APP-10, SL-2); this pass added every other **bucket-A, category-1** row (fails silently: status transitions, notification sends, rule enforcement) — JA-6, JA-12, APP-4, APP-13, LL-4, OFF-1, OFF-3 — bringing the suite to 10 tests, all upgraded to VERIFIED. Every one of the 10 was deliberately broken in the real source, shown failing, restored, and shown passing again before being trusted — a test that has never been seen to fail is not evidence. One of the ten (JA-12) caught a genuine flaw in its *own* first draft, not the product: asserting "the confidential job's title has zero matches" immediately after navigation passed trivially before the page's async job fetch had even resolved, regardless of whether the leak existed. Fixed by seeding a same-shaped control job and waiting for it to render first, which gave the assertion something to anchor on — after the fix, the same deliberate break in `getPublicJobs()`'s query (paired with the matching `firestore.rules` condition) was caught correctly. Category 2 (bulk/concurrent — `ARC-1`) and category 3 (everything else in bucket A) are not attempted yet. Bucket B (`REF-2`, `OFF-2`, `OFF-4`, `SEC-1` — need a Firestore read or a rules test, not a browser) and bucket C (`JA-14`, `APP-1`, `LOC-1` — see VERIFIED BY ARCHITECTURE/DISCLOSED below) are explicitly out of scope for this suite, not an oversight.
+
 ---
 
 ## Position requisition
@@ -67,25 +69,25 @@
 | JA-3 | Single/multiple levels of approval of the advert | OPEN | code read only | No advert approval exists; any new non-draft job is forced to `Active` and goes live immediately regardless of the "Pending" option shown in the wizard. | — |
 | JA-4 | Job statuses: Pending/Cancelled/Re-advertised/Internal/Re-opened | OPEN | code read only | See "What changed" above. Active/Closed/Re-advertised work (`reopenJob`, `jobService.ts:276-288`); internal-advert visibility works (`getPublicJobs` filters `advertType==='external'`, `jobService.ts:342-356`); **Pending is reachable** on edit of a non-Draft job (`CreateJob.tsx:672-678`). | **Cancelled is unreachable by any role or screen** — in the type union and a cosmetic filter dropdown only, never written anywhere. This is the one gap keeping the row OPEN; corrects the prior audit's F16 note, which wrongly also flagged Pending. |
 | JA-5 | Customizable advert page for unique positions (e.g. consultancies) | DEFERRED | — | Client's own Comment column in `docs/requirements-source.md` says "deferred". | Not re-derived against code, per instruction. |
-| JA-6 | Re-open closed jobs, auto-status Re-advertised | BUILT UNVERIFIED | code read only | "Re-open" (`JobAdvertsPage.tsx:170-180`) → `reopenJob` sets `Re-advertised` (`jobService.ts:276-288`), audited. | No named walkthrough of this specific action exists. |
+| JA-6 | Re-open closed jobs, auto-status Re-advertised | VERIFIED | automated test | "Re-open" (`JobAdvertsPage.tsx:170-180`) → `reopenJob` sets `Re-advertised` (`jobService.ts:276-288`), audited. Flow test `JA-6: re-opening a closed job automatically sets status to Re-advertised` passed 2026-10-20 (`tests/flows/job-advertisement.spec.ts`). | No named walkthrough of this specific action exists. |
 | JA-7 | Automatic closure after closing date unless re-opened | OPEN | code read only | Candidates cannot see/apply past the deadline (public query filter, detail-page message, apply-service re-check). | **No scheduled job** — the stored status only flips to Closed when a staff member next loads a job list, and that write's error is swallowed. Reports count a stale-open job until then. |
 | JA-8 | RSS feeds to broadcast adverts to LinkedIn/Twitter etc. | BUILT UNVERIFIED | code read only | See "What changed" above — `feedService.ts` RSS feed + per-job LinkedIn/Twitter share links, both real. | F13 is unrelated (confirmed — see above). Auto-regeneration after publish/close has a swallowed error. |
 | JA-9 | Support for pre-screening questions | BUILT UNVERIFIED | code read only | Admin question bank + per-job questions; candidates answer and are auto-scored. | Two standard questions (education, years of experience) now ship on every new job as of this session. Authoring/answering through the UI (not seed scripts) has no named walkthrough. |
 | JA-10 | Minor editing of posted jobs | BUILT UNVERIFIED | code read only | Edit routes → `updateJob` (`jobService.ts:179-188`). | Every save of an Active job resets `postedAt`, re-dating the advert, and re-runs the subscriber fan-out. |
 | JA-11 | Set/define scores for pre-screening answers during long listing | OPEN | code read only | Answer points defined at job-build time; auto-scored on submission. | During long-listing a recruiter can only override the **total**, not re-score individual answers — the literal "during long listing" scoring ask is not available there. |
-| JA-12 | Confidential jobs absent from the main page | BUILT UNVERIFIED | code read only | Checkbox → `isConfidential`, excluded by both the public query and the rule. | The checkbox copy promises an "internal board" that does not exist. |
+| JA-12 | Confidential jobs absent from the main page | VERIFIED | automated test | Checkbox → `isConfidential`, excluded by both the public query and the rule. Flow test `JA-12: a confidential job is hidden from the public advert but visible to staff` passed 2026-10-20 (`tests/flows/job-advertisement.spec.ts`). | The checkbox copy promises an "internal board" that does not exist. |
 | JA-13 | Customization of the advert link | DEFERRED | — | Client's own Comment column says "deferred". | Not re-derived against code. Code fact for the record: links are always `/jobs/{JOB-YYYY-####}`, no slug/custom URL exists. |
-| JA-14 | Unlimited job adverts | BUILT UNVERIFIED | code read only | No cap anywhere. | Yearly reference-number counter pads to 4 digits but keeps counting past 9999. |
+| JA-14 | Unlimited job adverts | VERIFIED BY ARCHITECTURE/DISCLOSED | code read only | No finite test can falsify "unlimited" — creating job N+1 only proves N+1 didn't hit an arbitrary cap, nothing stronger. No cap exists in code. The client's own Comment column already reads "done (depends on storage subscription)" — a disclosed limitation (Firestore/Storage plan ceilings), not an open behavioural gap. | Yearly reference-number counter pads to 4 digits but keeps counting past 9999 — a real, separate code note, not what this status is about. |
 | JA-15 | Internal adverts absent from the main page | OPEN | code read only | Hiding works (excluded from the public rule/query). | **Nobody can apply to one** — staff-only read of non-public adverts means a candidate opening an internal link gets "job no longer available," and the apply service throws. No internal job board exists. |
 
 ## Job applications
 
 | ID | Requirement | Verdict | Evidence tier | Evidence | Notes |
 |---|---|---|---|---|---|
-| APP-1 | Unlimited number of candidates | BUILT UNVERIFIED | code read only | No cap. | Staff pages load the entire `Applications` collection client-side, no paging — untested at volume. |
+| APP-1 | Unlimited number of candidates | VERIFIED BY ARCHITECTURE/DISCLOSED | code read only | Same reasoning as JA-14: unfalsifiable by any finite test, no cap exists in code, and the client's own Comment column reads "done (depends on storage subscription)" — disclosed, not open. | Staff pages load the entire `Applications` collection client-side, no paging — a real performance note at volume, not what this status is about. |
 | APP-2 | Candidates set a profile and upload a reusable CV | BUILT UNVERIFIED | clickthrough (profile) + code read only (CV) | Profile-save half VERIFIED by prior walkthrough. CV upload/reuse traced through code (`profileService.ts`, `ApplicationForm.tsx`), no named CV-specific walkthrough. | Graded on the weaker, unconfirmed half — the CV path is the one actually at risk. |
 | APP-3 | Checklist of necessary documents (cover letter, CV, other) | OPEN | code read only | CV/cover-letter checklist shown and enforced. | **"Any other relevant document" has no upload control** — the service supports `otherFiles` but the form never passes them. |
-| APP-4 | Alert if necessary documents are not attached | BUILT UNVERIFIED | code read only | Native `required` on file inputs plus a service-level error, shown to the user. | — |
+| APP-4 | Alert if necessary documents are not attached | VERIFIED | automated test | Native `required` on file inputs plus a service-level error, shown to the user. Flow test `APP-4: the system alerts when a required document is missing, rather than submitting silently` passed 2026-10-20 (`tests/flows/job-applications.spec.ts`). | — |
 | APP-5 | Cannot apply to closed jobs; shows "no longer available" | OPEN | code read only | Works via the detail page and the service re-check. | **Opening `/jobs/:id/apply` directly redirects silently to `/jobs`** instead of showing the message — the one path where the literal requirement text fails. |
 | APP-6 | Determine if applicant applied before (same/other positions) | BUILT UNVERIFIED | code read only | "Other Applications by This Candidate" panel, matched by account. | A second account by the same person is not detected. |
 | APP-7 | No duplicate application for the same job | VERIFIED | automated test | Form blocks with a message; service throws; **also enforced atomically at the rule layer** (a second create targets an existing doc id, denied — confirmed in `firestore.rules` comments referencing row 4.7/G2). Flow test `APP-7: the system does not allow a duplicate application for the same job` passed 2026-10-15 (`tests/flows/job-applications.spec.ts`). | — |
@@ -94,7 +96,7 @@
 | APP-10 | Candidates subscribe to Autumhire jobs | VERIFIED | automated test | **Upgraded from the old audit's BROKEN.** `JobAlerts` now has a rule block (S4 fix) with named test cases (`tests/firestore-rules.test.ts:277-299`), confirmed passing in this session's 71/71 run. Flow test `APP-10: candidates can subscribe to Autumhire job alerts` passed 2026-10-15 (`tests/flows/job-applications.spec.ts`) — clicks the real Subscribe button and confirms the state survives a reload. | Delivery of the actual alert email still depends on the same generic sender as the rest of this section, and is not asserted by the flow test. |
 | APP-11 | Capture age, gender, nationality, city/country of residence | BUILT UNVERIFIED | code read only (DOB: clickthrough) | Required fields on the application form, prefilled from profile, stored on the application. | Nationality is free text — reports split spelling variants ("Kenyan" vs "kenyan"). |
 | APP-12 | Automatic alert to candidates on submission | VERIFIED | clickthrough | **Upgraded from the old audit's BROKEN.** `docs/phase-3-clickthrough.md` items 1.5–1.6: email arrived, Firestore shows `emailStatus: 'sent'` + `messageId`. | — |
-| APP-13 | Declaration that information is correct; false info disqualifies | BUILT UNVERIFIED | code read only | Mandatory checkbox with that wording; service rejects without it; **the create rule also requires `consentGiven == true`** — enforced at all three layers. | Closest thing to VERIFIED on code-read strength alone, but no named walkthrough exists; kept at BUILT UNVERIFIED per the "code read never supports VERIFIED" rule. |
+| APP-13 | Declaration that information is correct; false info disqualifies | VERIFIED | automated test | Mandatory checkbox with that wording; service rejects without it; **the create rule also requires `consentGiven == true`** — enforced at all three layers. Flow test `APP-13: the consent declaration is required — a candidate can't submit without it` passed 2026-10-20 (`tests/flows/job-applications.spec.ts`) — confirms the browser-side block specifically; the rule-layer enforcement is still corroborated by code read only. | — |
 
 ## Long Listing
 
@@ -103,7 +105,7 @@
 | LL-1 | Preliminary long list by matching applicant details to job specs | BUILT UNVERIFIED | code read only | See "What changed" above — now satisfied via auto-scored screening answers, ranked on the Screening page, per job-specific questions. | Structured capability matching parked by client decision, 2026-10-15 — a scope choice, not the reason this is ungraded higher; it's BUILT UNVERIFIED because no named walkthrough of the Screening-page sort exists. |
 | LL-2 | Define scores for the pre-screening questions | BUILT UNVERIFIED | code read only | Points per question/choice in the question bank and per job. | Includes the two new standard questions as of this session. |
 | LL-3 | Access to position and candidate specs for easy reference | OPEN | code read only | Candidate spec: full detail page works. | **Job spec button opens the job editor**, not a read-only view; a hiring manager viewing the same page is bounced to their dashboard by the route guard (though HMs do see shortlisting criteria separately, SL-5). |
-| LL-4 | Online tracking of applicants through each stage | BUILT UNVERIFIED | code read only | Every status change appends to `statusHistory`, shown to staff and to the candidate as a timeline. | — |
+| LL-4 | Online tracking of applicants through each stage | VERIFIED | automated test | Every status change appends to `statusHistory`, shown to staff and to the candidate as a timeline. Flow test `LL-4: a staff status change is reflected to the candidate as online tracking through the stage` passed 2026-10-20 (`tests/flows/long-listing.spec.ts`). | — |
 | LL-5 | Query facility to search and drill into detailed resume info | VERIFIED | clickthrough | Search on Applications/Candidates → detail page with documents, answers, ratings. | Covers name/email/job/role, not CV text. |
 | LL-6 | CV/personal-details data bank; identify competencies, experience, academics, application source | OPEN | code read only | See "What changed" above. **CV, personal details and source all work.** | **Structured competency/experience/academic-attainment fields are the parked capability profile** (`MATCHING_ENABLED = false`) — a real gap against the literal text, acknowledged as a client-directed scope choice rather than a defect, but still unmet as written. |
 | LL-7 | Bulk status changes in one activity/screen | VERIFIED | clickthrough | Select-all + bulk action → one batched write. | — |
@@ -143,9 +145,9 @@
 
 | ID | Requirement | Verdict | Evidence tier | Evidence | Notes |
 |---|---|---|---|---|---|
-| OFF-1 | Status for "offer accepted"/"offer rejected" | BUILT UNVERIFIED | code read only | Candidate accepts/declines on the dashboard → `respondToOffer`; rule allows the candidate to flip only `status` from `sent` to `accepted`/`rejected`. Staff can also record it. | — |
+| OFF-1 | Status for "offer accepted"/"offer rejected" | VERIFIED | automated test | Candidate accepts/declines on the dashboard → `respondToOffer`; rule allows the candidate to flip only `status` from `sent` to `accepted`/`rejected`. Staff can also record it. Flow test `OFF-1: a candidate accepting an offer actually changes its status, not just local UI state` passed 2026-10-20 (`tests/flows/offers-regrets.spec.ts`). | — |
 | OFF-2 | Notify hiring manager of offer status | BUILT UNVERIFIED | code read only | **Upgraded from the old audit's BROKEN.** Both prior bugs fixed and confirmed by direct code read this pass: `notifyOfferResponse` (`functions/offerNotifications.js`) resolves the real hiring manager (not the offer's creator), and the generic SMTP sender delivers the email. | `docs/phase-3-clickthrough.md` item 3.3 calls this "the single highest-value item" to check and has no recorded result — kept at BUILT UNVERIFIED, not VERIFIED, for that reason. |
-| OFF-3 | Status to "Hired" on candidate acceptance | BUILT UNVERIFIED | code read only | Recruiter clicks "Finalize hire" after the candidate accepts, which sets the application to `hired`. | Deliberate recruiter step, not automatic. |
+| OFF-3 | Status to "Hired" on candidate acceptance | VERIFIED | automated test | Recruiter clicks "Finalize hire" after the candidate accepts, which sets the application to `hired`. Flow test `OFF-3: finalizing a hire actually sets the application status to Hired` passed 2026-10-20 (`tests/flows/offers-regrets.spec.ts`). | Deliberate recruiter step, not automatic. |
 | OFF-4 | Regret notification to shortlisted candidates not hired | BUILT UNVERIFIED | code read only | **Upgraded from the old audit's BROKEN.** Email sender fixed (generic outbox); **the over-broad-regret logic bug is also fixed** — `sendRegretsForJob` (`applicationService.ts:707-717`) now filters to `shortlisted`/`interview` only, confirmed by direct code read this pass. | No named clickthrough of the regret email itself on record. |
 | OFF-5 | Simple mechanism to move people through the cycle into onboarding | BUILT UNVERIFIED | code read only | Pipeline actions plus an "onboarding handoff" CSV of accepted offers. | No integration with any onboarding system; the CSV excludes bio-data fields. |
 
@@ -231,7 +233,7 @@ Reports page reachable by admin and recruiter (VERIFIED by walkthrough), not by 
 
 | ID | Requirement | Verdict | Evidence tier | Evidence | Notes |
 |---|---|---|---|---|---|
-| LOC-1 | Work from multiple locations (Addis, Nairobi, etc.) | BUILT UNVERIFIED | code read only | Browser app on Vercel with a cloud backend, usable from any location. | The deployed-domain CORS gap for the CV zip is now a documented operational step (`scripts/set-storage-cors.cjs`), not an open code defect — see LL-10. |
+| LOC-1 | Work from multiple locations (Addis, Nairobi, etc.) | VERIFIED BY ARCHITECTURE/DISCLOSED | code read only | A cloud-hosted web app (Vercel frontend, Firebase backend) with one single shared backend, reachable from any browser anywhere — there is no location-dependent logic in the codebase to test at all, so this is satisfied by what the system *is*, not by a behaviour a script could assert. | The deployed-domain CORS gap for the CV zip is now a documented operational step (`scripts/set-storage-cors.cjs`), not an open code defect — see LL-10. |
 
 ## Government compliance
 
@@ -279,44 +281,52 @@ Reports page reachable by admin and recruiter (VERIFIED by walkthrough), not by 
 
 | Verdict | Rows |
 |---|---|
-| VERIFIED | 9 |
-| BUILT UNVERIFIED | 47 |
+| VERIFIED | 19 |
+| BUILT UNVERIFIED | 34 |
 | OPEN | 40 |
 | DEFERRED | 2 |
+| VERIFIED BY ARCHITECTURE/DISCLOSED | 3 |
 | NOT A FEATURE | 12 |
 | **Total** | **110** |
 
-Counted directly from the tables below, not hand-tallied — a prior draft of this scorecard had a within-row inconsistency on JA-6 that was fixed before this count was taken.
+Counted directly from the tables below, not hand-tallied. Reflects, since the original 9/47/40/2/12 count: ten BUILT UNVERIFIED rows upgraded to VERIFIED by the Playwright flow suite (APP-7, APP-10, SL-2 proved first; JA-6, JA-12, APP-4, APP-13, LL-4, OFF-1, OFF-3 proved in the category-1 pass — `tests/flows/`, see "What changed" below), and three moved to the new **VERIFIED BY ARCHITECTURE/DISCLOSED** status (JA-14, APP-1, LOC-1 — see immediately below for what that status means and why).
+
+**VERIFIED BY ARCHITECTURE/DISCLOSED** is for a row where no finite test could ever prove or disprove the requirement, but the system's own shape (or the client's own Comment column) settles it anyway. It is not a weaker synonym for BUILT UNVERIFIED and not a dodge — it exists specifically so these three rows have an honest, closed status instead of sitting in BUILT UNVERIFIED forever waiting for a test that can't be written:
+
+- **JA-14 / APP-1** ("unlimited job adverts" / "unlimited candidates"): "unlimited" is unfalsifiable by any finite test — creating record N+1 only shows N+1 didn't hit an arbitrary cap, which proves nothing about "unlimited." No cap exists anywhere in the code (confirmed by code read), and the client's own Comment column in `docs/requirements-source.md` already reads "done (depends on storage subscription)" for both — the client themselves frames this as a disclosed plan-ceiling limitation, not an open behavioural gap.
+- **LOC-1** ("work from multiple locations"): satisfied by what the system *is* — a cloud-hosted web app (Vercel frontend, Firebase backend) with a single shared backend, reachable identically from any browser anywhere. There is no location-dependent code path to exercise; a test asserting "this works from Nairobi and Addis" would just be asserting the app loads, which every other test in this suite already does.
+
+These three are deliberately excluded from the Playwright flow suite below and always will be — not a gap in coverage, a correct absence of one. Their status does not change if the suite grows; nothing a browser or a Firestore read could check would move them.
 
 ### By section
 
-| Section | Rows | VERIFIED | BUILT UNVERIFIED | OPEN | DEFERRED | NOT A FEATURE |
-|---|---|---|---|---|---|---|
-| Position requisition | 6 | 0 | 5 | 1 | 0 | 0 |
-| Job Evaluation | 3 | 0 | 1 | 2 | 0 | 0 |
-| Job advertisement | 15 | 0 | 6 | 7 | 2 | 0 |
-| Job applications | 13 | 1 | 10 | 2 | 0 | 0 |
-| Long Listing | 10 | 3 | 3 | 4 | 0 | 0 |
-| Short Listing | 7 | 3 | 3 | 1 | 0 | 0 |
-| Interviews | 4 | 0 | 2 | 2 | 0 | 0 |
-| Reference checks | 2 | 0 | 2 | 0 | 0 | 0 |
-| Offers & regrets | 5 | 0 | 5 | 0 | 0 | 0 |
-| Flexibility | 3 | 1 | 1 | 1 | 0 | 0 |
-| Metrics / Reports | 15 | 0 | 5 | 10 | 0 | 0 |
-| Security | 4 | 1 | 1 | 2 | 0 | 0 |
-| Backup and recovery | 1 | 0 | 0 | 1 | 0 | 0 |
-| Integration | 2 | 0 | 0 | 2 | 0 | 0 |
-| Training | 2 | 0 | 0 | 0 | 0 | 2 |
-| Data ownership | 1 | 0 | 0 | 0 | 0 | 1 |
-| Support & maintenance | 2 | 0 | 0 | 0 | 0 | 2 |
-| Archiving | 1 | 0 | 1 | 0 | 0 | 0 |
-| Location independent | 1 | 0 | 1 | 0 | 0 | 0 |
-| Government compliance | 1 | 0 | 0 | 0 | 0 | 1 |
-| System architecture | 5 | 0 | 0 | 0 | 0 | 5 |
-| Reliability | 1 | 0 | 0 | 1 | 0 | 0 |
-| Data & templates mgmt | 5 | 0 | 1 | 4 | 0 | 0 |
-| Customer service | 1 | 0 | 0 | 0 | 0 | 1 |
-| **Total** | **110** | **9** | **47** | **40** | **2** | **12** |
+| Section | Rows | VERIFIED | BUILT UNVERIFIED | OPEN | DEFERRED | VbA/D | NOT A FEATURE |
+|---|---|---|---|---|---|---|---|
+| Position requisition | 6 | 0 | 5 | 1 | 0 | 0 | 0 |
+| Job Evaluation | 3 | 0 | 1 | 2 | 0 | 0 | 0 |
+| Job advertisement | 15 | 2 | 3 | 7 | 2 | 1 | 0 |
+| Job applications | 13 | 5 | 5 | 2 | 0 | 1 | 0 |
+| Long Listing | 10 | 4 | 2 | 4 | 0 | 0 | 0 |
+| Short Listing | 7 | 4 | 2 | 1 | 0 | 0 | 0 |
+| Interviews | 4 | 0 | 2 | 2 | 0 | 0 | 0 |
+| Reference checks | 2 | 0 | 2 | 0 | 0 | 0 | 0 |
+| Offers & regrets | 5 | 2 | 3 | 0 | 0 | 0 | 0 |
+| Flexibility | 3 | 1 | 1 | 1 | 0 | 0 | 0 |
+| Metrics / Reports | 15 | 0 | 5 | 10 | 0 | 0 | 0 |
+| Security | 4 | 1 | 1 | 2 | 0 | 0 | 0 |
+| Backup and recovery | 1 | 0 | 0 | 1 | 0 | 0 | 0 |
+| Integration | 2 | 0 | 0 | 2 | 0 | 0 | 0 |
+| Training | 2 | 0 | 0 | 0 | 0 | 0 | 2 |
+| Data ownership | 1 | 0 | 0 | 0 | 0 | 0 | 1 |
+| Support & maintenance | 2 | 0 | 0 | 0 | 0 | 0 | 2 |
+| Archiving | 1 | 0 | 1 | 0 | 0 | 0 | 0 |
+| Location independent | 1 | 0 | 0 | 0 | 0 | 1 | 0 |
+| Government compliance | 1 | 0 | 0 | 0 | 0 | 0 | 1 |
+| System architecture | 5 | 0 | 0 | 0 | 0 | 0 | 5 |
+| Reliability | 1 | 0 | 0 | 1 | 0 | 0 | 0 |
+| Data & templates mgmt | 5 | 0 | 1 | 4 | 0 | 0 | 0 |
+| Customer service | 1 | 0 | 0 | 0 | 0 | 0 | 1 |
+| **Total** | **110** | **19** | **34** | **40** | **2** | **3** | **12** |
 
 ## 2. The serious list — OPEN rows ranked by UAT visibility
 

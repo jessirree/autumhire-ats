@@ -7,22 +7,13 @@ import { test, expect } from '@playwright/test';
 import { doc, setDoc, Timestamp } from 'firebase/firestore';
 import { BASE_URL, emulatorApp, loginAs, signInAs } from './helpers';
 
-const FLOW_JOB_ID = 'JOB-FLOW-APP7';
+const FLOW_JOB_ID = 'JOB-FLOW-APP7'; // no CV/cover letter requirement — used by APP-7 and APP-13
+const APP4_JOB_ID = 'JOB-FLOW-APP4'; // requireResume: true — dedicated so APP-4 isn't muddied by APP-7/APP-13's minimal job
 
-test.beforeAll(async () => {
-  // Setup only — not what's under test. A dedicated job with no CV/cover
-  // letter requirement and no screening questions keeps the apply flow to
-  // its minimum, so the test exercises the duplicate-application guard,
-  // not the file-upload or scoring paths (those have their own rows).
-  // Written directly via the client SDK rather than through the five-step
-  // CreateJob wizard — faster and just as real, since what APP-7 tests is
-  // what happens on a second /jobs/:id/apply visit, not how the job itself
-  // was authored.
-  await signInAs('admin');
-  const { db } = emulatorApp();
-  await setDoc(doc(db, 'Jobs', FLOW_JOB_ID), {
-    referenceNumber: FLOW_JOB_ID,
-    title: 'Flow Suite Test Role (APP-7)',
+function baseJob(id: string, title: string, overrides: Record<string, unknown>) {
+  return {
+    referenceNumber: id,
+    title,
     department: 'QA',
     location: 'Remote',
     jobType: 'Full-time',
@@ -44,7 +35,21 @@ test.beforeAll(async () => {
     createdAt: Timestamp.now(),
     updatedAt: Timestamp.now(),
     postedAt: Timestamp.now(),
-  });
+    ...overrides,
+  };
+}
+
+test.beforeAll(async () => {
+  // Setup only — not what's under test. Written directly via the client
+  // SDK rather than through the five-step CreateJob wizard — faster and
+  // just as real, since what these tests exercise is what happens on the
+  // apply form itself, not how the job was authored.
+  await signInAs('admin');
+  const { db } = emulatorApp();
+  await setDoc(doc(db, 'Jobs', FLOW_JOB_ID), baseJob(FLOW_JOB_ID, 'Flow Suite Test Role (APP-7)', {}));
+  await setDoc(doc(db, 'Jobs', APP4_JOB_ID), baseJob(APP4_JOB_ID, 'Flow Suite Resume-Required Role (APP-4)', {
+    requireResume: true,
+  }));
 });
 
 async function fillBioData(page: import('@playwright/test').Page) {
@@ -105,4 +110,39 @@ test('APP-10: candidates can subscribe to Autumhire job alerts', async ({ page }
 
   // Leave state as we found it so the test is repeatable.
   await page.getByRole('button', { name: /Alerts/ }).click();
+});
+
+test('APP-4: the system alerts when a required document is missing, rather than submitting silently', async ({ page }) => {
+  await loginAs(page, 'candidate2');
+  await page.goto(`${BASE_URL}/jobs/${APP4_JOB_ID}/apply`, { waitUntil: 'load' });
+  await fillBioData(page);
+  // Deliberately do NOT attach the CV — job.requireResume is true here and
+  // the candidate has no saved CV to fall back on, so the file input's own
+  // `required` attribute should block the native form submission.
+  await page.getByRole('button', { name: 'Submit Application' }).click();
+
+  const cvInput = page.locator('form input[type="file"]').first();
+  await expect(cvInput).toHaveJSProperty('validity.valid', false);
+  // Blocked client-side, before any network round trip — still on the apply form.
+  await expect(page).toHaveURL(new RegExp(`/jobs/${APP4_JOB_ID}/apply`));
+});
+
+test("APP-13: the consent declaration is required — a candidate can't submit without it", async ({ page }) => {
+  await loginAs(page, 'candidate3');
+  await page.goto(`${BASE_URL}/jobs/${FLOW_JOB_ID}/apply`, { waitUntil: 'load' });
+
+  const form = page.locator('form');
+  await form.locator('input[type="tel"]').fill('0700000000');
+  await form.locator('input[type="date"]').fill('1995-01-01');
+  await form.locator('select').first().selectOption({ label: 'Other' });
+  const textInputs = form.locator('input[type="text"]');
+  await textInputs.nth(0).fill('Testland');
+  await textInputs.nth(1).fill('Testville');
+  await textInputs.nth(2).fill('Testland');
+  // Deliberately leave the consent checkbox unchecked.
+  await page.getByRole('button', { name: 'Submit Application' }).click();
+
+  const consentCheckbox = form.locator('input[type="checkbox"]').last();
+  await expect(consentCheckbox).toHaveJSProperty('validity.valid', false);
+  await expect(page).toHaveURL(new RegExp(`/jobs/${FLOW_JOB_ID}/apply`));
 });
