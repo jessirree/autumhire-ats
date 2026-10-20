@@ -6,6 +6,7 @@ import {
   CheckSquare, LogOut, Layers, Settings, Sparkles,
 } from 'lucide-react';
 import { BUILD_SHA, BUILD_TIME } from '../../lib/build';
+import { MATCHING_ENABLED } from '../../config/features';
 
 interface NavItem {
   id: string;
@@ -56,7 +57,10 @@ interface AppSidebarProps {
 }
 
 export function AppSidebar({ role, currentPage, onNavigate, userName, onLogout }: AppSidebarProps) {
-  const items = NAV_ITEMS[role] || [];
+  // Row 5.6 skills bank nav entry. Gated by MATCHING_ENABLED (client
+  // decision 2026-10-15) — the taxonomy admin page itself is gated too,
+  // so there's nothing behind this link while the feature is parked.
+  const items = (NAV_ITEMS[role] || []).filter((item) => MATCHING_ENABLED || item.id !== 'skills');
 
   const roleLabel: Record<string, string> = {
     admin: 'Administrator',

@@ -8,6 +8,7 @@ import { applyToJob, hasAppliedToJob, ScreeningAnswer } from '../../services/app
 import { CandidateProfile, getCandidateProfile } from '../../services/profileService';
 import { STORAGE_ENABLED } from '../../lib/featureFlags';
 import { EDUCATION_LABELS } from '../../lib/education';
+import { MATCHING_ENABLED } from '../../config/features';
 
 interface ApplicationFormProps {
   job: Job;
@@ -67,27 +68,29 @@ export function ApplicationForm({ job, onBack, onSubmit }: ApplicationFormProps)
           country: prev.country || p.country || '',
         }));
         // Candidate-matching spec §4: a screening question explicitly linked
-        // to a requirement (authored on the job/bank question, never
-        // inferred from question text) gets prefilled the same way the bio
-        // fields above do — never overriding an answer already typed, and
-        // left empty (not an error) when the profile has nothing for it.
-        // 'workAuthorization' is deliberately skipped here: it has no
-        // profile field to prefill from (see RequirementMapping) — the
-        // candidate answers it directly, same as always.
-        setAnswers((prev) => {
-          const next = { ...prev };
-          for (const q of questions) {
-            if (next[q.id]) continue;
-            if (q.requirementField === 'yearsOfExperience' && p.yearsOfExperience != null) {
-              next[q.id] = String(p.yearsOfExperience);
-            } else if (q.requirementField === 'highestEducation' && p.highestEducation) {
-              const label = EDUCATION_LABELS[p.highestEducation];
-              const match = q.choices?.find((c) => c.label.toLowerCase() === label.toLowerCase());
-              next[q.id] = match ? match.label : label;
+        // to a requirement gets prefilled from the candidate's capability
+        // profile. Gated by MATCHING_ENABLED (client decision 2026-10-15) —
+        // the section that sets yearsOfExperience/highestEducation is gated
+        // out of CandidateDashboard.tsx, so no new candidate can ever have
+        // them; without this gate the prefill would silently do nothing for
+        // every candidate except the pre-existing test users who happen to
+        // already have the fields set.
+        if (MATCHING_ENABLED) {
+          setAnswers((prev) => {
+            const next = { ...prev };
+            for (const q of questions) {
+              if (next[q.id]) continue;
+              if (q.requirementField === 'yearsOfExperience' && p.yearsOfExperience != null) {
+                next[q.id] = String(p.yearsOfExperience);
+              } else if (q.requirementField === 'highestEducation' && p.highestEducation) {
+                const label = EDUCATION_LABELS[p.highestEducation];
+                const match = q.choices?.find((c) => c.label.toLowerCase() === label.toLowerCase());
+                next[q.id] = match ? match.label : label;
+              }
             }
-          }
-          return next;
-        });
+            return next;
+          });
+        }
         setProfileLoadState('ready');
       })
       .catch((err) => {
@@ -264,7 +267,19 @@ export function ApplicationForm({ job, onBack, onSubmit }: ApplicationFormProps)
         );
       case 'number':
         return (
-          <input type="number" required={q.mandatory} value={value} onChange={(e) => set(e.target.value)} className={common} />
+          <input
+            type="number"
+            required={q.mandatory}
+            min={q.min}
+            max={q.max}
+            // Integer-only only when a range is actually declared (today,
+            // only the standard experience question) — existing number
+            // questions with no min/max are completely unaffected.
+            step={q.min !== undefined && q.max !== undefined ? 1 : undefined}
+            value={value}
+            onChange={(e) => set(e.target.value)}
+            className={common}
+          />
         );
       case 'dropdown':
         return q.choices?.length ? (

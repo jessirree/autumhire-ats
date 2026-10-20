@@ -1,4 +1,4 @@
-﻿import { useEffect, useMemo, useState } from 'react';
+﻿import { useEffect, useMemo, useState, lazy, Suspense } from 'react';
 import { toast } from 'sonner';
 import { Download, Calendar, FileSpreadsheet, Loader2 } from 'lucide-react';
 import { Button } from '../../components/ui/button';
@@ -22,7 +22,14 @@ import { downloadCsv } from '../../lib/exportCsv';
 import { exportApplicationsXlsx } from '../../lib/exportApplicationsXlsx';
 import { logAudit } from '../../services/auditService';
 import { useAuth } from '../../context/AuthContext';
-import { BestMatchReport } from './BestMatchReport';
+import { MATCHING_ENABLED } from '../../config/features';
+
+// Row 5.8. Gated by MATCHING_ENABLED (client decision 2026-10-15) — lazy
+// so BestMatchReport.tsx's whole chunk never ships while the feature is
+// parked. Not dead code; see src/config/features.ts.
+const BestMatchReport = MATCHING_ENABLED
+  ? lazy(() => import('./BestMatchReport').then((m) => ({ default: m.BestMatchReport })))
+  : null;
 
 const CHART_COLORS = ['#3b82f6', '#8b5cf6', '#10b981', '#f59e0b', '#ef4444', '#6b7280'];
 
@@ -241,8 +248,13 @@ export function ReportsPage() {
         </Button>
       </div>
 
-      {/* Row 5.8: best-match report, scoped to one job's applicants */}
-      <BestMatchReport jobs={jobs} applications={allApplications} />
+      {/* Row 5.8: best-match report, scoped to one job's applicants.
+          Gated by MATCHING_ENABLED (client decision 2026-10-15). */}
+      {MATCHING_ENABLED && BestMatchReport && (
+        <Suspense fallback={null}>
+          <BestMatchReport jobs={jobs} applications={allApplications} />
+        </Suspense>
+      )}
 
       {/* Per-job Excel export: candidates + their screening answers */}
       <div className="bg-white rounded-lg border border-gray-200 p-6">

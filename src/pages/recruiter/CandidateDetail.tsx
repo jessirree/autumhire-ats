@@ -36,6 +36,7 @@ import {
 import { Job, getJobById } from '../../services/jobService';
 import { CandidateProfile, getCandidateProfile } from '../../services/profileService';
 import { computeMatch, MatchResult } from '../../lib/matching';
+import { MATCHING_ENABLED } from '../../config/features';
 
 interface CandidateDetailProps {
   candidateId: string; // application document id
@@ -79,8 +80,10 @@ export function CandidateDetail({ candidateId, onBack }: CandidateDetailProps) {
             getReferenceChecks(app.id),
             getApplicationsByCandidate(app.candidateId),
             getPanelRatings(app.id),
-            getJobById(app.jobId),
-            getCandidateProfile(app.candidateId),
+            // Fetched only for the match breakdown — skipped while
+            // matching is gated (src/config/features.ts).
+            MATCHING_ENABLED ? getJobById(app.jobId) : Promise.resolve(null),
+            MATCHING_ENABLED ? getCandidateProfile(app.candidateId) : Promise.resolve(null),
           ]);
           setInterviews(ivs.filter((iv) => iv.applicationId === app.id));
           setComments(cms);
@@ -289,23 +292,26 @@ export function CandidateDetail({ candidateId, onBack }: CandidateDetailProps) {
                 <span className="text-2xl font-semibold">{application.prescreenScore}</span>
               </div>
             </div>
-            {/* Alongside, never replacing, the screening score above — candidate-matching spec §2.4. */}
-            <div className="text-right mr-4">
-              <p className="text-sm text-gray-600 mb-1">Match Score</p>
-              {match?.score == null ? (
-                <span className="text-sm text-gray-400 italic">Not assessed</span>
-              ) : (
-                <div className="flex items-center gap-2">
-                  <Briefcase className="size-5 text-blue-400" />
-                  <span className="text-2xl font-semibold">{match.score}</span>
-                </div>
-              )}
-              {match?.hardCriterion.status === 'unmet' && (
-                <span className="inline-flex items-center gap-1 mt-1 px-2 py-0.5 rounded-full text-xs font-medium bg-red-50 text-red-700 border border-red-200">
-                  Work auth flagged
-                </span>
-              )}
-            </div>
+            {/* Alongside, never replacing, the screening score above — candidate-matching spec §2.4.
+                Gated by MATCHING_ENABLED (client decision 2026-10-15). */}
+            {MATCHING_ENABLED && (
+              <div className="text-right mr-4">
+                <p className="text-sm text-gray-600 mb-1">Match Score</p>
+                {match?.score == null ? (
+                  <span className="text-sm text-gray-400 italic">Not assessed</span>
+                ) : (
+                  <div className="flex items-center gap-2">
+                    <Briefcase className="size-5 text-blue-400" />
+                    <span className="text-2xl font-semibold">{match.score}</span>
+                  </div>
+                )}
+                {match?.hardCriterion.status === 'unmet' && (
+                  <span className="inline-flex items-center gap-1 mt-1 px-2 py-0.5 rounded-full text-xs font-medium bg-red-50 text-red-700 border border-red-200">
+                    Work auth flagged
+                  </span>
+                )}
+              </div>
+            )}
             <StatusBadge status={application.status} />
           </div>
         </div>
@@ -495,7 +501,9 @@ export function CandidateDetail({ candidateId, onBack }: CandidateDetailProps) {
             </div>
           </div>
 
-          {/* Candidate-matching spec §2.4: required vs existing, line by line — "a recruiter has to be able to see why someone scored what they did", never just the number above. */}
+          {/* Candidate-matching spec §2.4: required vs existing, line by line — "a recruiter has to be able to see why someone scored what they did", never just the number above.
+              Gated by MATCHING_ENABLED (client decision 2026-10-15) — the whole panel, not just its contents, since matchJob is never fetched while gated and would otherwise show "Loading…" forever. */}
+          {MATCHING_ENABLED && (
           <div className="bg-white rounded-lg border border-gray-200 p-6">
             <h2 className="text-lg font-bold text-gray-900 mb-4 flex items-center gap-2">
               <Briefcase className="size-5 text-gray-400" />
@@ -551,6 +559,7 @@ export function CandidateDetail({ candidateId, onBack }: CandidateDetailProps) {
               </div>
             )}
           </div>
+          )}
 
           {/* Panel ratings from shortlisting — read-only here, recruiters see the full breakdown unconditionally. */}
           <div className="bg-white rounded-lg border border-gray-200 p-6">

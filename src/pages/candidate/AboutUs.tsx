@@ -119,7 +119,6 @@ export function AboutUs({
                             <h3>Technology-Driven HR Solutions</h3>
                             <p>Innovation is at our core. We leverage modern tools to make the talent journey faster and smarter.</p>
                             <ul className="service-list">
-                                <li>AI-powered candidate matching and screening</li>
                                 <li>Automated recruitment workflows and applicant tracking</li>
                                 <li>Virtual assessment centers and video interviewing</li>
                                 <li>Data analytics for recruitment insights</li>

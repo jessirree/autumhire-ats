@@ -8,6 +8,7 @@ import { StatusBadge } from '../../components/ats/StatusBadge';
 import { SortableHeader } from '../../components/ats/SortableHeader';
 import { sortRows, useTableSort, SortColumn } from '../../lib/tableSort';
 import { computeMatch, MatchResult } from '../../lib/matching';
+import { MATCHING_ENABLED } from '../../config/features';
 import { useAuth } from '../../context/AuthContext';
 import {
   Application,
@@ -112,19 +113,23 @@ export function ApplicationsPage({ onViewCandidate }: ApplicationsPageProps) {
 
         // Fetched together with the applications themselves, before
         // setLoading(false), so the table never renders with match cells
-        // that pop in a moment later.
-        const uniqueJobIds = [...new Set(visibleApps.map((a) => a.jobId))];
-        const uniqueCandidateIds = [...new Set(visibleApps.map((a) => a.candidateId))];
-        const [jobs, profiles] = await Promise.all([
-          Promise.all(uniqueJobIds.map((id) => (job && id === job.id ? Promise.resolve(job) : getJobById(id)))),
-          Promise.all(uniqueCandidateIds.map((id) => getCandidateProfile(id))),
-        ]);
-        setJobsById(
-          Object.fromEntries(
-            uniqueJobIds.map((id, i) => [id, jobs[i]] as const).filter((entry): entry is [string, Job] => !!entry[1])
-          )
-        );
-        setProfilesByCandidateId(Object.fromEntries(uniqueCandidateIds.map((id, i) => [id, profiles[i]])));
+        // that pop in a moment later. Skipped entirely while matching is
+        // gated (src/config/features.ts) — these two fetches exist only
+        // to feed matchByAppId below, nothing else on this page reads them.
+        if (MATCHING_ENABLED) {
+          const uniqueJobIds = [...new Set(visibleApps.map((a) => a.jobId))];
+          const uniqueCandidateIds = [...new Set(visibleApps.map((a) => a.candidateId))];
+          const [jobs, profiles] = await Promise.all([
+            Promise.all(uniqueJobIds.map((id) => (job && id === job.id ? Promise.resolve(job) : getJobById(id)))),
+            Promise.all(uniqueCandidateIds.map((id) => getCandidateProfile(id))),
+          ]);
+          setJobsById(
+            Object.fromEntries(
+              uniqueJobIds.map((id, i) => [id, jobs[i]] as const).filter((entry): entry is [string, Job] => !!entry[1])
+            )
+          );
+          setProfilesByCandidateId(Object.fromEntries(uniqueCandidateIds.map((id, i) => [id, profiles[i]])));
+        }
       })
       .catch((err: any) => {
         console.error('Failed to load applications', err);
@@ -152,6 +157,7 @@ export function ApplicationsPage({ onViewCandidate }: ApplicationsPageProps) {
   // anywhere, see src/lib/matching.ts's own header comment for why.
   const matchByAppId = useMemo(() => {
     const map: Record<string, MatchResult> = {};
+    if (!MATCHING_ENABLED) return map;
     for (const app of applications) {
       const job = jobsById[app.jobId];
       if (!job) continue;
@@ -458,8 +464,12 @@ export function ApplicationsPage({ onViewCandidate }: ApplicationsPageProps) {
                 </th>
                 <SortableHeader label="Applied" sortKey="appliedAt" activeKey={sortKey} dir={sortDir} onSort={toggleSort} />
                 <SortableHeader label="Screening Score" sortKey="prescreenScore" activeKey={sortKey} dir={sortDir} onSort={toggleSort} />
-                <SortableHeader label="Match Score" sortKey="matchScore" activeKey={sortKey} dir={sortDir} onSort={toggleSort} />
-                <SortableHeader label="Work Auth" sortKey="matchFlag" activeKey={sortKey} dir={sortDir} onSort={toggleSort} />
+                {MATCHING_ENABLED && (
+                  <>
+                    <SortableHeader label="Match Score" sortKey="matchScore" activeKey={sortKey} dir={sortDir} onSort={toggleSort} />
+                    <SortableHeader label="Work Auth" sortKey="matchFlag" activeKey={sortKey} dir={sortDir} onSort={toggleSort} />
+                  </>
+                )}
                 <SortableHeader label="Stage" sortKey="status" activeKey={sortKey} dir={sortDir} onSort={toggleSort} />
                 <th className="px-6 py-4 text-right text-xs font-semibold text-gray-500 uppercase tracking-wider">
                   Actions
@@ -510,34 +520,38 @@ export function ApplicationsPage({ onViewCandidate }: ApplicationsPageProps) {
                       </div>
                     </div>
                   </td>
-                  <td className="px-6 py-4 whitespace-nowrap">
-                    {matchByAppId[app.id]?.score == null ? (
-                      <span className="text-xs text-gray-400 italic">Not assessed</span>
-                    ) : (
-                      <div className="flex items-center gap-2">
-                        <span className="text-sm font-bold text-gray-700 w-8">{matchByAppId[app.id]!.score}</span>
-                        <div className="w-20 h-2 bg-gray-100 rounded-full overflow-hidden">
-                          <div
-                            className={`h-full rounded-full ${matchByAppId[app.id]!.score! > 80 ? 'bg-green-500' : matchByAppId[app.id]!.score! > 40 ? 'bg-amber-400' : 'bg-red-400'}`}
-                            style={{ width: `${Math.min(matchByAppId[app.id]!.score!, 100)}%` }}
-                          />
-                        </div>
-                      </div>
-                    )}
-                  </td>
-                  <td className="px-6 py-4 whitespace-nowrap">
-                    {matchByAppId[app.id]?.hardCriterion.status === 'unmet' ? (
-                      <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-medium bg-red-50 text-red-700 border border-red-200">
-                        <AlertTriangle className="size-3" /> Flagged
-                      </span>
-                    ) : matchByAppId[app.id]?.hardCriterion.status === 'met' ? (
-                      <span className="text-xs text-green-600">OK</span>
-                    ) : matchByAppId[app.id]?.hardCriterion.status === 'not-assessed' ? (
-                      <span className="text-xs text-gray-400 italic">Not assessed</span>
-                    ) : (
-                      <span className="text-xs text-gray-300">—</span>
-                    )}
-                  </td>
+                  {MATCHING_ENABLED && (
+                    <>
+                      <td className="px-6 py-4 whitespace-nowrap">
+                        {matchByAppId[app.id]?.score == null ? (
+                          <span className="text-xs text-gray-400 italic">Not assessed</span>
+                        ) : (
+                          <div className="flex items-center gap-2">
+                            <span className="text-sm font-bold text-gray-700 w-8">{matchByAppId[app.id]!.score}</span>
+                            <div className="w-20 h-2 bg-gray-100 rounded-full overflow-hidden">
+                              <div
+                                className={`h-full rounded-full ${matchByAppId[app.id]!.score! > 80 ? 'bg-green-500' : matchByAppId[app.id]!.score! > 40 ? 'bg-amber-400' : 'bg-red-400'}`}
+                                style={{ width: `${Math.min(matchByAppId[app.id]!.score!, 100)}%` }}
+                              />
+                            </div>
+                          </div>
+                        )}
+                      </td>
+                      <td className="px-6 py-4 whitespace-nowrap">
+                        {matchByAppId[app.id]?.hardCriterion.status === 'unmet' ? (
+                          <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-medium bg-red-50 text-red-700 border border-red-200">
+                            <AlertTriangle className="size-3" /> Flagged
+                          </span>
+                        ) : matchByAppId[app.id]?.hardCriterion.status === 'met' ? (
+                          <span className="text-xs text-green-600">OK</span>
+                        ) : matchByAppId[app.id]?.hardCriterion.status === 'not-assessed' ? (
+                          <span className="text-xs text-gray-400 italic">Not assessed</span>
+                        ) : (
+                          <span className="text-xs text-gray-300">—</span>
+                        )}
+                      </td>
+                    </>
+                  )}
                   <td className="px-6 py-4 whitespace-nowrap">
                     <StatusBadge status={app.status} size="sm" />
                   </td>

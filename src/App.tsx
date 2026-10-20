@@ -59,7 +59,14 @@ import { UserManagement } from "./pages/admin/UserManagement";
 import { PositionsPage } from "./pages/admin/PositionsPage";
 import { TemplateManagement } from "./pages/admin/TemplateManagement";
 import { PrescreeningBuilder } from "./pages/admin/PrescreeningBuilder";
-import { SkillsPage } from "./pages/admin/SkillsPage";
+import { MATCHING_ENABLED } from "./config/features";
+
+// Row 5.6 skills bank. Gated by MATCHING_ENABLED (client decision
+// 2026-10-15) — lazy so SkillsPage's chunk never ships while the feature
+// is parked. Not dead code; see src/config/features.ts.
+const SkillsPage = MATCHING_ENABLED
+  ? React.lazy(() => import("./pages/admin/SkillsPage").then((m) => ({ default: m.SkillsPage })))
+  : null;
 import { ReportsPage } from "./pages/admin/ReportsPage";
 import { WorkflowConfiguration } from "./pages/admin/WorkflowConfiguration";
 import { SystemSettings } from "./pages/admin/SystemSettings";
@@ -370,7 +377,16 @@ function AppRoutes() {
         />
         <Route path="templates" element={<TemplateManagement />} />
         <Route path="screening" element={<PrescreeningBuilder />} />
-        <Route path="skills" element={<SkillsPage />} />
+        {MATCHING_ENABLED && SkillsPage && (
+          <Route
+            path="skills"
+            element={
+              <React.Suspense fallback={null}>
+                <SkillsPage />
+              </React.Suspense>
+            }
+          />
+        )}
         <Route path="workflow" element={<WorkflowConfiguration />} />
         <Route path="reports" element={<ReportsPage />} />
         <Route path="settings" element={<SystemSettings />} />

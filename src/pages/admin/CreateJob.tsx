@@ -1,4 +1,4 @@
-﻿import { useState, useEffect } from "react";
+﻿import { useState, useEffect, lazy, Suspense } from "react";
 import { toast } from "sonner";
 import {
   ArrowLeft,
@@ -21,7 +21,6 @@ import {
   ChevronDown,
   Eye,
   Download,
-  AlertTriangle,
 } from "lucide-react";
 import { useSearchParams } from "react-router-dom";
 import { collection, getDocs } from "firebase/firestore";
@@ -62,9 +61,20 @@ import {
 import { regenerateJobsFeed } from "../../services/feedService";
 import { notifyJobAlertSubscribers } from "../../services/jobAlertService";
 import { Skill, getSkills } from "../../services/skillService";
-import { SkillPicker } from "../../components/ats/SkillPicker";
-import { JobRequirementsSection, JobKeywordsSection, hasPublishedRequirements } from "../../components/ats/JobRequirementsSection";
-import { EDUCATION_LEVELS, EDUCATION_LABELS, EducationLevel } from "../../lib/education";
+import { JobKeywordsSection } from "../../components/ats/JobRequirementsSection";
+import { EducationLevel, EDUCATION_LEVELS, EDUCATION_LABELS } from "../../lib/education";
+import { MATCHING_ENABLED } from "../../config/features";
+
+// Gated by MATCHING_ENABLED (client decision 2026-10-15) — lazy so the
+// SkillPicker/Skills-taxonomy code never ships while the feature is
+// parked. Not dead code; see src/config/features.ts.
+const JobRequirementsEditor = MATCHING_ENABLED
+  ? lazy(() =>
+      import("../../components/admin/JobRequirementsEditor").then((m) => ({
+        default: m.JobRequirementsEditor,
+      }))
+    )
+  : null;
 
 interface JobDetails {
   jobTitle: string;
@@ -115,6 +125,16 @@ interface Question {
   choices?: QuestionChoice[];
   /** Candidate-matching spec §4 — which requirement this question's answer satisfies, if any. */
   requirementField?: RequirementMapping;
+  /** Input range for 'number' questions, e.g. the default experience question's 0-60. */
+  min?: number;
+  max?: number;
+  /**
+   * Standard pre-screening question (education/experience, row 3.11+).
+   * Fixed wording and type, not editable or deletable by a recruiter —
+   * varying either per job would make the answers impossible to compare
+   * or query across jobs, which is the point of making them standard.
+   */
+  locked?: boolean;
 }
 
 interface StaffMember {
@@ -247,6 +267,9 @@ function jobToFormState(job: Job): {
       score: q.score,
       choices: q.choices,
       requirementField: q.requirementField,
+      min: q.min,
+      max: q.max,
+      locked: q.locked,
     })),
     team: job.hiringTeam || [],
     coordinatorId: job.coordinatorId || "",
@@ -341,6 +364,34 @@ export function CreateJob({
       instructions: "",
       requirementField: "workAuthorization",
     },
+    // Standard pre-screening questions (row 3.11+), replacing what the
+    // gated capability profile was collecting. Fixed wording, fixed
+    // answer type, locked (no edit control exists for an already-added
+    // question's text/type in this UI anyway, and `locked: true` also
+    // hides the delete button specifically for these two) — varying
+    // either per job would make the answers impossible to compare or
+    // query across jobs, which is the point of making them standard.
+    // New jobs only; see buildJobInput's caller for why there is
+    // deliberately no backfill onto jobs that already exist.
+    {
+      id: "q3",
+      text: "Highest level of education completed",
+      type: "dropdown",
+      mandatory: true,
+      instructions: "Please select from the options provided.",
+      choices: EDUCATION_LEVELS.map((level) => ({ label: EDUCATION_LABELS[level], points: 0 })),
+      locked: true,
+    },
+    {
+      id: "q4",
+      text: "Total years of relevant work experience",
+      type: "number",
+      mandatory: true,
+      instructions: "Enter a whole number of years.",
+      min: 0,
+      max: 60,
+      locked: true,
+    },
   ];
 
   const [questions, setQuestions] = useState<Question[]>(
@@ -375,12 +426,14 @@ export function CreateJob({
         getQuestionBank()
           .then(setQuestionBank)
           .catch(() => {});
-        getSkills(true)
-          .then(setAllSkills)
-          .catch((err) => {
-            console.error("Failed to load skills taxonomy", err);
-            toast.error("Failed to load the skills list — the required-skills picker may be empty.");
-          });
+        if (MATCHING_ENABLED) {
+          getSkills(true)
+            .then(setAllSkills)
+            .catch((err) => {
+              console.error("Failed to load skills taxonomy", err);
+              toast.error("Failed to load the skills list — the required-skills picker may be empty.");
+            });
+        }
         setStaffMembers(
           usersSnap.docs
             .map((d) => ({ id: d.id, ...(d.data() as any) }))
@@ -534,6 +587,9 @@ export function CreateJob({
             }
           : {}),
         ...(q.requirementField ? { requirementField: q.requirementField } : {}),
+        ...(q.min !== undefined ? { min: q.min } : {}),
+        ...(q.max !== undefined ? { max: q.max } : {}),
+        ...(q.locked ? { locked: q.locked } : {}),
       })),
       hiringTeam,
       coordinatorId: hiringCoordinatorId,
@@ -811,22 +867,6 @@ export function CreateJob({
     "hiring-manager": "Hiring Manager",
   };
 
-  // For the Job Post Preview below, resolved live from already-loaded,
-  // staff-only allSkills — unlike JobBoard/JobDetail, this is not a
-  // signed-out candidate surface, so there's no isActive()-read problem in
-  // looking skill names up here rather than waiting for buildJobInput's
-  // own requiredSkillNames snapshot to exist on a saved document.
-  const previewRequirements = {
-    minYearsExperience:
-      jobDetails.minYearsExperience.trim() !== "" && !Number.isNaN(Number(jobDetails.minYearsExperience))
-        ? Number(jobDetails.minYearsExperience)
-        : undefined,
-    minEducation: jobDetails.minEducation || undefined,
-    requiredSkillNames: jobDetails.requiredSkillIds
-      .map((id) => allSkills.find((s) => s.id === id)?.name)
-      .filter((name): name is string => !!name),
-    workAuthorizationRequired: jobDetails.workAuthorizationRequired,
-  };
 
   return (
     <div className="bg-gray-50 min-h-screen pb-12">
@@ -1302,88 +1342,25 @@ export function CreateJob({
               </div>
             </div>
 
-            {/* Candidate Requirements (candidate-matching spec §2.3) — sits
-                with the job specification, not Settings & Publication. All
-                four are optional: a job with none of these produces no
-                match score, which is a legitimate state, not an error. */}
-            <div className="bg-white rounded-xl shadow-sm border border-gray-100 p-8 transition-shadow hover:shadow-md">
-              <h2 className="text-xl font-bold text-gray-900 mb-2 pb-4 border-b border-gray-100">
-                Candidate Requirements
-              </h2>
-              <p className="text-gray-500 mb-6">
-                Optional. Published on the advert — a candidate is entitled to see what a role
-                requires. These feed the match score shown to recruiters in Step 4; they never
-                block an application.
-              </p>
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-6 mb-6">
-                <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-1">
-                    Minimum years of experience
-                  </label>
-                  <input
-                    type="number"
-                    min={0}
-                    className="w-full p-3 border border-gray-200 rounded-lg focus:ring-2 focus:ring-[var(--pumpkin-orange)]/20 focus:border-[var(--pumpkin-orange)] outline-none transition-all"
-                    placeholder="e.g. 3"
-                    value={jobDetails.minYearsExperience}
-                    onChange={(e) => handleChange("minYearsExperience", e.target.value)}
-                  />
-                </div>
-                <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-1">
-                    Minimum education
-                  </label>
-                  <select
-                    className="w-full p-3 border border-gray-200 rounded-lg focus:ring-2 focus:ring-[var(--pumpkin-orange)]/20 focus:border-[var(--pumpkin-orange)] outline-none transition-all"
-                    value={jobDetails.minEducation}
-                    onChange={(e) => handleChange("minEducation", e.target.value as EducationLevel | "")}
-                  >
-                    <option value="">No minimum</option>
-                    {EDUCATION_LEVELS.map((level) => (
-                      <option key={level} value={level}>{EDUCATION_LABELS[level]}</option>
-                    ))}
-                  </select>
-                </div>
-              </div>
-              <div className="mb-6">
-                <label className="block text-sm font-medium text-gray-700 mb-1">
-                  Required skills
-                </label>
-                <SkillPicker
+            {/* Candidate Requirements (candidate-matching spec §2.3). Gated
+                by MATCHING_ENABLED — must not render at all while the
+                feature is parked (client decision 2026-10-15). */}
+            {MATCHING_ENABLED && JobRequirementsEditor && (
+              <Suspense fallback={null}>
+                <JobRequirementsEditor
+                  minYearsExperience={jobDetails.minYearsExperience}
+                  minEducation={jobDetails.minEducation}
+                  requiredSkillIds={jobDetails.requiredSkillIds}
+                  workAuthorizationRequired={jobDetails.workAuthorizationRequired}
                   allSkills={allSkills}
-                  selectedIds={jobDetails.requiredSkillIds}
-                  onChange={(ids) => handleChange("requiredSkillIds", ids)}
-                  placeholder="Add a required skill…"
+                  hasWorkAuthQuestion={questions.some((q) => q.requirementField === "workAuthorization")}
+                  onChangeMinYearsExperience={(v) => handleChange("minYearsExperience", v)}
+                  onChangeMinEducation={(v) => handleChange("minEducation", v)}
+                  onChangeRequiredSkillIds={(ids) => handleChange("requiredSkillIds", ids)}
+                  onChangeWorkAuthorizationRequired={(v) => handleChange("workAuthorizationRequired", v)}
                 />
-              </div>
-              <div className="flex items-center gap-3 p-4 bg-blue-50/50 rounded-lg border border-blue-100 transition-colors hover:bg-blue-50">
-                <input
-                  type="checkbox"
-                  id="workAuthRequired"
-                  className="w-4 h-4 text-[var(--pumpkin-orange)] rounded border-gray-300 focus:ring-[var(--pumpkin-orange)]"
-                  checked={jobDetails.workAuthorizationRequired}
-                  onChange={(e) => handleChange("workAuthorizationRequired", e.target.checked)}
-                />
-                <label htmlFor="workAuthRequired" className="text-sm text-gray-700 cursor-pointer select-none w-full">
-                  <span className="font-semibold block text-gray-900">Work authorisation required</span>
-                  <span className="text-gray-500">
-                    An unmet requirement flags the candidate for a recruiter to review — it never
-                    removes them from the longlist.
-                  </span>
-                </label>
-              </div>
-              {jobDetails.workAuthorizationRequired &&
-                !questions.some((q) => q.requirementField === "workAuthorization") && (
-                  <div className="mt-4 flex items-start gap-3 p-4 bg-amber-50 border border-amber-200 rounded-lg text-sm text-amber-800">
-                    <AlertTriangle className="size-4 shrink-0 mt-0.5" />
-                    <span>
-                      Work authorisation is required, but no screening question is linked to it yet
-                      (Step 3 — set a question's "Links to requirement" to Work Authorisation).
-                      Without that link, every candidate comes back unassessed on this criterion.
-                    </span>
-                  </div>
-                )}
-            </div>
+              </Suspense>
+            )}
 
             <div className="flex justify-end gap-3 pb-8">
               <Button
@@ -1593,9 +1570,19 @@ export function CreateJob({
                     </div>
                     <div className="flex-1">
                       <div className="flex items-center justify-between mb-2">
-                        <h3 className="font-semibold text-gray-900">
-                          {question.text}
-                        </h3>
+                        <div className="flex items-center gap-2">
+                          <h3 className="font-semibold text-gray-900">
+                            {question.text}
+                          </h3>
+                          {question.locked && (
+                            <span
+                              className="text-xs font-medium px-2 py-0.5 rounded bg-gray-100 text-gray-500"
+                              title="Standard question — fixed wording and type on every job, cannot be edited or deleted"
+                            >
+                              Standard question
+                            </span>
+                          )}
+                        </div>
                         <div className="flex items-center gap-1">
                           <div className="flex items-center mr-2 border-r border-gray-200 pr-2">
                             <button
@@ -1615,12 +1602,14 @@ export function CreateJob({
                               <ChevronDown className="size-4" />
                             </button>
                           </div>
-                          <button
-                            onClick={() => handleDeleteQuestion(question.id)}
-                            className="p-2 hover:bg-red-50 text-red-500 rounded-lg transition-colors"
-                          >
-                            <Trash2 className="size-4" />
-                          </button>
+                          {!question.locked && (
+                            <button
+                              onClick={() => handleDeleteQuestion(question.id)}
+                              className="p-2 hover:bg-red-50 text-red-500 rounded-lg transition-colors"
+                            >
+                              <Trash2 className="size-4" />
+                            </button>
+                          )}
                         </div>
                       </div>
                       <div className="flex items-center gap-3 text-sm text-gray-500 mb-2">
@@ -1642,26 +1631,31 @@ export function CreateJob({
                           </span>
                         )}
                       </div>
-                      <div className="flex items-center gap-2 mb-2">
-                        <label className="text-xs text-gray-500">Links to requirement:</label>
-                        <select
-                          value={question.requirementField ?? ""}
-                          onChange={(e) =>
-                            handleSetQuestionRequirementField(
-                              question.id,
-                              e.target.value
-                                ? (e.target.value as RequirementMapping)
-                                : undefined,
-                            )
-                          }
-                          className="text-xs px-2 py-1 border border-gray-200 rounded bg-purple-50 text-purple-600 font-medium focus:outline-none focus:ring-1 focus:ring-[var(--pumpkin-orange)]"
-                        >
-                          <option value="">None</option>
-                          <option value="yearsOfExperience">Years of Experience</option>
-                          <option value="highestEducation">Highest Education</option>
-                          <option value="workAuthorization">Work Authorisation</option>
-                        </select>
-                      </div>
+                      {/* Gated by MATCHING_ENABLED (client decision 2026-10-15) — see
+                          the gate above the other "Links to requirement" picker in
+                          this file for why all three options do nothing once gated. */}
+                      {MATCHING_ENABLED && (
+                        <div className="flex items-center gap-2 mb-2">
+                          <label className="text-xs text-gray-500">Links to requirement:</label>
+                          <select
+                            value={question.requirementField ?? ""}
+                            onChange={(e) =>
+                              handleSetQuestionRequirementField(
+                                question.id,
+                                e.target.value
+                                  ? (e.target.value as RequirementMapping)
+                                  : undefined,
+                              )
+                            }
+                            className="text-xs px-2 py-1 border border-gray-200 rounded bg-purple-50 text-purple-600 font-medium focus:outline-none focus:ring-1 focus:ring-[var(--pumpkin-orange)]"
+                          >
+                            <option value="">None</option>
+                            <option value="yearsOfExperience">Years of Experience</option>
+                            <option value="highestEducation">Highest Education</option>
+                            <option value="workAuthorization">Work Authorisation</option>
+                          </select>
+                        </div>
+                      )}
                       {question.instructions && (
                         <p className="text-sm text-gray-500 bg-gray-50 p-3 rounded-lg border border-gray-100 mt-2">
                           <span className="font-medium text-gray-700">
@@ -1812,33 +1806,38 @@ export function CreateJob({
                   </label>
                 </div>
 
-                <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-1">
-                    Links to requirement
-                  </label>
-                  <select
-                    className="w-full p-3 border border-gray-200 rounded-lg focus:ring-2 focus:ring-[var(--pumpkin-orange)]/20 focus:border-[var(--pumpkin-orange)] outline-none transition-all"
-                    value={currentQuestion.requirementField ?? ""}
-                    onChange={(e) =>
-                      setCurrentQuestion((prev) => ({
-                        ...prev,
-                        requirementField: e.target.value
-                          ? (e.target.value as RequirementMapping)
-                          : undefined,
-                      }))
-                    }
-                  >
-                    <option value="">None</option>
-                    <option value="yearsOfExperience">Years of Experience</option>
-                    <option value="highestEducation">Highest Education</option>
-                    <option value="workAuthorization">Work Authorisation</option>
-                  </select>
-                  <p className="text-xs text-gray-500 mt-1">
-                    Candidate-matching spec §4: Years/Education prefill this answer from the
-                    candidate's profile. Work Authorisation has no profile source — it marks this
-                    question as the one the match score reads to check the requirement below.
-                  </p>
-                </div>
+                {/* Gated by MATCHING_ENABLED (client decision 2026-10-15) — all
+                    three options do nothing once gated. Existing
+                    requirementField values stay on the question, unread. */}
+                {MATCHING_ENABLED && (
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700 mb-1">
+                      Links to requirement
+                    </label>
+                    <select
+                      className="w-full p-3 border border-gray-200 rounded-lg focus:ring-2 focus:ring-[var(--pumpkin-orange)]/20 focus:border-[var(--pumpkin-orange)] outline-none transition-all"
+                      value={currentQuestion.requirementField ?? ""}
+                      onChange={(e) =>
+                        setCurrentQuestion((prev) => ({
+                          ...prev,
+                          requirementField: e.target.value
+                            ? (e.target.value as RequirementMapping)
+                            : undefined,
+                        }))
+                      }
+                    >
+                      <option value="">None</option>
+                      <option value="yearsOfExperience">Years of Experience</option>
+                      <option value="highestEducation">Highest Education</option>
+                      <option value="workAuthorization">Work Authorisation</option>
+                    </select>
+                    <p className="text-xs text-gray-500 mt-1">
+                      Candidate-matching spec §4: Years/Education prefill this answer from the
+                      candidate's profile. Work Authorisation has no profile source — it marks this
+                      question as the one the match score reads to check the requirement below.
+                    </p>
+                  </div>
+                )}
 
                 {currentQuestion.type !== "checkbox" &&
                   currentQuestion.type !== "dropdown" && (
@@ -2605,13 +2604,6 @@ export function CreateJob({
                   <>
                     <div className="border-t border-gray-200" />
                     <JobKeywordsSection tags={jobDetails.tags} />
-                  </>
-                )}
-
-                {hasPublishedRequirements(previewRequirements) && (
-                  <>
-                    <div className="border-t border-gray-200" />
-                    <JobRequirementsSection job={previewRequirements} />
                   </>
                 )}
 
