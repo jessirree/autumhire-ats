@@ -824,6 +824,39 @@ describe('Users/{uid}/appliedJobs (G2 — duplicate application guard)', () => {
   });
 });
 
+// SEC-1 (row traceability v2) — "No amendments/deletions of applications
+// by the applicant." The app has no edit/delete control for this on the
+// candidate side, but absence of a UI control is not evidence the rule
+// denies the write — this is the direct rule-layer assertion that was
+// missing (docs/traceability-v2.md flagged it explicitly).
+describe('Applications update/delete (SEC-1 — candidate cannot amend or delete)', () => {
+  it('the owning candidate cannot update their own application', async () => {
+    const db = testEnv.authenticatedContext(CANDIDATE).firestore();
+    await assertFails(updateDoc(doc(db, 'Applications', APP), { prescreenScore: 999 }));
+  });
+
+  it('the owning candidate cannot delete their own application', async () => {
+    const db = testEnv.authenticatedContext(CANDIDATE).firestore();
+    await assertFails(deleteDoc(doc(db, 'Applications', APP)));
+  });
+
+  it('a different candidate cannot update or delete it either', async () => {
+    const db = testEnv.authenticatedContext(CANDIDATE2).firestore();
+    await assertFails(updateDoc(doc(db, 'Applications', APP), { prescreenScore: 999 }));
+    await assertFails(deleteDoc(doc(db, 'Applications', APP)));
+  });
+
+  it('staff CAN update it — the denial above is candidate-specific, not a blanket lockout', async () => {
+    const db = testEnv.authenticatedContext(RECRUITER).firestore();
+    await assertSucceeds(updateDoc(doc(db, 'Applications', APP), { status: 'shortlisted' }));
+  });
+
+  it('even staff cannot delete it — delete is unconditionally denied', async () => {
+    const db = testEnv.authenticatedContext(ADMIN).firestore();
+    await assertFails(deleteDoc(doc(db, 'Applications', APP)));
+  });
+});
+
 describe('Rule coverage sweep', () => {
   it('every top-level collection written anywhere in src/ has a match block in firestore.rules', () => {
     const rulesText = readFileSync('firestore.rules', 'utf8');

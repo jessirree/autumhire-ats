@@ -67,8 +67,14 @@ async function fillBioData(page: import('@playwright/test').Page) {
 test('APP-7: the system does not allow a duplicate application for the same job', async ({ page }) => {
   await loginAs(page, 'candidate1');
 
-  // First application for this job: must succeed.
+  // First application for this job: must succeed. Positive control before
+  // the negative assertion: wait for the real form to render (proving the
+  // async hasAppliedToJob() check has resolved) before asserting the
+  // "already applied" banner's absence — otherwise toHaveCount(0) could
+  // pass trivially while that check is still in flight, same shape as the
+  // JA-12 bug documented in tests/flows/README.md.
   await page.goto(`${BASE_URL}/jobs/${FLOW_JOB_ID}/apply`, { waitUntil: 'load' });
+  await expect(page.getByRole('button', { name: 'Submit Application' })).toBeVisible({ timeout: 8000 });
   await expect(page.getByText("You've already applied")).toHaveCount(0);
   await fillBioData(page);
   await page.getByRole('button', { name: 'Submit Application' }).click();

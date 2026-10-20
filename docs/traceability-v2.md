@@ -39,6 +39,14 @@
 
 **Playwright flow suite (`tests/flows/`, `pnpm test:flows`).** Manual clickthrough was never going to clear the 47 BUILT UNVERIFIED rows, so a scripted suite replaces it for the rows a browser can actually assert against the emulator — one named test per requirement ID. Three proved the pattern first (APP-7, APP-10, SL-2); this pass added every other **bucket-A, category-1** row (fails silently: status transitions, notification sends, rule enforcement) — JA-6, JA-12, APP-4, APP-13, LL-4, OFF-1, OFF-3 — bringing the suite to 10 tests, all upgraded to VERIFIED. Every one of the 10 was deliberately broken in the real source, shown failing, restored, and shown passing again before being trusted — a test that has never been seen to fail is not evidence. One of the ten (JA-12) caught a genuine flaw in its *own* first draft, not the product: asserting "the confidential job's title has zero matches" immediately after navigation passed trivially before the page's async job fetch had even resolved, regardless of whether the leak existed. Fixed by seeding a same-shaped control job and waiting for it to render first, which gave the assertion something to anchor on — after the fix, the same deliberate break in `getPublicJobs()`'s query (paired with the matching `firestore.rules` condition) was caught correctly. Category 2 (bulk/concurrent — `ARC-1`) and category 3 (everything else in bucket A) are not attempted yet. Bucket B (`REF-2`, `OFF-2`, `OFF-4`, `SEC-1` — need a Firestore read or a rules test, not a browser) and bucket C (`JA-14`, `APP-1`, `LOC-1` — see VERIFIED BY ARCHITECTURE/DISCLOSED below) are explicitly out of scope for this suite, not an oversight.
 
+**Standing rule, added this pass: every negative assertion needs a positive control** (`CLAUDE.md`, `tests/flows/README.md`). JA-12's original bug — asserting absence before the async fetch resolved — isn't a one-off; it's a shape that recurs anywhere a test checks something is absent or zero. Re-auditing all 10 existing tests against the rule found two more real instances: APP-7's "not already applied" check (harmless in practice — immediately followed by `fillBioData()`, whose own auto-waiting on form fields accidentally gates it, but fixed properly rather than left to that accident) and OFF-1's post-reload "no pending offer" check (genuinely risky — `myOffers` resets to `[]` on every remount until `getOffersForCandidate()` resolves, so the same trivial-pass shape as JA-12 was live there until fixed). Both now wait for a same-shaped positive signal first. No other instances found.
+
+**Bucket B — `REF-2`, `OFF-2`, `OFF-4`, `SEC-1` (the ones a DOM check cannot cover, because the UI's own claim is exactly what used to lie).** Each asserts the real backend effect directly: `REF-2` and `OFF-2` read the actual `Notifications` document the action produced (recipient, content source) rather than trusting the "sent" status or a toast; `OFF-4` reads every affected `Application`'s status after a real "send regrets" action to confirm the scope is exactly `shortlisted`/`interview`, not everyone non-terminal; `SEC-1` is a direct rule-layer assertion in `tests/firestore-rules.test.ts` (candidate update/delete denied, a different candidate's too, staff update allowed as contrast, staff delete denied too), since absence of a UI control was never evidence the rule denies the write. All four were broken by reintroducing the exact original defect (wrong recipient, no email at all, over-broad regret filter, permissive update rule), shown failing, restored, shown passing.
+
+**Category 2 — `ARC-1`, the only bulk/concurrent row in bucket A.** `setApplicationsArchived()` writes every selected id in one Firestore batch; the test selects three real rows via "select all," archives them, and re-reads from a fresh page load that all three (not just the first) actually moved. Broken by truncating the batch to one id, shown failing (two of three rows silently never archived), restored, shown passing.
+
+The suite is now 14 tests, covering the proof-of-pattern three, all of category 1, all of bucket B, and the one category-2 row. Category 3 (the remaining ~29 bucket-A rows, lower risk per the original ranking) is deliberately not attempted this pass.
+
 ---
 
 ## Position requisition
@@ -139,16 +147,16 @@
 | ID | Requirement | Verdict | Evidence tier | Evidence | Notes |
 |---|---|---|---|---|---|
 | REF-1 | Resourcing team performs reference checks on the selected candidate | BUILT UNVERIFIED | code read only | "Add Referee" → `createReferenceCheck` → `ReferenceChecks`; "Record response" flow. | Referees are not collected on the application form — staff type them in by hand. Responses are not audited. |
-| REF-2 | Auto-generated reference email from the advert, to referees | BUILT UNVERIFIED | code read only | **Upgraded from the old audit's BROKEN.** See "What changed" above — `createReferenceCheck` (`offerService.ts:293-325`) now genuinely emails the referee via the generic outbox, with a comment documenting the old "status: sent was a lie" bug and its fix. | The email content is built from the **application** (job title, department), not literally "the advert" — a minor wording gap, not a functional one. No named clickthrough on record (`docs/phase-3-clickthrough.md` item 2.9 flags this template as unexercised). |
+| REF-2 | Auto-generated reference email from the advert, to referees | VERIFIED | automated test | **Upgraded from the old audit's BROKEN.** See "What changed" above — `createReferenceCheck` (`offerService.ts:293-325`) now genuinely emails the referee via the generic outbox, with a comment documenting the old "status: sent was a lie" bug and its fix. Flow test `REF-2: adding a referee genuinely emails them, with content built from the application` passed 2026-10-20 (`tests/flows/reference-checks.spec.ts`). | The email content is built from the **application** (job title, department), not literally "the advert" — a minor wording gap, not a functional one. No named clickthrough on record (`docs/phase-3-clickthrough.md` item 2.9 flags this template as unexercised). |
 
 ## Offers & regrets
 
 | ID | Requirement | Verdict | Evidence tier | Evidence | Notes |
 |---|---|---|---|---|---|
 | OFF-1 | Status for "offer accepted"/"offer rejected" | VERIFIED | automated test | Candidate accepts/declines on the dashboard → `respondToOffer`; rule allows the candidate to flip only `status` from `sent` to `accepted`/`rejected`. Staff can also record it. Flow test `OFF-1: a candidate accepting an offer actually changes its status, not just local UI state` passed 2026-10-20 (`tests/flows/offers-regrets.spec.ts`). | — |
-| OFF-2 | Notify hiring manager of offer status | BUILT UNVERIFIED | code read only | **Upgraded from the old audit's BROKEN.** Both prior bugs fixed and confirmed by direct code read this pass: `notifyOfferResponse` (`functions/offerNotifications.js`) resolves the real hiring manager (not the offer's creator), and the generic SMTP sender delivers the email. | `docs/phase-3-clickthrough.md` item 3.3 calls this "the single highest-value item" to check and has no recorded result — kept at BUILT UNVERIFIED, not VERIFIED, for that reason. |
+| OFF-2 | Notify hiring manager of offer status | VERIFIED | automated test | **Upgraded from the old audit's BROKEN.** Both prior bugs fixed: `notifyOfferResponse` (`functions/offerNotifications.js`) resolves the real hiring manager (not the offer's creator), and the generic SMTP sender delivers the email. Flow test `OFF-2: the hiring-manager notification resolves to the real hiring manager, not whoever drafted the offer` passed 2026-10-20 (`tests/flows/offers-regrets.spec.ts`) — reads the actual Notification document's `userId` after a real accept, not the UI's own claim. | `docs/phase-3-clickthrough.md` item 3.3 calls this "the single highest-value item" and still has no recorded human clickthrough of the email itself landing in an inbox — the recipient-resolution logic is what the flow test proves, not SMTP delivery. |
 | OFF-3 | Status to "Hired" on candidate acceptance | VERIFIED | automated test | Recruiter clicks "Finalize hire" after the candidate accepts, which sets the application to `hired`. Flow test `OFF-3: finalizing a hire actually sets the application status to Hired` passed 2026-10-20 (`tests/flows/offers-regrets.spec.ts`). | Deliberate recruiter step, not automatic. |
-| OFF-4 | Regret notification to shortlisted candidates not hired | BUILT UNVERIFIED | code read only | **Upgraded from the old audit's BROKEN.** Email sender fixed (generic outbox); **the over-broad-regret logic bug is also fixed** — `sendRegretsForJob` (`applicationService.ts:707-717`) now filters to `shortlisted`/`interview` only, confirmed by direct code read this pass. | No named clickthrough of the regret email itself on record. |
+| OFF-4 | Regret notification to shortlisted candidates not hired | VERIFIED | automated test | **Upgraded from the old audit's BROKEN.** Email sender fixed (generic outbox); **the over-broad-regret logic bug is also fixed** — `sendRegretsForJob` (`applicationService.ts:707-717`) now filters to `shortlisted`/`interview` only, confirmed by direct code read this pass. Flow test `OFF-4: sending regrets only touches shortlisted/interview candidates, not everyone non-terminal` passed 2026-10-20 (`tests/flows/offers-regrets.spec.ts`). | No named clickthrough of the regret email itself on record. |
 | OFF-5 | Simple mechanism to move people through the cycle into onboarding | BUILT UNVERIFIED | code read only | Pipeline actions plus an "onboarding handoff" CSV of accepted offers. | No integration with any onboarding system; the CSV excludes bio-data fields. |
 
 ## Flexibility
@@ -185,7 +193,7 @@ Reports page reachable by admin and recruiter (VERIFIED by walkthrough), not by 
 
 | ID | Requirement | Verdict | Evidence tier | Evidence | Notes |
 |---|---|---|---|---|---|
-| SEC-1 | No amendments/deletions of applications by the applicant | BUILT UNVERIFIED | code read only | Applications `update` is staff-only, `delete` denied for everyone, by rule. Candidate UI has no edit control. | No dedicated Rules Playground test found for this specific case in the current suite — still worth one, as the old audit also said. |
+| SEC-1 | No amendments/deletions of applications by the applicant | VERIFIED | automated test | Applications `update` is staff-only, `delete` denied for everyone, by rule — direct rule-layer assertion added this pass (`tests/firestore-rules.test.ts`, describe block "Applications update/delete (SEC-1 — candidate cannot amend or delete)"): the owning candidate's update/delete both denied, a different candidate's too, staff update succeeds (contrast case), staff delete also denied. Absence of a candidate-side edit control was never evidence of this on its own — the rule itself is what's asserted. | — |
 | SEC-2 | No access to unauthorized personnel | VERIFIED | automated test | **Upgraded from the old audit's most severe finding (BROKEN).** `docs/security-pass-2026-10-03.md` fixed all three holes the old audit found: self-registration as admin, every candidate reading every other candidate's PII/CV link, and deactivation not being enforced. Confirmed in current `firestore.rules` and in `tests/firestore-rules.test.ts`'s named cases (self-admin denied, inactive users blocked, own-doc read allowed) — full suite 71/71, run this session. | The repo fix is confirmed; whether these rules are **deployed** to the production Firestore project is outside what a code read can confirm — `firebase deploy --only firestore:rules` is a separate step per `CLAUDE.md`'s Deploy Targets table, worth a direct check before relying on this in production. |
 | SEC-3 | Different roles/access levels (admin, candidate, hiring manager, ...) | OPEN | clickthrough (partial) + code read only | Four roles, route guards, per-role menus; recruiter access to Reports and rating-rule isolation both VERIFIED by walkthrough. | **Recruiters and hiring managers have identical write rights** at the rule layer for requisitions/jobs/applications/offers — the UI distinguishes their duties (`DutyBanner`), but nothing in `firestore.rules` does. A real, if narrower, gap against "different roles **and access levels**." |
 | SEC-4 | Audit trail for all user actions with time and date | OPEN | automated test (rule) + code read only (coverage) | The `AuditLog` rule block exists and is exercised by the rules test suite; `logAudit` timestamps with server time and no longer swallows. | **Not "all actions"**: no entry for login (the `'login'` action type is declared in `auditService.ts:13` but never actually used anywhere), user creation/deactivation, positions, interview score entry, panel notes, referee responses, bio-data or profile saves. Confirmed `'login'` is still unused by a direct grep this pass. |
@@ -227,7 +235,7 @@ Reports page reachable by admin and recruiter (VERIFIED by walkthrough), not by 
 
 | ID | Requirement | Verdict | Evidence tier | Evidence | Notes |
 |---|---|---|---|---|---|
-| ARC-1 | Archive multiple jobs, candidates, etc. | BUILT UNVERIFIED | code read only | Bulk archive/restore of adverts and of candidate files, batched and audited. | A flag, never a delete. Candidates are archived per application, not per person. |
+| ARC-1 | Archive multiple jobs, candidates, etc. | VERIFIED | automated test | Bulk archive/restore of adverts and of candidate files, batched and audited. Flow test `ARC-1: bulk-archiving a multi-row selection archives all of them, not some` passed 2026-10-20 (`tests/flows/archiving.spec.ts`). | A flag, never a delete. Candidates are archived per application, not per person. |
 
 ## Location independent
 
@@ -281,15 +289,15 @@ Reports page reachable by admin and recruiter (VERIFIED by walkthrough), not by 
 
 | Verdict | Rows |
 |---|---|
-| VERIFIED | 19 |
-| BUILT UNVERIFIED | 34 |
+| VERIFIED | 24 |
+| BUILT UNVERIFIED | 29 |
 | OPEN | 40 |
 | DEFERRED | 2 |
 | VERIFIED BY ARCHITECTURE/DISCLOSED | 3 |
 | NOT A FEATURE | 12 |
 | **Total** | **110** |
 
-Counted directly from the tables below, not hand-tallied. Reflects, since the original 9/47/40/2/12 count: ten BUILT UNVERIFIED rows upgraded to VERIFIED by the Playwright flow suite (APP-7, APP-10, SL-2 proved first; JA-6, JA-12, APP-4, APP-13, LL-4, OFF-1, OFF-3 proved in the category-1 pass — `tests/flows/`, see "What changed" below), and three moved to the new **VERIFIED BY ARCHITECTURE/DISCLOSED** status (JA-14, APP-1, LOC-1 — see immediately below for what that status means and why).
+Counted directly from the tables below, not hand-tallied. Reflects, since the original 9/47/40/2/12 count: fifteen BUILT UNVERIFIED rows upgraded to VERIFIED by automated tests — APP-7, APP-10, SL-2 proved the pattern first; JA-6, JA-12, APP-4, APP-13, LL-4, OFF-1, OFF-3 covered category 1 (bucket A, fails silently); REF-2, OFF-2, OFF-4 covered bucket B via a Firestore read instead of a DOM check (`tests/flows/`); SEC-1 covered bucket B's rule-layer case directly in `tests/firestore-rules.test.ts`; ARC-1 covered category 2 (bulk/concurrent) — see "What changed" below for all of it. Three rows moved to the new **VERIFIED BY ARCHITECTURE/DISCLOSED** status (JA-14, APP-1, LOC-1 — see immediately below for what that status means and why).
 
 **VERIFIED BY ARCHITECTURE/DISCLOSED** is for a row where no finite test could ever prove or disprove the requirement, but the system's own shape (or the client's own Comment column) settles it anyway. It is not a weaker synonym for BUILT UNVERIFIED and not a dodge — it exists specifically so these three rows have an honest, closed status instead of sitting in BUILT UNVERIFIED forever waiting for a test that can't be written:
 
@@ -309,24 +317,24 @@ These three are deliberately excluded from the Playwright flow suite below and a
 | Long Listing | 10 | 4 | 2 | 4 | 0 | 0 | 0 |
 | Short Listing | 7 | 4 | 2 | 1 | 0 | 0 | 0 |
 | Interviews | 4 | 0 | 2 | 2 | 0 | 0 | 0 |
-| Reference checks | 2 | 0 | 2 | 0 | 0 | 0 | 0 |
-| Offers & regrets | 5 | 2 | 3 | 0 | 0 | 0 | 0 |
+| Reference checks | 2 | 1 | 1 | 0 | 0 | 0 | 0 |
+| Offers & regrets | 5 | 4 | 1 | 0 | 0 | 0 | 0 |
 | Flexibility | 3 | 1 | 1 | 1 | 0 | 0 | 0 |
 | Metrics / Reports | 15 | 0 | 5 | 10 | 0 | 0 | 0 |
-| Security | 4 | 1 | 1 | 2 | 0 | 0 | 0 |
+| Security | 4 | 2 | 0 | 2 | 0 | 0 | 0 |
 | Backup and recovery | 1 | 0 | 0 | 1 | 0 | 0 | 0 |
 | Integration | 2 | 0 | 0 | 2 | 0 | 0 | 0 |
 | Training | 2 | 0 | 0 | 0 | 0 | 0 | 2 |
 | Data ownership | 1 | 0 | 0 | 0 | 0 | 0 | 1 |
 | Support & maintenance | 2 | 0 | 0 | 0 | 0 | 0 | 2 |
-| Archiving | 1 | 0 | 1 | 0 | 0 | 0 | 0 |
+| Archiving | 1 | 1 | 0 | 0 | 0 | 0 | 0 |
 | Location independent | 1 | 0 | 0 | 0 | 0 | 1 | 0 |
 | Government compliance | 1 | 0 | 0 | 0 | 0 | 0 | 1 |
 | System architecture | 5 | 0 | 0 | 0 | 0 | 0 | 5 |
 | Reliability | 1 | 0 | 0 | 1 | 0 | 0 | 0 |
 | Data & templates mgmt | 5 | 0 | 1 | 4 | 0 | 0 | 0 |
 | Customer service | 1 | 0 | 0 | 0 | 0 | 0 | 1 |
-| **Total** | **110** | **19** | **34** | **40** | **2** | **3** | **12** |
+| **Total** | **110** | **24** | **29** | **40** | **2** | **3** | **12** |
 
 ## 2. The serious list — OPEN rows ranked by UAT visibility
 
@@ -365,9 +373,9 @@ Carried forward from the old audit, re-checked against current code:
 
 Run on the **deployed** build, not localhost, so environment issues (CORS, role claim deployment) surface.
 
-1. **Email templates not yet clicked through**: interview invitation (INT-1), referee reference request (REF-2), hiring-manager offer-status notice (OFF-2 — flagged as the single highest-value item), regret letter (OFF-4). All four are now BUILT UNVERIFIED, not BROKEN — but none has a confirmed result.
+1. **Email templates still need a real inbox, not just a correct Notification document**: interview invitation (INT-1, still OPEN on its own second finding), referee reference request (REF-2), hiring-manager offer-status notice (OFF-2), regret letter (OFF-4). The flow suite now VERIFIES the *logic* for REF-2/OFF-2/OFF-4 — correct recipient, correct content source, correct scope — by reading the real `Notifications` document the action produced, against the emulator's SMTP stub (`MAIL_ENABLED=false` there). None of the three has a human confirming the email actually arrived in a real inbox in the deployed environment; that's the one thing left to check, not whether the logic is right.
 2. **Security re-verification in the real (not emulator) environment**: confirm the SEC-2 rule fixes are actually deployed to the production Firestore project, not just present in the repo.
-3. **APP-10** job-alert subscription — the rule now passes automated tests; nobody has clicked the Subscribe button itself.
+3. **APP-10** job-alert subscription — both the rule and the real Subscribe button are now covered by an automated test; what's left is a human clicking it once against production to rule out a deployed-environment-only issue (role claim propagation, CORS, etc.).
 4. **LL-1** Screening-page sort by auto-scored answers — no named walkthrough exists despite the mechanism being real.
 5. The remaining BUILT UNVERIFIED rows from Position requisition, Job advertisement and Job applications — see the old audit's own priority list (requisition-to-job walkthrough, advert lifecycle, candidate journey end to end); nothing about those paths changed this pass.
 

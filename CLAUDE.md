@@ -94,7 +94,16 @@ checks zero files and exits 0 whether or not the code actually compiles. Always 
 `-p tsconfig.app.json` (or `-b` to build all referenced projects). This is not optional; a bare
 `tsc --noEmit` passing is not evidence of anything.
 
-There is no test runner configured. Verification is typecheck + build + the manual matrix in `06-acceptance-criteria.md`.
+Verification is typecheck + build + the manual matrix in `06-acceptance-criteria.md`, plus the two automated suites below.
+
+## Testing
+
+| Suite | Command | Covers |
+|---|---|---|
+| Firestore rules | `pnpm test:rules` | `tests/firestore-rules.test.ts`, via `firebase emulators:exec` |
+| Requirements flow suite | `pnpm test:flows` | `tests/flows/*.spec.ts`, Playwright against a production preview build + the emulator — see `tests/flows/README.md` |
+
+**Standing rule for any test that asserts something is absent (`toHaveCount(0)`, "not visible", "no X appears"): add a positive control.** Assert something present first — proving the page actually finished rendering/fetching — before asserting the negative. A negative assertion checked too early passes trivially whether or not the thing it's "catching" would ever have appeared, because the page just hasn't gotten there yet. This is not hypothetical: `tests/flows/job-advertisement.spec.ts`'s JA-12 test originally asserted a confidential job's title had zero matches immediately after `page.goto()`, which passed even with the confidentiality filter itself deleted, because the assertion ran before the async job fetch resolved. Fixed by seeding a same-shaped, non-confidential control job and waiting for *that* to render first. Every negative assertion added after this incident follows the same shape.
 
 ## Deploy targets — declaring is not deploying
 
