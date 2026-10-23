@@ -171,7 +171,7 @@ h1.text-center {
 }
 
 .section-title {
-    color: var(--accent);
+    color: var(--accent-foreground);
     margin-bottom: 1.5rem;
     font-weight: 600;
 }
@@ -234,7 +234,7 @@ h1.text-center {
 }
 
 .value-card h3 {
-    color: var(--accent);
+    color: var(--accent-foreground);
     font-size: 1.5rem;
     margin-bottom: 1.2rem;
     font-weight: 600;
@@ -330,7 +330,7 @@ h1.text-center {
 }
 
 .service-card h3 {
-    color: var(--accent);
+    color: var(--accent-foreground);
     font-size: 1.4rem;
     margin-bottom: 1.2rem;
     font-weight: 700;
