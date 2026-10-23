@@ -499,7 +499,7 @@ export function ApplicationsPage({ onViewCandidate }: ApplicationsPageProps) {
                     <SortableHeader label="Work Auth" sortKey="matchFlag" activeKey={sortKey} dir={sortDir} onSort={toggleSort} />
                   </>
                 )}
-                <SortableHeader label="Stage" sortKey="status" activeKey={sortKey} dir={sortDir} onSort={toggleSort} />
+                <SortableHeader label="Status" sortKey="status" activeKey={sortKey} dir={sortDir} onSort={toggleSort} />
                 <th className="px-6 py-4 text-right text-xs font-semibold text-gray-500 uppercase tracking-wider">
                   Actions
                 </th>
