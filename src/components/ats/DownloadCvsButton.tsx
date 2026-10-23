@@ -48,7 +48,9 @@ export function DownloadCvsButton({
         `Downloaded documents for ${result.zipped} candidate(s) as a zip for "${job.title}" (${result.skipped.length} skipped)`
       );
       toast.success(
-        `Documents for ${result.zipped} candidate${result.zipped === 1 ? '' : 's'} zipped${result.skipped.length ? `, ${result.skipped.length} skipped` : ''}.`
+        result.zipped > 0
+          ? `CVs ${result.totals.cv.included} of ${result.totals.cv.total}, cover letters ${result.totals.coverLetter.included} of ${result.totals.coverLetter.total}, see _summary.txt.`
+          : 'No documents could be zipped — see the skipped list.'
       );
       if (result.skipped.length > 0) setSkipped(result.skipped);
     } catch (err: any) {

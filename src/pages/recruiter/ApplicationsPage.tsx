@@ -18,7 +18,7 @@ import {
   bulkUpdateStatus,
   setApplicationsArchived,
 } from '../../services/applicationService';
-import { Job, getJobById } from '../../services/jobService';
+import { Job, getJobById, getJobs } from '../../services/jobService';
 import { CandidateProfile, getCandidateProfile } from '../../services/profileService';
 import { downloadCsv } from '../../lib/exportCsv';
 import { exportApplicationsXlsx } from '../../lib/exportApplicationsXlsx';
@@ -63,6 +63,11 @@ export function ApplicationsPage({ onViewCandidate }: ApplicationsPageProps) {
   const departmentFilter = searchParams.get('department') ?? '';
   const showArchived = searchParams.get('archived') === '1';
   const [filterJob, setFilterJob] = useState<Job | null>(null);
+  // Every job, for the filter dropdown — independent of jobFilterId/the
+  // applications query, since once a job filter is active the loaded
+  // applications are already narrowed to that one job and can't be used
+  // to derive the full list the way `departments` below derives from them.
+  const [allJobs, setAllJobs] = useState<Job[]>([]);
   const [applications, setApplications] = useState<Application[]>([]);
   // Candidate-matching spec §2.4: a row's match score/flag needs that
   // application's Job (requirements + linked questions) and the
@@ -143,6 +148,12 @@ export function ApplicationsPage({ onViewCandidate }: ApplicationsPageProps) {
     load();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [showArchived, jobFilterId]);
+
+  // Fetched once, not per job-filter change — this populates the dropdown
+  // itself, not the filtered results.
+  useEffect(() => {
+    getJobs(true).then(setAllJobs).catch(() => {});
+  }, []);
 
   // Drop selections when the visible set changes so a bulk action can never
   // act on rows the user can no longer see.
@@ -399,6 +410,24 @@ export function ApplicationsPage({ onViewCandidate }: ApplicationsPageProps) {
               <option value="">All Departments</option>
               {departments.map((d) => (
                 <option key={d} value={d}>{d}</option>
+              ))}
+            </select>
+
+            <select
+              value={jobFilterId ?? ''}
+              onChange={(e) => updateParam('job', e.target.value || null)}
+              className="px-4 py-2 border border-gray-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-autumn-primary/20 focus:border-autumn-primary bg-white text-gray-700 font-medium"
+            >
+              <option value="">All Jobs</option>
+              {/* Covers the brief window where allJobs hasn't resolved yet
+                  but a ?job= param already selected one (arriving from the
+                  Job Adverts page's "Applications" link) — filterJob loads
+                  on its own, faster, via load()'s getJobById. */}
+              {jobFilterId && filterJob && !allJobs.some((j) => j.id === jobFilterId) && (
+                <option value={jobFilterId}>{filterJob.title} ({filterJob.referenceNumber})</option>
+              )}
+              {allJobs.map((j) => (
+                <option key={j.id} value={j.id}>{j.title} ({j.referenceNumber})</option>
               ))}
             </select>
           </div>

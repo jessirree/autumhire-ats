@@ -5,6 +5,7 @@
 import { initializeApp, getApps } from 'firebase/app';
 import { getAuth, connectAuthEmulator, signInWithEmailAndPassword } from 'firebase/auth';
 import { getFirestore, connectFirestoreEmulator } from 'firebase/firestore';
+import { getStorage, connectStorageEmulator } from 'firebase/storage';
 import type { Page } from '@playwright/test';
 
 export const BASE_URL = 'http://localhost:4173'; // vite preview (production build), not the dev server — see playwright.config.ts's webServer comment
@@ -41,11 +42,13 @@ export function emulatorApp() {
     });
     const auth = getAuth(app);
     const db = getFirestore(app);
+    const storage = getStorage(app, 'gs://autumhire2-4a087.firebasestorage.app');
     connectAuthEmulator(auth, 'http://127.0.0.1:9099', { disableWarnings: true });
     connectFirestoreEmulator(db, '127.0.0.1', 8080);
+    connectStorageEmulator(storage, '127.0.0.1', 9199);
     appInited = true;
   }
-  return { auth: getAuth(), db: getFirestore() };
+  return { auth: getAuth(), db: getFirestore(), storage: getStorage(getApps()[0], 'gs://autumhire2-4a087.firebasestorage.app') };
 }
 
 export async function signInAs(role: keyof typeof CREDS) {
